@@ -22,9 +22,17 @@ export default function LoginPage() {
   // Check localStorage for remembered user on this system
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('mis_remembered_user');
+      // Check new key first, then fallback to old key (migration)
+      const stored = localStorage.getItem('mis_remembered_user') || localStorage.getItem('mis_user');
       if (stored) {
-        setRememberedUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setRememberedUser(parsed);
+        // Migrate to new key if needed
+        if (!localStorage.getItem('mis_remembered_user')) {
+          localStorage.setItem('mis_remembered_user', stored);
+        }
+        // Clean up old key
+        localStorage.removeItem('mis_user');
       }
     } catch (e) { /* ignore */ }
   }, []);
