@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_brokers_company ON brokers(company);
 -- ============================================
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS broker_id BIGINT REFERENCES brokers(id);
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS broker_name TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS assigned_to TEXT;  -- Team member email for claim assignment
 
 -- ============================================
 -- 3. CLAIM WORKFLOW STAGES TABLE

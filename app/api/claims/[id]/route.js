@@ -1,6 +1,19 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+// GET - Fetch single claim by ID
+export async function GET(request, { params }) {
+  const { id } = params;
+  const { data, error } = await supabase
+    .from('claims')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  return NextResponse.json(data);
+}
+
 // LOBs that share a unified counter (cross-company)
 const UNIFIED_LOBS = ['Fire', 'Engineering', 'Business Interruption', 'Miscellaneous'];
 const UNIFIED_COUNTER_KEY = 'General';

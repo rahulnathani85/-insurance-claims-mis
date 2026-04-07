@@ -229,7 +229,7 @@ function MISPortalContent() {
             <tbody>
               {claims.map(c => (
                 <tr key={c.id}>
-                  <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{c.ref_number || '-'}</td>
+                  <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}><a onClick={() => router.push(`/claim-detail/${c.id}`)} style={{ color: '#1e40af', cursor: 'pointer', textDecoration: 'underline' }}>{c.ref_number || '-'}</a></td>
                   <td>{c.claim_number || '-'}</td>
                   {isAllMode && <td><span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: c.company === 'NISLA' ? '#dbeafe' : '#dcfce7', color: c.company === 'NISLA' ? '#1e40af' : '#15803d' }}>{c.company}</span></td>}
                   <td>{c.lob || '-'}</td>

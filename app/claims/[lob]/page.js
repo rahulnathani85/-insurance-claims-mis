@@ -23,6 +23,7 @@ function ClaimsLobContent() {
   const [policyTypes, setPolicyTypes] = useState([]);
   const [surveyors, setSurveyors] = useState([]);
   const [brokers, setBrokers] = useState([]);
+  const [teamUsers, setTeamUsers] = useState([]);
   const [filterRef, setFilterRef] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterInsurer, setFilterInsurer] = useState('');
@@ -61,13 +62,14 @@ function ClaimsLobContent() {
   async function loadAll() {
     try {
       setLoading(true);
-      const [p, i, o, pt, sv, br] = await Promise.all([
+      const [p, i, o, pt, sv, br, tu] = await Promise.all([
         fetch('/api/policies').then(r => r.json()),
         fetch('/api/insurers').then(r => r.json()),
         fetch('/api/offices').then(r => r.json()),
         fetch(`/api/policy-types/${encodeURIComponent(lob)}`).then(r => r.json()),
         fetch('/api/surveyors').then(r => r.json()).catch(() => []),
         fetch('/api/brokers').then(r => r.json()).catch(() => []),
+        fetch('/api/auth/users').then(r => r.json()).catch(() => []),
       ]);
       setPolicies(p);
       setInsurers(i);
@@ -75,6 +77,7 @@ function ClaimsLobContent() {
       setPolicyTypes(pt);
       setSurveyors(Array.isArray(sv) ? sv : []);
       setBrokers(Array.isArray(br) ? br : []);
+      setTeamUsers(Array.isArray(tu) ? tu.filter(u => u.is_active) : []);
       await loadClaims();
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -417,9 +420,9 @@ function ClaimsLobContent() {
               <tbody>
                 {claims.map(c => (
                   <tr key={c.id}>
-                    <td>{c.ref_number || '-'}</td>
+                    <td><a onClick={() => router.push(`/claim-detail/${c.id}`)} style={{ color: '#1e40af', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}>{c.ref_number || '-'}</a></td>
                     <td>{c.claim_number || '-'}</td>
-                    <td>{c.insured_name || '-'}</td>
+                    <td><a onClick={() => router.push(`/claim-detail/${c.id}`)} style={{ color: '#1e40af', cursor: 'pointer' }}>{c.insured_name || '-'}</a></td>
                     <td>{c.insurer_name || '-'}</td>
                     <td>{c.policy_type || '-'}</td>
                     <td>{c.surveyor_name || '-'}</td>
@@ -699,6 +702,15 @@ function ClaimsLobContent() {
                     {surveyors.map(s => <option key={s.id} value={s.name}>{s.name}{s.designation ? ` (${s.designation})` : ''}</option>)}
                   </select>
                 </div>
+                <div className="form-group">
+                  <label>Assign to Team Member</label>
+                  <select value={formData.assigned_to || ''} onChange={e => updateFormData({ assigned_to: e.target.value })}>
+                    <option value="">-- Select Team Member --</option>
+                    {teamUsers.map(u => <option key={u.id} value={u.email}>{u.name} ({u.role})</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
                 <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
                   {editId && (
                     <button
@@ -711,6 +723,7 @@ function ClaimsLobContent() {
                     </button>
                   )}
                 </div>
+                <div className="form-group">&nbsp;</div>
               </div>
             </div>
 
