@@ -26,7 +26,7 @@ export async function PUT(request, { params }) {
   if (body.company !== undefined) updates.company = body.company;
   if (body.is_active !== undefined) updates.is_active = body.is_active;
   if (body.password && body.password.trim()) updates.password_hash = body.password;
-  updates.updated_at = new Date().toISOString();
+  // updated_at column may not exist yet — skip it
 
   const { data, error } = await supabase
     .from('app_users')
