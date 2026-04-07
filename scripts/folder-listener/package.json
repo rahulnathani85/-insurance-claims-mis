@@ -1,0 +1,14 @@
+{
+  "name": "insurance-folder-listener",
+  "version": "1.0.0",
+  "description": "Realtime listener that auto-creates folders on D: drive when claims/policies are registered",
+  "main": "listener.js",
+  "scripts": {
+    "start": "node listener.js",
+    "install-service": "node install-service.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "node-windows": "^1.0.0-beta.8"
+  }
+}
