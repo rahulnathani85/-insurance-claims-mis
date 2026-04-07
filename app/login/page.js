@@ -9,29 +9,42 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [savedUser, setSavedUser] = useState(null);
+  const [rememberedUser, setRememberedUser] = useState(null);
   const [switchingUser, setSwitchingUser] = useState(false);
   const { login, user } = useAuth();
   const router = useRouter();
 
-  // If already logged in, go to dashboard
+  // If already logged in (active session exists), go to dashboard
   useEffect(() => {
     if (user) router.push('/');
   }, [user]);
 
-  // Check if there's a saved user in localStorage (from a previous session on this system)
+  // Check localStorage for remembered user on this system
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('mis_user');
+      const stored = localStorage.getItem('mis_remembered_user');
       if (stored) {
-        const parsed = JSON.parse(stored);
-        setSavedUser(parsed);
-        setUsername(parsed.name || parsed.email || '');
+        setRememberedUser(JSON.parse(stored));
       }
     } catch (e) { /* ignore */ }
   }, []);
 
-  const handleSubmit = async (e) => {
+  // Quick login — remembered user just enters password
+  const handleQuickLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    const result = await login(rememberedUser.name || rememberedUser.email, password);
+    setLoading(false);
+    if (result.success) {
+      router.push('/');
+    } else {
+      setError(result.error || 'Login failed');
+    }
+  };
+
+  // Full login — different user enters username + password
+  const handleFullLogin = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -44,27 +57,17 @@ export default function LoginPage() {
     }
   };
 
-  // Quick login — saved user just enters password
-  const handleQuickLogin = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    const result = await login(savedUser.name || savedUser.email, password);
-    setLoading(false);
-    if (result.success) {
-      router.push('/');
-    } else {
-      setError(result.error || 'Login failed');
-    }
-  };
-
   const handleSwitchUser = () => {
     setSwitchingUser(true);
-    setSavedUser(null);
     setUsername('');
     setPassword('');
     setError('');
-    // Don't clear localStorage yet — only clear when a new user actually logs in
+  };
+
+  const handleBackToSaved = () => {
+    setSwitchingUser(false);
+    setPassword('');
+    setError('');
   };
 
   // Get initials for avatar
@@ -73,8 +76,8 @@ export default function LoginPage() {
     return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  // Show quick-login if there's a saved user and we're not switching
-  const showQuickLogin = savedUser && !switchingUser;
+  // Show quick-login if there's a remembered user and we're not switching
+  const showQuickLogin = rememberedUser && !switchingUser;
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5016 100%)' }}>
@@ -93,7 +96,7 @@ export default function LoginPage() {
         )}
 
         {showQuickLogin ? (
-          /* Quick Login — saved user on this system */
+          /* Quick Login — remembered user on this system, just needs password */
           <form onSubmit={handleQuickLogin}>
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{
@@ -101,13 +104,13 @@ export default function LoginPage() {
                 color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 22, fontWeight: 700, margin: '0 auto 12px',
               }}>
-                {getInitials(savedUser.name)}
+                {getInitials(rememberedUser.name)}
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#1e3a5f' }}>{savedUser.name}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{savedUser.email}</div>
-              {savedUser.role && (
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#1e3a5f' }}>{rememberedUser.name}</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{rememberedUser.email}</div>
+              {rememberedUser.role && (
                 <span style={{ display: 'inline-block', marginTop: 6, padding: '2px 10px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: '#e0e7ff', color: '#3730a3' }}>
-                  {savedUser.role}
+                  {rememberedUser.role}
                 </span>
               )}
             </div>
@@ -158,8 +161,8 @@ export default function LoginPage() {
             </div>
           </form>
         ) : (
-          /* Full Login — no saved user or switching */
-          <form onSubmit={handleSubmit}>
+          /* Full Login — enter username + password */
+          <form onSubmit={handleFullLogin}>
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>User ID</label>
               <input
@@ -205,6 +208,19 @@ export default function LoginPage() {
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
+
+            {/* Show "Back" link if they came from switch user */}
+            {rememberedUser && (
+              <div style={{ textAlign: 'center', marginTop: 16 }}>
+                <button
+                  type="button"
+                  onClick={handleBackToSaved}
+                  style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}
+                >
+                  Back to {rememberedUser.name}
+                </button>
+              </div>
+            )}
           </form>
         )}
 
