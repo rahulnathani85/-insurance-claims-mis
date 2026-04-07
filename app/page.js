@@ -12,9 +12,38 @@ export default function Dashboard() {
   const [tatBreaches, setTatBreaches] = useState([]);
   const [myAssignments, setMyAssignments] = useState([]);
   const [myWorkflowItems, setMyWorkflowItems] = useState([]);
+  const [expandedClaims, setExpandedClaims] = useState({});
   const router = useRouter();
   const { company } = useCompany();
   const { user } = useAuth();
+
+  // Group workflow items by claim
+  function groupByClaim(items) {
+    const grouped = {};
+    items.forEach(w => {
+      const key = w.claim_id;
+      if (!grouped[key]) {
+        grouped[key] = {
+          claim_id: w.claim_id,
+          ref_number: w.ref_number || `Claim #${w.claim_id}`,
+          stages: [],
+          hasOverdue: false,
+        };
+      }
+      const overdue = w.due_date && new Date() > new Date(w.due_date);
+      if (overdue) grouped[key].hasOverdue = true;
+      grouped[key].stages.push({ ...w, overdue });
+    });
+    // Sort stages within each claim by stage_number
+    Object.values(grouped).forEach(g => {
+      g.stages.sort((a, b) => (a.stage_number || 0) - (b.stage_number || 0));
+    });
+    return Object.values(grouped);
+  }
+
+  function toggleClaim(claimId) {
+    setExpandedClaims(prev => ({ ...prev, [claimId]: !prev[claimId] }));
+  }
 
   useEffect(() => {
     loadStats();
@@ -88,66 +117,123 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* My Assigned Files - Personal Dashboard */}
-            {(myAssignments.length > 0 || myWorkflowItems.length > 0) && (
+            {/* My Assigned Files - Personal Dashboard (Grouped by Claim) */}
+            {(myAssignments.length > 0 || myWorkflowItems.length > 0) && (() => {
+              const groupedClaims = groupByClaim(myWorkflowItems);
+              const totalClaims = groupedClaims.length + (myAssignments.length > 0 ? [...new Set(myAssignments.map(a => a.claim_id))].length : 0);
+              return (
               <div style={{ marginTop: 25, marginBottom: 25 }}>
                 <h3 style={{ margin: '0 0 15px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>📌</span> My Assigned Files ({myAssignments.length + myWorkflowItems.length})
+                  <span>📌</span> My Assigned Files ({totalClaims} Claims, {myWorkflowItems.length + myAssignments.length} Pending Tasks)
                 </h3>
 
-                {/* Workflow stages assigned to me */}
-                {myWorkflowItems.length > 0 && (
+                {/* Workflow items grouped by claim */}
+                {groupedClaims.length > 0 && (
                   <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 15, marginBottom: 12 }}>
-                    <h4 style={{ margin: '0 0 10px', fontSize: 13, color: '#1e40af' }}>Workflow Stages Pending ({myWorkflowItems.length})</h4>
-                    {myWorkflowItems.slice(0, 8).map(w => {
-                      const overdue = w.due_date && new Date() > new Date(w.due_date);
+                    <h4 style={{ margin: '0 0 10px', fontSize: 13, color: '#1e40af' }}>Workflow - Pending Stages ({myWorkflowItems.length} stages across {groupedClaims.length} claims)</h4>
+                    {groupedClaims.map(group => {
+                      const isExpanded = expandedClaims[group.claim_id];
                       return (
-                        <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #dbeafe', fontSize: 12 }}>
-                          <div>
-                            <span style={{ fontWeight: 600 }}>{w.ref_number || `Claim #${w.claim_id}`}</span>
-                            <span style={{ color: '#6b7280', marginLeft: 8 }}>{w.stage_name}</span>
-                            {overdue && <span style={{ marginLeft: 6, padding: '1px 6px', background: '#dc2626', color: '#fff', borderRadius: 8, fontSize: 10, fontWeight: 700 }}>OVERDUE</span>}
+                        <div key={group.claim_id} style={{ marginBottom: 6, border: '1px solid #dbeafe', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                          {/* Claim header - click to expand */}
+                          <div
+                            onClick={() => toggleClaim(group.claim_id)}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '10px 14px', cursor: 'pointer', fontSize: 13,
+                              background: isExpanded ? '#dbeafe' : '#f0f7ff',
+                              transition: 'background 0.15s',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 700, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0)' }}>▶</span>
+                              <span style={{ fontWeight: 700, color: '#1e3a5f' }}>{group.ref_number}</span>
+                              <span style={{ fontSize: 11, color: '#6b7280' }}>— {group.stages.length} pending stage{group.stages.length > 1 ? 's' : ''}</span>
+                              {group.hasOverdue && (
+                                <span style={{ padding: '1px 7px', background: '#dc2626', color: '#fff', borderRadius: 8, fontSize: 10, fontWeight: 700 }}>OVERDUE</span>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <button className="primary" style={{ fontSize: 10, padding: '2px 10px' }}
+                                onClick={(e) => { e.stopPropagation(); router.push(`/claim-lifecycle/${group.claim_id}`); }}>
+                                Open Lifecycle
+                              </button>
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {w.due_date && <span style={{ color: overdue ? '#dc2626' : '#6b7280', fontSize: 11 }}>Due: {w.due_date}</span>}
-                            <button className="primary" style={{ fontSize: 10, padding: '2px 8px' }}
-                              onClick={() => router.push(`/claim-lifecycle/${w.claim_id}`)}>Action</button>
-                          </div>
+
+                          {/* Expanded stages */}
+                          {isExpanded && (
+                            <div style={{ padding: '0 14px 10px', background: '#fff' }}>
+                              {group.stages.map((w, idx) => (
+                                <div key={w.id} style={{
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                  padding: '7px 0',
+                                  borderBottom: idx < group.stages.length - 1 ? '1px solid #e5e7eb' : 'none',
+                                  fontSize: 12,
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{
+                                      width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      background: w.overdue ? '#fef2f2' : '#f0fdf4',
+                                      color: w.overdue ? '#dc2626' : '#16a34a',
+                                      fontSize: 10, fontWeight: 700, border: `1px solid ${w.overdue ? '#fecaca' : '#bbf7d0'}`,
+                                    }}>
+                                      {w.stage_number}
+                                    </span>
+                                    <span style={{ color: '#374151' }}>{w.stage_name}</span>
+                                    <span style={{
+                                      padding: '1px 6px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                                      background: w.status === 'In Progress' ? '#fef3c7' : '#e0e7ff',
+                                      color: w.status === 'In Progress' ? '#92400e' : '#3730a3',
+                                    }}>{w.status || 'Pending'}</span>
+                                    {w.overdue && <span style={{ padding: '1px 6px', background: '#dc2626', color: '#fff', borderRadius: 8, fontSize: 10, fontWeight: 700 }}>OVERDUE</span>}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    {w.due_date && <span style={{ color: w.overdue ? '#dc2626' : '#6b7280', fontSize: 11 }}>Due: {w.due_date}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
-                    {myWorkflowItems.length > 8 && <p style={{ fontSize: 11, color: '#6b7280', margin: '6px 0 0', cursor: 'pointer' }} onClick={() => router.push('/workflow-overview')}>+ {myWorkflowItems.length - 8} more...</p>}
                   </div>
                 )}
 
-                {/* File assignments to me */}
-                {myAssignments.length > 0 && (
-                  <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10, padding: 15 }}>
-                    <h4 style={{ margin: '0 0 10px', fontSize: 13, color: '#92400e' }}>File Assignments ({myAssignments.length})</h4>
-                    {myAssignments.slice(0, 8).map(a => {
-                      const overdue = a.due_date && new Date() > new Date(a.due_date) && a.status !== 'Completed';
-                      return (
-                        <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
+                {/* File assignments grouped by claim */}
+                {myAssignments.length > 0 && (() => {
+                  const assignmentGroups = {};
+                  myAssignments.forEach(a => {
+                    const key = a.claim_id;
+                    if (!assignmentGroups[key]) {
+                      assignmentGroups[key] = { claim_id: a.claim_id, items: [] };
+                    }
+                    assignmentGroups[key].items.push(a);
+                  });
+                  const groups = Object.values(assignmentGroups);
+                  return (
+                    <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10, padding: 15 }}>
+                      <h4 style={{ margin: '0 0 10px', fontSize: 13, color: '#92400e' }}>File Assignments ({myAssignments.length} across {groups.length} claims)</h4>
+                      {groups.map(g => (
+                        <div key={g.claim_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
                           <div>
-                            <span style={{ fontWeight: 600 }}>Claim #{a.claim_id}</span>
-                            <span style={{ marginLeft: 8, padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600,
-                              background: a.status === 'In Progress' ? '#fef3c7' : '#dbeafe',
-                              color: a.status === 'In Progress' ? '#92400e' : '#1e40af' }}>{a.status}</span>
-                            {overdue && <span style={{ marginLeft: 6, padding: '1px 6px', background: '#dc2626', color: '#fff', borderRadius: 8, fontSize: 10, fontWeight: 700 }}>OVERDUE</span>}
+                            <span style={{ fontWeight: 600 }}>Claim #{g.claim_id}</span>
+                            <span style={{ marginLeft: 8, color: '#6b7280' }}>{g.items.length} task{g.items.length > 1 ? 's' : ''}</span>
+                            {g.items.some(a => a.due_date && new Date() > new Date(a.due_date)) && (
+                              <span style={{ marginLeft: 6, padding: '1px 6px', background: '#dc2626', color: '#fff', borderRadius: 8, fontSize: 10, fontWeight: 700 }}>OVERDUE</span>
+                            )}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {a.due_date && <span style={{ color: overdue ? '#dc2626' : '#6b7280', fontSize: 11 }}>Due: {a.due_date}</span>}
-                            <button className="primary" style={{ fontSize: 10, padding: '2px 8px' }}
-                              onClick={() => router.push(`/claim-detail/${a.claim_id}`)}>Open</button>
-                          </div>
+                          <button className="primary" style={{ fontSize: 10, padding: '2px 8px' }}
+                            onClick={() => router.push(`/claim-detail/${g.claim_id}`)}>Open</button>
                         </div>
-                      );
-                    })}
-                    {myAssignments.length > 8 && <p style={{ fontSize: 11, color: '#6b7280', margin: '6px 0 0', cursor: 'pointer' }} onClick={() => router.push('/file-assignments')}>+ {myAssignments.length - 8} more...</p>}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
-            )}
+              );
+            })()}
 
             {/* TAT Breach Alert Section */}
             {tatBreaches.length > 0 && (
