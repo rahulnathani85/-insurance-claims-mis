@@ -22,6 +22,7 @@ function ClaimsLobContent() {
   const [offices, setOffices] = useState([]);
   const [policyTypes, setPolicyTypes] = useState([]);
   const [surveyors, setSurveyors] = useState([]);
+  const [brokers, setBrokers] = useState([]);
   const [filterRef, setFilterRef] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterInsurer, setFilterInsurer] = useState('');
@@ -60,18 +61,20 @@ function ClaimsLobContent() {
   async function loadAll() {
     try {
       setLoading(true);
-      const [p, i, o, pt, sv] = await Promise.all([
+      const [p, i, o, pt, sv, br] = await Promise.all([
         fetch('/api/policies').then(r => r.json()),
         fetch('/api/insurers').then(r => r.json()),
         fetch('/api/offices').then(r => r.json()),
         fetch(`/api/policy-types/${encodeURIComponent(lob)}`).then(r => r.json()),
         fetch('/api/surveyors').then(r => r.json()).catch(() => []),
+        fetch('/api/brokers').then(r => r.json()).catch(() => []),
       ]);
       setPolicies(p);
       setInsurers(i);
       setOffices(o);
       setPolicyTypes(pt);
       setSurveyors(Array.isArray(sv) ? sv : []);
+      setBrokers(Array.isArray(br) ? br : []);
       await loadClaims();
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -429,6 +432,7 @@ function ClaimsLobContent() {
                     <td className="action-buttons">
                       <button className="secondary" onClick={() => openEditClaim(c)}>Edit</button>
                       <button className="secondary" onClick={() => router.push(`/documents/${c.id}`)}>Docs</button>
+                      <button className="primary" style={{ fontSize: 11 }} onClick={() => router.push(`/claim-lifecycle/${c.id}`)}>Lifecycle</button>
                       {c.folder_path && (
                         <>
                           <button className="secondary" style={{ fontSize: 11 }} onClick={() => {
@@ -659,7 +663,19 @@ function ClaimsLobContent() {
                     </select>
                   </div>
                 )}
-                {formData.appointing_type !== 'Insurer' && (
+                {formData.appointing_type === 'Broker' && (
+                  <div className="form-group">
+                    <label>Select Broker</label>
+                    <select value={formData.broker_name || ''} onChange={e => {
+                      const broker = brokers.find(b => b.broker_name === e.target.value);
+                      updateFormData({ broker_name: e.target.value, broker_id: broker?.id || null });
+                    }}>
+                      <option value="">-- Select Broker --</option>
+                      {brokers.filter(b => b.status === 'Active').map(b => <option key={b.id} value={b.broker_name}>{b.broker_name}{b.city ? ` (${b.city})` : ''}</option>)}
+                    </select>
+                  </div>
+                )}
+                {formData.appointing_type !== 'Insurer' && formData.appointing_type !== 'Broker' && (
                   <div className="form-group">
                     <label>&nbsp;</label>
                   </div>

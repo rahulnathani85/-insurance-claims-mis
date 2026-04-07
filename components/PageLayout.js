@@ -34,6 +34,7 @@ export default function PageLayout({ children }) {
               <Link href="/">Dashboard</Link>
               {!isAllMode && <Link href="/claim-registration">Claim Registration</Link>}
               <Link href="/mis-portal">MIS Portal</Link>
+              {!isAllMode && <Link href="/workflow-overview">Workflow</Link>}
               {!isAllMode && <Link href="/file-assignments">Assignments</Link>}
               {!isAllMode && user?.role === 'Admin' && <Link href="/user-management">Users</Link>}
             </nav>
@@ -82,11 +83,20 @@ export default function PageLayout({ children }) {
                   <Link href="/policy-master" className={`nav-item ${pathname === '/policy-master' ? 'active' : ''}`}>
                     <span className="nav-icon">📋</span><span>Policy Master</span>
                   </Link>
+                  <Link href="/broker-master" className={`nav-item ${pathname === '/broker-master' ? 'active' : ''}`}>
+                    <span className="nav-icon">🤝</span><span>Broker Master</span>
+                  </Link>
                   <Link href="/policy-directory" className={`nav-item ${pathname === '/policy-directory' ? 'active' : ''}`}>
                     <span className="nav-icon">📁</span><span>Policy Directory</span>
                   </Link>
                   <Link href="/ref-number-portal" className={`nav-item ${pathname === '/ref-number-portal' ? 'active' : ''}`}>
                     <span className="nav-icon">🔢</span><span>Ref Number Portal</span>
+                  </Link>
+                </div>
+                <div className="nav-section">
+                  <div className="nav-section-title">Workflow</div>
+                  <Link href="/workflow-overview" className={`nav-item ${pathname === '/workflow-overview' ? 'active' : ''}`}>
+                    <span className="nav-icon">🔄</span><span>Workflow Overview</span>
                   </Link>
                 </div>
                 <div className="nav-section">
