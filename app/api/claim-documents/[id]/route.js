@@ -1,3 +1,4 @@
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
@@ -17,7 +18,7 @@ export async function GET(request, { params }) {
 
   // Generate signed URL (valid for 1 hour)
   if (doc.storage_path) {
-    const { data: signedData, error: signError } = await supabase.storage
+    const { data: signedData, error: signError } = await supabaseAdmin.storage
       .from('claim-documents')
       .createSignedUrl(doc.storage_path, 3600);
 
@@ -46,7 +47,7 @@ export async function DELETE(request, { params }) {
 
   // Delete from Supabase Storage
   if (doc.storage_path) {
-    await supabase.storage
+    await supabaseAdmin.storage
       .from('claim-documents')
       .remove([doc.storage_path]);
   }
