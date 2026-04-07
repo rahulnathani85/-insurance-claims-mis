@@ -98,22 +98,37 @@ export default function Dashboard() {
           <div className="loading">Loading...</div>
         ) : stats ? (
           <>
-            <div className="stats-grid">
-              <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => router.push('/mis-portal')}>
-                <div className="stat-label">Total Claims</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 10 }}>
+              {/* Row 1 */}
+              <div className="stat-card" style={{ cursor: 'pointer', borderLeftColor: '#1e3a5f' }} onClick={() => router.push('/mis-portal')}>
+                <div className="stat-label">Total Reported Claims</div>
                 <div className="stat-value">{stats.total_claims || 0}</div>
               </div>
-              <div className="stat-card" style={{ borderLeftColor: '#f97316', cursor: 'pointer' }} onClick={() => router.push('/mis-portal?status=Open')}>
+              <div className="stat-card" style={{ cursor: 'pointer', borderLeftColor: '#f97316' }} onClick={() => router.push('/workflow-overview?filter=open')}>
                 <div className="stat-label">Open Claims</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Survey work completed</div>
                 <div className="stat-value">{stats.open_claims || 0}</div>
               </div>
-              <div className="stat-card" style={{ borderLeftColor: '#0284c7', cursor: 'pointer' }} onClick={() => router.push('/mis-portal?status=In%20Process')}>
+              <div className="stat-card" style={{ cursor: 'pointer', borderLeftColor: '#0284c7' }} onClick={() => router.push('/workflow-overview?filter=inprocess')}>
                 <div className="stat-label">In Process</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>LOR / ILA sent</div>
                 <div className="stat-value">{stats.in_process_claims || 0}</div>
               </div>
-              <div className="stat-card" style={{ borderLeftColor: '#16a34a', cursor: 'pointer' }} onClick={() => router.push('/mis-portal?status=Submitted')}>
-                <div className="stat-label">Submitted</div>
-                <div className="stat-value">{stats.submitted_claims || 0}</div>
+              {/* Row 2 */}
+              <div className="stat-card" style={{ cursor: 'pointer', borderLeftColor: '#dc2626' }} onClick={() => router.push('/workflow-overview?filter=docspending')}>
+                <div className="stat-label">Documents Pending</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Awaiting documents</div>
+                <div className="stat-value" style={{ color: '#dc2626' }}>{stats.docs_pending || 0}</div>
+              </div>
+              <div className="stat-card" style={{ cursor: 'pointer', borderLeftColor: '#7c3aed' }} onClick={() => router.push('/workflow-overview?filter=assessment')}>
+                <div className="stat-label">Assessment / Consent</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Assessment shared or consent received</div>
+                <div className="stat-value" style={{ color: '#7c3aed' }}>{stats.assessment_shared || 0}</div>
+              </div>
+              <div className="stat-card" style={{ cursor: 'pointer', borderLeftColor: '#16a34a' }} onClick={() => router.push('/workflow-overview?filter=submitted')}>
+                <div className="stat-label">Report Submitted</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Report dispatched</div>
+                <div className="stat-value" style={{ color: '#16a34a' }}>{stats.report_submitted || 0}</div>
               </div>
             </div>
 
