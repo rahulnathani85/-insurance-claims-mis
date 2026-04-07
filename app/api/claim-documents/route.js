@@ -1,3 +1,4 @@
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
@@ -43,7 +44,7 @@ export async function POST(request) {
 
       // Upload to Supabase Storage bucket: claim-documents
       const buffer = Buffer.from(await file.arrayBuffer());
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
         .from('claim-documents')
         .upload(storagePath, buffer, {
           contentType: file.type || 'application/pdf',
@@ -55,7 +56,7 @@ export async function POST(request) {
       }
 
       // Get public/signed URL for the uploaded file
-      const { data: urlData } = supabase.storage
+      const { data: urlData } = supabaseAdmin.storage
         .from('claim-documents')
         .getPublicUrl(storagePath);
 
