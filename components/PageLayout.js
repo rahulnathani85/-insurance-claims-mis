@@ -3,10 +3,12 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { LOB_LIST, LOB_ICONS, COMPANIES } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function PageLayout({ children }) {
   const pathname = usePathname();
   const { company, setCompany } = useCompany();
+  const { user, logout } = useAuth();
   const companyLabel = COMPANIES.find(c => c.value === company)?.label || company;
   const isAllMode = company === 'All';
   const isDevMode = company === 'Development';
@@ -38,6 +40,12 @@ export default function PageLayout({ children }) {
               {!isAllMode && <Link href="/policy-directory">Policy Directory</Link>}
               {!isAllMode && <Link href="/ref-number-portal">Ref Numbers</Link>}
             </nav>
+            {user && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 15, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: 15 }}>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)' }}>{user.name}</span>
+                <button onClick={logout} style={{ padding: '4px 12px', fontSize: 11, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, cursor: 'pointer' }}>Logout</button>
+              </div>
+            )}
           </div>
         </div>
       </header>
