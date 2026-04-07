@@ -27,6 +27,18 @@ export default function ClaimDetail() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
+  // Gmail integration state
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailAddress, setGmailAddress] = useState('');
+  const [gmailEmails, setGmailEmails] = useState([]);
+  const [claimEmails, setClaimEmails] = useState([]);
+  const [gmailSearch, setGmailSearch] = useState('');
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [taggingEmail, setTaggingEmail] = useState(null);
+
+  // Document upload state
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
   useEffect(() => { loadAll(); }, [id]);
 
   async function loadAll() {
@@ -54,6 +66,113 @@ export default function ClaimDetail() {
     finally { setLoading(false); }
   }
 
+  // Load Gmail status and tagged emails
+  useEffect(() => {
+    if (user?.email) {
+      checkGmailStatus();
+      loadClaimEmails();
+    }
+  }, [user, id]);
+
+  async function checkGmailStatus() {
+    try {
+      const res = await fetch(`/api/gmail/status?user_email=${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      setGmailConnected(data.connected);
+      setGmailAddress(data.gmail_address || '');
+    } catch (e) { /* ignore */ }
+  }
+
+  async function connectGmail() {
+    try {
+      const res = await fetch(`/api/gmail/auth?user_email=${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      if (data.auth_url) {
+        window.open(data.auth_url, '_blank');
+      } else {
+        alert(data.error || 'Failed to start Gmail connection');
+      }
+    } catch (e) { alert('Failed: ' + e.message); }
+  }
+
+  async function searchGmail() {
+    setLoadingEmails(true);
+    try {
+      const q = gmailSearch || claim?.ref_number || claim?.insured_name || '';
+      const res = await fetch(`/api/gmail/messages?user_email=${encodeURIComponent(user.email)}&q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (data.needs_auth) { setGmailConnected(false); return; }
+      setGmailEmails(data.messages || []);
+    } catch (e) { console.error(e); }
+    finally { setLoadingEmails(false); }
+  }
+
+  async function loadClaimEmails() {
+    try {
+      const res = await fetch(`/api/gmail/tag?claim_id=${id}`);
+      const data = await res.json();
+      setClaimEmails(Array.isArray(data) ? data : []);
+    } catch (e) { /* ignore */ }
+  }
+
+  async function tagEmailToClaim(email) {
+    setTaggingEmail(email.id);
+    try {
+      const res = await fetch('/api/gmail/tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          claim_id: id,
+          ref_number: claim?.ref_number,
+          message_id: email.id,
+          thread_id: email.threadId,
+          subject: email.subject,
+          sender: email.from,
+          recipients: email.to,
+          email_date: email.date,
+          snippet: email.snippet,
+          has_attachments: email.hasAttachments,
+          tagged_by: user?.email,
+          company: claim?.company || 'NISLA',
+          user_email: user?.email,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await loadClaimEmails();
+        await loadAll(); // Refresh documents in case attachments were saved
+        alert('Email tagged to this claim' + (email.hasAttachments ? ' and attachments saved!' : '!'));
+      } else {
+        alert(data.error || 'Failed to tag email');
+      }
+    } catch (e) { alert('Failed: ' + e.message); }
+    finally { setTaggingEmail(null); }
+  }
+
+  async function uploadDocumentToCloud(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('claim_id', id);
+      fd.append('ref_number', claim?.ref_number || '');
+      fd.append('file_type', 'other');
+      fd.append('uploaded_by', user?.email || '');
+      fd.append('company', claim?.company || 'NISLA');
+      const res = await fetch('/api/claim-documents', { method: 'POST', body: fd });
+      if (res.ok) {
+        await loadAll();
+        alert('Document uploaded successfully!');
+      } else {
+        const err = await res.json();
+        alert('Upload failed: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) { alert('Upload failed: ' + err.message); }
+    finally { setUploadingDoc(false); e.target.value = ''; }
+  }
+
   function isOverdue(stage) {
     if (stage.status === 'Completed' || stage.status === 'Skipped') return false;
     if (!stage.due_date) return false;
@@ -71,6 +190,7 @@ export default function ClaimDetail() {
     { key: 'overview', label: 'Overview', icon: '📋' },
     { key: 'lifecycle', label: 'Lifecycle', icon: '🔄' },
     { key: 'documents', label: 'Documents', icon: '📄' },
+    { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'assignments', label: 'Assignments', icon: '👥' },
     { key: 'activity', label: 'Activity Log', icon: '📝' },
   ];
@@ -335,9 +455,157 @@ export default function ClaimDetail() {
               </div>
             )}
 
+            {/* Upload Documents to Cloud */}
+            <div style={{ marginTop: 20, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 15 }}>
+              <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#1e40af' }}>Upload Document to Claim Folder</h4>
+              <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 10px' }}>Upload PDF, images, or other files. They will be stored in the cloud under this claim's folder.</p>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xlsx,.xls,.csv,.eml"
+                onChange={uploadDocumentToCloud}
+                style={{ fontSize: 12 }}
+                disabled={uploadingDoc}
+              />
+              {uploadingDoc && <p style={{ fontSize: 11, color: '#0284c7', marginTop: 6 }}>Uploading to cloud...</p>}
+            </div>
+
+            {/* Cloud-stored documents */}
+            {documents.filter(d => d.storage_path).length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <h4 style={{ margin: '0 0 12px' }}>Cloud Documents ({documents.filter(d => d.storage_path).length})</h4>
+                {documents.filter(d => d.storage_path).map(d => (
+                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 6 }}>
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{d.file_name}</span>
+                      <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 6, fontWeight: 600,
+                        background: d.file_type === 'intimation_sheet' ? '#fef3c7' : d.source === 'gmail' ? '#dbeafe' : '#f3f4f6',
+                        color: d.file_type === 'intimation_sheet' ? '#92400e' : d.source === 'gmail' ? '#1e40af' : '#6b7280',
+                      }}>
+                        {d.file_type === 'intimation_sheet' ? 'Intimation Sheet' : d.source === 'gmail' ? 'From Gmail' : d.file_type || 'Document'}
+                      </span>
+                      {d.file_size && <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>({(d.file_size / 1024).toFixed(1)} KB)</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="secondary" style={{ fontSize: 11, padding: '3px 10px' }}
+                        onClick={async () => {
+                          const res = await fetch(`/api/claim-documents/${d.id}`);
+                          const data = await res.json();
+                          if (data.download_url) window.open(data.download_url, '_blank');
+                          else alert('Download URL not available');
+                        }}>Download</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{ marginTop: 15 }}>
               <button className="primary" style={{ fontSize: 12 }} onClick={() => router.push('/lor-ila-generator')}>Go to LOR/ILA Generator</button>
             </div>
+          </div>
+        )}
+
+        {/* TAB: Emails (Gmail Integration) */}
+        {activeTab === 'emails' && (
+          <div>
+            {/* Gmail Connection Status */}
+            <div style={{ background: gmailConnected ? '#f0fdf4' : '#fefce8', border: `1px solid ${gmailConnected ? '#bbf7d0' : '#fde68a'}`, borderRadius: 10, padding: 15, marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>
+                    {gmailConnected ? '✅ Gmail Connected' : '📧 Connect Gmail'}
+                  </span>
+                  {gmailConnected && gmailAddress && (
+                    <span style={{ marginLeft: 8, fontSize: 12, color: '#6b7280' }}>{gmailAddress}</span>
+                  )}
+                </div>
+                {!gmailConnected ? (
+                  <button className="primary" style={{ fontSize: 12 }} onClick={connectGmail}>Connect Gmail Account</button>
+                ) : (
+                  <button className="secondary" style={{ fontSize: 11 }} onClick={() => { fetch(`/api/gmail/status?user_email=${encodeURIComponent(user.email)}`, { method: 'DELETE' }).then(() => { setGmailConnected(false); setGmailAddress(''); }); }}>Disconnect</button>
+                )}
+              </div>
+              {!gmailConnected && (
+                <p style={{ fontSize: 11, color: '#78716c', marginTop: 6 }}>Connect your Gmail to search and tag emails directly to this claim. Attachments will be saved automatically.</p>
+              )}
+            </div>
+
+            {/* Tagged Emails */}
+            <h4 style={{ margin: '0 0 12px' }}>Tagged Emails ({claimEmails.length})</h4>
+            {claimEmails.length === 0 ? (
+              <p style={{ color: '#999', fontSize: 13, marginBottom: 20 }}>No emails tagged to this claim yet</p>
+            ) : (
+              <div style={{ marginBottom: 20 }}>
+                {claimEmails.map(e => (
+                  <div key={e.id} style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 6, fontSize: 13, background: '#fff' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 2 }}>{e.subject || '(No Subject)'}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>
+                          From: {e.sender} &middot; {e.email_date ? new Date(e.email_date).toLocaleDateString() : ''}
+                        </div>
+                        {e.snippet && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{e.snippet.substring(0, 120)}...</div>}
+                      </div>
+                      {e.has_attachments && <span style={{ fontSize: 10, padding: '2px 8px', background: '#dbeafe', color: '#1e40af', borderRadius: 8, fontWeight: 600 }}>📎 Attachments saved</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Search Gmail and Tag Emails */}
+            {gmailConnected && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 15 }}>
+                <h4 style={{ margin: '0 0 10px' }}>Search Gmail & Tag to This Claim</h4>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <input
+                    type="text"
+                    value={gmailSearch}
+                    onChange={e => setGmailSearch(e.target.value)}
+                    placeholder={`Search emails (e.g. ${claim?.ref_number || claim?.insured_name || 'keyword'})`}
+                    style={{ flex: 1, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
+                    onKeyDown={e => { if (e.key === 'Enter') searchGmail(); }}
+                  />
+                  <button className="primary" style={{ fontSize: 12 }} onClick={searchGmail} disabled={loadingEmails}>
+                    {loadingEmails ? 'Searching...' : 'Search'}
+                  </button>
+                </div>
+
+                {gmailEmails.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{gmailEmails.length} email(s) found. Click "Tag" to attach to this claim.</p>
+                    {gmailEmails.map(email => {
+                      const alreadyTagged = claimEmails.some(ce => ce.gmail_message_id === email.id);
+                      return (
+                        <div key={email.id} style={{ padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 6, fontSize: 13, background: alreadyTagged ? '#f0fdf4' : '#fff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, marginBottom: 2 }}>{email.subject || '(No Subject)'}</div>
+                              <div style={{ fontSize: 11, color: '#6b7280' }}>
+                                From: {email.from} &middot; {email.date || ''}
+                                {email.hasAttachments && <span style={{ marginLeft: 6 }}>📎 Has attachments</span>}
+                              </div>
+                              {email.snippet && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{email.snippet.substring(0, 150)}...</div>}
+                            </div>
+                            <div style={{ marginLeft: 10 }}>
+                              {alreadyTagged ? (
+                                <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>Tagged ✓</span>
+                              ) : (
+                                <button className="success" style={{ fontSize: 11, padding: '4px 12px' }}
+                                  disabled={taggingEmail === email.id}
+                                  onClick={() => tagEmailToClaim(email)}>
+                                  {taggingEmail === email.id ? 'Tagging...' : 'Tag to Claim'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

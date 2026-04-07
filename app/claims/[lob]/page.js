@@ -42,6 +42,10 @@ function ClaimsLobContent() {
   const policyInputRef = useRef(null);
   const policyDropdownRef = useRef(null);
 
+  // Intimation sheet upload state
+  const [intimationFile, setIntimationFile] = useState(null);
+  const [uploadingIntimation, setUploadingIntimation] = useState(false);
+
   // Draggable modal state
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
@@ -134,6 +138,7 @@ function ClaimsLobContent() {
     setShowPolicyDropdown(false);
     setShowNewPolicyForm(false);
     setNewPolicyData({});
+    setIntimationFile(null);
   }
 
   function updateFormData(updates) {
@@ -307,17 +312,53 @@ function ClaimsLobContent() {
       if (editId) {
         const res = await fetch(`/api/claims/${editId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Update failed'); }
+
+        // Upload intimation sheet for existing claim if file selected
+        if (intimationFile) {
+          await uploadIntimationSheet(editId, formData.ref_number);
+        }
+
         showAlertMsg('Claim updated successfully', 'success');
       } else {
         const res = await fetch('/api/claims', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Create failed'); }
         const result = await res.json();
-        showAlertMsg(`Claim created! Ref: ${result.ref_number} | Folder: ${result.folder_path}`, 'success');
+
+        // Upload intimation sheet for new claim if file selected
+        if (intimationFile) {
+          await uploadIntimationSheet(result.id, result.ref_number);
+        }
+
+        showAlertMsg(`Claim created! Ref: ${result.ref_number}`, 'success');
       }
       closeModal();
       await loadClaims();
     } catch (e) {
       showAlertMsg('Failed: ' + e.message, 'error');
+    }
+  }
+
+  async function uploadIntimationSheet(claimId, refNumber) {
+    if (!intimationFile) return;
+    try {
+      setUploadingIntimation(true);
+      const fd = new FormData();
+      fd.append('file', intimationFile);
+      fd.append('claim_id', claimId);
+      fd.append('ref_number', refNumber || '');
+      fd.append('file_type', 'intimation_sheet');
+      fd.append('uploaded_by', formData.assigned_to || '');
+      fd.append('company', company);
+
+      const res = await fetch('/api/claim-documents', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Intimation upload error:', err);
+      }
+    } catch (err) {
+      console.error('Failed to upload intimation sheet:', err);
+    } finally {
+      setUploadingIntimation(false);
     }
   }
 
@@ -910,6 +951,32 @@ function ClaimsLobContent() {
                 <label>Remark</label>
                 <textarea value={formData.remark || ''} onChange={e => updateFormData({ remark: e.target.value })} rows={3} />
               </div>
+            </div>
+
+            {/* Upload Intimation Sheet (PDF) */}
+            <div className="form-section" style={{ background: '#fef3c7', padding: 15, borderRadius: 8, border: '1px solid #fde68a' }}>
+              <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#92400e' }}>Upload Intimation Sheet (PDF)</h4>
+              <p style={{ fontSize: 11, color: '#78716c', margin: '0 0 10px' }}>
+                Attach the intimation sheet received for this claim. This will be stored in the claim's document folder.
+              </p>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  setIntimationFile(file);
+                  if (file) setFormDirty(true);
+                }}
+                style={{ fontSize: 12 }}
+              />
+              {intimationFile && (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 600 }}>Selected:</span> {intimationFile.name}
+                  <span style={{ color: '#6b7280' }}>({(intimationFile.size / 1024).toFixed(1)} KB)</span>
+                  <button type="button" onClick={() => setIntimationFile(null)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 11 }}>Remove</button>
+                </div>
+              )}
+              {uploadingIntimation && <p style={{ fontSize: 11, color: '#0284c7', marginTop: 6 }}>Uploading...</p>}
             </div>
 
             {/* Upload Documents to Claim Folder */}
