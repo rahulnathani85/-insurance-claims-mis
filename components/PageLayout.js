@@ -85,6 +85,15 @@ export default function PageLayout({ children }) {
                   </Link>
                 </div>
                 <div className="nav-section">
+                  <div className="nav-section-title">Documents</div>
+                  <Link href="/lor-ila-generator" className={`nav-item ${pathname === '/lor-ila-generator' ? 'active' : ''}`}>
+                    <span className="nav-icon">📄</span><span>LOR / ILA Generator</span>
+                  </Link>
+                  <Link href="/file-tracking" className={`nav-item ${pathname === '/file-tracking' ? 'active' : ''}`}>
+                    <span className="nav-icon">📂</span><span>File Tracking</span>
+                  </Link>
+                </div>
+                <div className="nav-section">
                   <div className="nav-section-title">Billing</div>
                   <Link href="/survey-fee-bill" className={`nav-item ${pathname === '/survey-fee-bill' ? 'active' : ''}`}>
                     <span className="nav-icon">🧾</span><span>Survey Fee Bill</span>

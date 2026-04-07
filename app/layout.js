@@ -1,5 +1,6 @@
 import './globals.css';
 import { CompanyProvider } from '@/lib/CompanyContext';
+import { AuthProvider } from '@/lib/AuthContext';
 
 export const metadata = {
   title: 'Insurance Claims MIS',
@@ -10,9 +11,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <CompanyProvider>
-          {children}
-        </CompanyProvider>
+        <AuthProvider>
+          <CompanyProvider>
+            {children}
+          </CompanyProvider>
+        </AuthProvider>
       </body>
     </html>
   );
