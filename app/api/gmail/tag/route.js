@@ -1,3 +1,4 @@
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
@@ -80,7 +81,7 @@ export async function POST(request) {
               const storagePath = `claims/${safeRef}/emails/${Date.now()}_${part.filename}`;
 
               // Upload to Supabase Storage
-              await supabase.storage
+              await supabaseAdmin.storage
                 .from('claim-documents')
                 .upload(storagePath, buffer, {
                   contentType: part.mimeType || 'application/octet-stream',
