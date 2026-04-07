@@ -16,12 +16,15 @@ const LIFECYCLE_STAGES = [
   { stage_number: 11, stage_name: 'Final Reminder (7 days after Reminder 2)', tat_days: 7, tat_from: 'stage_10' },
   { stage_number: 12, stage_name: 'Closure Notice', tat_days: 7, tat_from: 'stage_11' },
   { stage_number: 13, stage_name: 'Documents Received & Updated', tat_days: null, tat_from: 'ongoing' },
-  { stage_number: 14, stage_name: 'Report Preparation', tat_days: null, tat_from: 'ongoing' },
-  { stage_number: 15, stage_name: 'Assessment Done', tat_days: null, tat_from: 'ongoing' },
-  { stage_number: 16, stage_name: 'FSR Created', tat_days: 30, tat_from: 'date_intimation' },
-  { stage_number: 17, stage_name: 'Survey Fee Bill Created', tat_days: null, tat_from: 'ongoing' },
-  { stage_number: 18, stage_name: 'Report Dispatched', tat_days: null, tat_from: 'ongoing' },
-  { stage_number: 19, stage_name: 'Payment Receipt Updated', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 14, stage_name: 'Salvaging Process', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 15, stage_name: 'Report Preparation', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 16, stage_name: 'Assessment Done', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 17, stage_name: 'Assessment Shared', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 18, stage_name: 'Consent Received', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 19, stage_name: 'FSR Created', tat_days: 30, tat_from: 'date_intimation' },
+  { stage_number: 20, stage_name: 'Survey Fee Bill Created', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 21, stage_name: 'Report Dispatched', tat_days: null, tat_from: 'ongoing' },
+  { stage_number: 22, stage_name: 'Payment Receipt Updated', tat_days: null, tat_from: 'ongoing' },
 ];
 
 // GET - Get workflow for a specific claim or list all
@@ -42,10 +45,10 @@ export async function GET(request) {
   return NextResponse.json(data);
 }
 
-// POST - Initialize workflow for a claim (creates all 19 stages)
+// POST - Initialize workflow for a claim (creates all 22 stages)
 export async function POST(request) {
   const body = await request.json();
-  const { claim_id, ref_number, date_intimation, company, assigned_to, assigned_by } = body;
+  const { claim_id, ref_number, date_intimation, company, assigned_to, assigned_by, file_handler, survey_type, surveyor_name, pan_india_surveyor } = body;
 
   if (!claim_id) return NextResponse.json({ error: 'claim_id is required' }, { status: 400 });
 
@@ -76,16 +79,26 @@ export async function POST(request) {
       // For stage_X references, due dates will be calculated when that stage is completed
     }
 
+    // Build extra metadata for surveyor assignment stage
+    let stageComments = null;
+    if (stage.stage_number === 4 && survey_type) {
+      const surveyInfo = [`Survey Type: ${survey_type}`];
+      if (surveyor_name) surveyInfo.push(`Surveyor: ${surveyor_name}`);
+      if (pan_india_surveyor) surveyInfo.push(`PAN India: ${pan_india_surveyor}`);
+      stageComments = surveyInfo.join(' | ');
+    }
+
     return {
       claim_id,
       ref_number: ref_number || null,
       stage_number: stage.stage_number,
       stage_name: stage.stage_name,
-      status: stage.stage_number <= 2 ? 'Completed' : 'Pending', // First 2 stages auto-completed on registration
+      status: stage.stage_number <= 2 ? 'Completed' : 'Pending',
       completed_date: stage.stage_number <= 2 ? new Date().toISOString() : null,
       due_date: dueDate,
-      assigned_to: assigned_to || null,
+      assigned_to: file_handler || assigned_to || null,
       assigned_by: assigned_by || null,
+      comments: stageComments,
       tat_days: stage.tat_days,
       tat_from: stage.tat_from,
       company: company || 'NISLA',

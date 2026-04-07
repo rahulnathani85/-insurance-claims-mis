@@ -28,28 +28,40 @@ export default function ClaimLifecycleDetail() {
   const [expandedStage, setExpandedStage] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [assignUser, setAssignUser] = useState('');
+  // Workflow init form
+  const [initFileHandler, setInitFileHandler] = useState('');
+  const [initSurveyType, setInitSurveyType] = useState('');
+  const [initSurveyorName, setInitSurveyorName] = useState('');
+  const [initPanIndia, setInitPanIndia] = useState('');
+  const [surveyors, setSurveyors] = useState([]);
 
   useEffect(() => { loadAll(); }, [claimId]);
 
   async function loadAll() {
     try {
       setLoading(true);
-      const [c, w, h, u] = await Promise.all([
+      const [c, w, h, u, sv] = await Promise.all([
         fetch(`/api/claims/${claimId}`).then(r => r.json()),
         fetch(`/api/claim-workflow?claim_id=${claimId}`).then(r => r.json()),
         fetch(`/api/claim-workflow-history?claim_id=${claimId}`).then(r => r.json()),
         fetch('/api/auth/users').then(r => r.json()),
+        fetch('/api/surveyors').then(r => r.json()).catch(() => []),
       ]);
       setClaim(c);
       setWorkflow(Array.isArray(w) ? w : []);
       setHistory(Array.isArray(h) ? h : []);
       setUsers(Array.isArray(u) ? u.filter(u => u.is_active) : []);
+      setSurveyors(Array.isArray(sv) ? sv : []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }
 
   // Initialize workflow if it doesn't exist
   async function initializeWorkflow() {
+    if (!initFileHandler) {
+      showAlertMsg('Please select a File Handler / Surveyor to supervise this claim', 'error');
+      return;
+    }
     try {
       const res = await fetch('/api/claim-workflow', {
         method: 'POST',
@@ -61,10 +73,14 @@ export default function ClaimLifecycleDetail() {
           company: claim?.company || company,
           assigned_to: user?.email,
           assigned_by: user?.email,
+          file_handler: initFileHandler,
+          survey_type: initSurveyType,
+          surveyor_name: initSurveyorName,
+          pan_india_surveyor: initPanIndia,
         }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
-      showAlertMsg('Workflow initialized with all 19 stages!', 'success');
+      showAlertMsg('Workflow initialized with all 22 stages!', 'success');
       await loadAll();
     } catch (e) { showAlertMsg('Error: ' + e.message, 'error'); }
   }
@@ -203,10 +219,52 @@ export default function ClaimLifecycleDetail() {
         </div>
 
         {workflow.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <p style={{ color: '#6b7280', marginBottom: 15 }}>No workflow has been initialized for this claim yet.</p>
-            <button className="success" onClick={initializeWorkflow} style={{ padding: '12px 30px', fontSize: 15 }}>
-              Initialize Claim Lifecycle (19 Stages)
+          <div style={{ maxWidth: 600, margin: '0 auto', padding: 30 }}>
+            <h3 style={{ textAlign: 'center', marginBottom: 20 }}>Initialize Claim Lifecycle (22 Stages)</h3>
+
+            {/* File Handler Selection */}
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 20, marginBottom: 20 }}>
+              <h4 style={{ margin: '0 0 12px', color: '#1e40af' }}>File Handler / Supervisor *</h4>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 10px' }}>Select who will handle and supervise this claim throughout its lifecycle</p>
+              <select value={initFileHandler} onChange={e => setInitFileHandler(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }}>
+                <option value="">-- Select File Handler --</option>
+                {users.map(u => <option key={u.id} value={u.email}>{u.name} ({u.role})</option>)}
+              </select>
+            </div>
+
+            {/* Survey Assignment */}
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: 20, marginBottom: 20 }}>
+              <h4 style={{ margin: '0 0 12px', color: '#166534' }}>Survey Assignment (Stage 4)</h4>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 5 }}>Survey Type</label>
+                <select value={initSurveyType} onChange={e => setInitSurveyType(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                  <option value="">-- Select Survey Type --</option>
+                  <option value="Physical Survey">Physical Survey</option>
+                  <option value="Virtual Survey">Virtual Survey</option>
+                  <option value="Desktop Assessment">Desktop Assessment</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 5 }}>Surveyor Name</label>
+                <select value={initSurveyorName} onChange={e => setInitSurveyorName(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                  <option value="">-- Select Surveyor --</option>
+                  {surveyors.map(s => <option key={s.id} value={s.name}>{s.name}{s.designation ? ` (${s.designation})` : ''}</option>)}
+                  {users.filter(u => u.role === 'Surveyor').map(u => <option key={`u-${u.id}`} value={u.name}>{u.name} (Team)</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 5 }}>NISLA PAN India Team (if applicable)</label>
+                <input value={initPanIndia} onChange={e => setInitPanIndia(e.target.value)}
+                  placeholder="Enter PAN India surveyor/team name"
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            <button className="success" onClick={initializeWorkflow} style={{ width: '100%', padding: '14px', fontSize: 15 }}>
+              Start Claim Lifecycle
             </button>
           </div>
         ) : (
