@@ -34,11 +34,8 @@ export default function PageLayout({ children }) {
               <Link href="/">Dashboard</Link>
               {!isAllMode && <Link href="/claim-registration">Claim Registration</Link>}
               <Link href="/mis-portal">MIS Portal</Link>
-              {!isAllMode && <Link href="/insurer-master">Insurers</Link>}
-              {!isAllMode && <Link href="/policy-master">Policies</Link>}
-              {!isAllMode && <Link href="/survey-fee-bill">Survey Fee</Link>}
-              {!isAllMode && <Link href="/policy-directory">Policy Directory</Link>}
-              {!isAllMode && <Link href="/ref-number-portal">Ref Numbers</Link>}
+              {!isAllMode && <Link href="/file-assignments">Assignments</Link>}
+              {!isAllMode && user?.role === 'Admin' && <Link href="/user-management">Users</Link>}
             </nav>
             {user && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 15, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: 15 }}>
@@ -100,7 +97,21 @@ export default function PageLayout({ children }) {
                   <Link href="/file-tracking" className={`nav-item ${pathname === '/file-tracking' ? 'active' : ''}`}>
                     <span className="nav-icon">📂</span><span>File Tracking</span>
                   </Link>
+                  <Link href="/file-assignments" className={`nav-item ${pathname === '/file-assignments' ? 'active' : ''}`}>
+                    <span className="nav-icon">📎</span><span>File Assignments</span>
+                  </Link>
                 </div>
+                {user?.role === 'Admin' && (
+                  <div className="nav-section">
+                    <div className="nav-section-title">Admin</div>
+                    <Link href="/user-management" className={`nav-item ${pathname === '/user-management' ? 'active' : ''}`}>
+                      <span className="nav-icon">👥</span><span>User Management</span>
+                    </Link>
+                    <Link href="/activity-log" className={`nav-item ${pathname === '/activity-log' ? 'active' : ''}`}>
+                      <span className="nav-icon">📋</span><span>Activity Log</span>
+                    </Link>
+                  </div>
+                )}
                 <div className="nav-section">
                   <div className="nav-section-title">Billing</div>
                   <Link href="/survey-fee-bill" className={`nav-item ${pathname === '/survey-fee-bill' ? 'active' : ''}`}>

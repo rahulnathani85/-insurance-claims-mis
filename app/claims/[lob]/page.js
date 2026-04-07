@@ -31,6 +31,15 @@ function ClaimsLobContent() {
   const [manualRefNumber, setManualRefNumber] = useState('');
   const [formDirty, setFormDirty] = useState(false);
 
+  // Policy autocomplete state
+  const [policySearch, setPolicySearch] = useState('');
+  const [showPolicyDropdown, setShowPolicyDropdown] = useState(false);
+  const [showNewPolicyForm, setShowNewPolicyForm] = useState(false);
+  const [newPolicyData, setNewPolicyData] = useState({});
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const policyInputRef = useRef(null);
+  const policyDropdownRef = useRef(null);
+
   // Draggable modal state
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
@@ -115,6 +124,10 @@ function ClaimsLobContent() {
     setNewLob('');
     setHasDragged(false);
     setModalPos({ x: 0, y: 0 });
+    setPolicySearch('');
+    setShowPolicyDropdown(false);
+    setShowNewPolicyForm(false);
+    setNewPolicyData({});
   }
 
   function updateFormData(updates) {
@@ -152,6 +165,9 @@ function ClaimsLobContent() {
     setNewLob('');
     setHasDragged(false);
     setModalPos({ x: 0, y: 0 });
+    setPolicySearch(claim.policy_number || '');
+    setShowNewPolicyForm(false);
+    setNewPolicyData({});
     setShowModal(true);
   }
 
@@ -161,6 +177,61 @@ function ClaimsLobContent() {
       updateFormData({ policy_number: policyNumber, insured_name: policy.insured_name, insurer_name: policy.insurer });
     } else {
       updateFormData({ policy_number: policyNumber });
+    }
+    setPolicySearch(policyNumber);
+    setShowPolicyDropdown(false);
+  }
+
+  // Policy autocomplete: filter policies based on search input
+  const filteredPolicies = policies.filter(p => {
+    if (!policySearch) return true;
+    const search = policySearch.toLowerCase();
+    return (p.policy_number || '').toLowerCase().includes(search) ||
+           (p.insured_name || '').toLowerCase().includes(search) ||
+           (p.insurer || '').toLowerCase().includes(search);
+  });
+
+  // Close policy dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (policyDropdownRef.current && !policyDropdownRef.current.contains(e.target) &&
+          policyInputRef.current && !policyInputRef.current.contains(e.target)) {
+        setShowPolicyDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Save new policy inline
+  async function saveNewPolicy() {
+    if (!newPolicyData.policy_number) {
+      showAlertMsg('Policy number is required', 'error');
+      return;
+    }
+    setSavingPolicy(true);
+    try {
+      const payload = { ...newPolicyData, company };
+      const res = await fetch('/api/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to create policy');
+      }
+      // Reload policies and select the new one
+      const updatedPolicies = await fetch('/api/policies').then(r => r.json());
+      setPolicies(updatedPolicies);
+      handlePolicySelect(newPolicyData.policy_number);
+      setShowNewPolicyForm(false);
+      setNewPolicyData({});
+      showAlertMsg('New policy created and selected!', 'success');
+    } catch (e) {
+      showAlertMsg('Failed to create policy: ' + e.message, 'error');
+    } finally {
+      setSavingPolicy(false);
     }
   }
 
@@ -430,18 +501,130 @@ function ClaimsLobContent() {
               </div>
 
               <div className="form-row">
-                <div className="form-group">
+                <div className="form-group" style={{ position: 'relative' }}>
                   <label>Policy Number</label>
-                  <select value={formData.policy_number || ''} onChange={e => handlePolicySelect(e.target.value)}>
-                    <option value="">-- Select Policy --</option>
-                    {policies.map(p => <option key={p.id} value={p.policy_number}>{p.policy_number}</option>)}
-                  </select>
+                  <div style={{ display: 'flex', gap: 5 }}>
+                    <input
+                      ref={policyInputRef}
+                      value={policySearch || formData.policy_number || ''}
+                      onChange={e => {
+                        setPolicySearch(e.target.value);
+                        setShowPolicyDropdown(true);
+                        if (!e.target.value) updateFormData({ policy_number: '', insured_name: '', insurer_name: '' });
+                      }}
+                      onFocus={() => setShowPolicyDropdown(true)}
+                      placeholder="Type to search policy..."
+                      autoComplete="off"
+                      style={{ flex: 1 }}
+                    />
+                    <button type="button" className="secondary" style={{ fontSize: 11, padding: '6px 10px', whiteSpace: 'nowrap' }}
+                      onClick={() => { setShowNewPolicyForm(!showNewPolicyForm); setShowPolicyDropdown(false); setNewPolicyData({ lob, company }); }}>
+                      {showNewPolicyForm ? 'Cancel' : '+ New'}
+                    </button>
+                  </div>
+                  {showPolicyDropdown && filteredPolicies.length > 0 && (
+                    <div ref={policyDropdownRef} style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
+                      background: '#fff', border: '1px solid #d1d5db', borderRadius: 6,
+                      maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                    }}>
+                      {filteredPolicies.slice(0, 20).map(p => (
+                        <div key={p.id}
+                          onClick={() => handlePolicySelect(p.policy_number)}
+                          style={{
+                            padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6',
+                            fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                          }}
+                          onMouseEnter={e => e.target.style.background = '#eff6ff'}
+                          onMouseLeave={e => e.target.style.background = '#fff'}
+                        >
+                          <span style={{ fontWeight: 600 }}>{p.policy_number}</span>
+                          <span style={{ color: '#6b7280', fontSize: 11 }}>{p.insured_name} | {p.insurer}</span>
+                        </div>
+                      ))}
+                      {filteredPolicies.length > 20 && (
+                        <div style={{ padding: '6px 12px', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
+                          {filteredPolicies.length - 20} more results... Type to narrow down
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {showPolicyDropdown && policySearch && filteredPolicies.length === 0 && (
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
+                      background: '#fff', border: '1px solid #d1d5db', borderRadius: 6,
+                      padding: '12px', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                    }}>
+                      <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>No matching policies found</p>
+                      <button type="button" className="success" style={{ fontSize: 11, marginTop: 8, padding: '4px 12px' }}
+                        onClick={() => { setShowNewPolicyForm(true); setShowPolicyDropdown(false); setNewPolicyData({ policy_number: policySearch, lob, company }); }}>
+                        + Create New Policy
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label>Insured Name *</label>
                   <input value={formData.insured_name || ''} onChange={e => updateFormData({ insured_name: e.target.value })} required />
                 </div>
               </div>
+
+              {/* Inline New Policy Form */}
+              {showNewPolicyForm && (
+                <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: 15, marginBottom: 15 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <h4 style={{ margin: 0, fontSize: 14, color: '#166534' }}>Create New Policy</h4>
+                    <button type="button" onClick={() => { setShowNewPolicyForm(false); setNewPolicyData({}); }}
+                      style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#666' }}>&times;</button>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Policy Number *</label>
+                      <input value={newPolicyData.policy_number || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, policy_number: e.target.value }))} placeholder="Enter policy number" />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Insured Name</label>
+                      <input value={newPolicyData.insured_name || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, insured_name: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Insurer</label>
+                      <select value={newPolicyData.insurer || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, insurer: e.target.value }))}>
+                        <option value="">-- Select Insurer --</option>
+                        {insurers.map(i => <option key={i.id} value={i.company_name}>{i.company_name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Sum Insured</label>
+                      <input type="number" value={newPolicyData.sum_insured || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, sum_insured: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Start Date</label>
+                      <input type="date" value={newPolicyData.start_date || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, start_date: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>End Date</label>
+                      <input type="date" value={newPolicyData.end_date || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, end_date: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Risk Location</label>
+                      <input value={newPolicyData.risk_location || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, risk_location: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: 12 }}>Insured Address</label>
+                      <input value={newPolicyData.insured_address || ''} onChange={e => setNewPolicyData(prev => ({ ...prev, insured_address: e.target.value }))} />
+                    </div>
+                  </div>
+                  <button className="success" style={{ fontSize: 12, marginTop: 5 }} onClick={saveNewPolicy} disabled={savingPolicy}>
+                    {savingPolicy ? 'Saving...' : 'Save Policy & Select'}
+                  </button>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label>Insurer Name</label>
