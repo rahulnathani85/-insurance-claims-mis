@@ -27,6 +27,12 @@ export default function ClaimDetail() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
+  // Chat / Messages state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageType, setMessageType] = useState('text');
+
   // Gmail integration state
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailAddress, setGmailAddress] = useState('');
@@ -39,7 +45,7 @@ export default function ClaimDetail() {
   // Document upload state
   const [uploadingDoc, setUploadingDoc] = useState(false);
 
-  useEffect(() => { loadAll(); }, [id]);
+  useEffect(() => { loadAll(); loadChatMessages(); }, [id]);
 
   async function loadAll() {
     try {
@@ -173,6 +179,43 @@ export default function ClaimDetail() {
     finally { setUploadingDoc(false); e.target.value = ''; }
   }
 
+  // Chat / Messages functions
+  async function loadChatMessages() {
+    try {
+      const res = await fetch(`/api/claim-messages?claim_id=${id}`);
+      const data = await res.json();
+      setChatMessages(Array.isArray(data) ? data : []);
+    } catch (e) { console.error(e); }
+  }
+
+  async function sendMessage() {
+    if (!newMessage.trim()) return;
+    setSendingMessage(true);
+    try {
+      const res = await fetch('/api/claim-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          claim_id: id,
+          ref_number: claim?.ref_number,
+          sender_email: user?.email,
+          sender_name: user?.name,
+          message: newMessage.trim(),
+          message_type: messageType,
+          company: claim?.company || 'NISLA',
+        }),
+      });
+      if (res.ok) {
+        setNewMessage('');
+        await loadChatMessages();
+      } else {
+        const err = await res.json();
+        alert('Failed to send: ' + (err.error || 'Unknown error'));
+      }
+    } catch (e) { alert('Failed: ' + e.message); }
+    finally { setSendingMessage(false); }
+  }
+
   function isOverdue(stage) {
     if (stage.status === 'Completed' || stage.status === 'Skipped') return false;
     if (!stage.due_date) return false;
@@ -188,6 +231,7 @@ export default function ClaimDetail() {
 
   const tabs = [
     { key: 'overview', label: 'Overview', icon: '📋' },
+    { key: 'chat', label: 'Chat', icon: '💬', badge: chatMessages.length || null },
     { key: 'lifecycle', label: 'Lifecycle', icon: '🔄' },
     { key: 'documents', label: 'Documents', icon: '📄' },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
@@ -253,6 +297,7 @@ export default function ClaimDetail() {
                 color: activeTab === t.key ? '#1e40af' : '#6b7280', cursor: 'pointer',
               }}>
               {t.icon} {t.label}
+              {t.badge && <span style={{ marginLeft: 4, padding: '1px 6px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: '#1e40af', color: '#fff' }}>{t.badge}</span>}
             </button>
           ))}
         </div>
@@ -351,6 +396,106 @@ export default function ClaimDetail() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: Chat / Messages */}
+        {activeTab === 'chat' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <h4 style={{ margin: 0 }}>Claim Communication Log ({chatMessages.length} messages)</h4>
+              <button className="secondary" style={{ fontSize: 11 }} onClick={loadChatMessages}>Refresh</button>
+            </div>
+
+            {/* Messages List */}
+            <div style={{ maxHeight: 450, overflowY: 'auto', marginBottom: 15, border: '1px solid #e5e7eb', borderRadius: 10, background: '#f8fafc', padding: 15 }}>
+              {chatMessages.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: 13, padding: 30 }}>
+                  No messages yet. Start the conversation about this claim.
+                </p>
+              ) : (
+                chatMessages.map(msg => {
+                  const isMe = msg.sender_email === user?.email;
+                  const isSystem = msg.message_type === 'system';
+                  const isEscalation = msg.message_type === 'escalation';
+                  const isNote = msg.message_type === 'note';
+                  return (
+                    <div key={msg.id} style={{
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: isMe ? 'flex-end' : 'flex-start',
+                      marginBottom: 10,
+                    }}>
+                      {isSystem ? (
+                        <div style={{ textAlign: 'center', width: '100%', padding: '4px 0' }}>
+                          <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>{msg.message}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 3 }}>
+                            <span style={{ fontWeight: 600 }}>{msg.sender_name}</span>
+                            <span style={{ marginLeft: 8 }}>
+                              {new Date(msg.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </span>
+                            {isEscalation && <span style={{ marginLeft: 6, padding: '1px 6px', background: '#fef2f2', color: '#dc2626', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>ESCALATION</span>}
+                            {isNote && <span style={{ marginLeft: 6, padding: '1px 6px', background: '#fefce8', color: '#92400e', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>NOTE</span>}
+                          </div>
+                          <div style={{
+                            maxWidth: '75%', padding: '10px 14px', borderRadius: 12,
+                            background: isEscalation ? '#fef2f2' : isNote ? '#fefce8' : isMe ? '#1e40af' : '#fff',
+                            color: isMe && !isEscalation && !isNote ? '#fff' : '#1f2937',
+                            border: isMe ? 'none' : '1px solid #e5e7eb',
+                            borderTopRightRadius: isMe ? 4 : 12,
+                            borderTopLeftRadius: isMe ? 12 : 4,
+                            fontSize: 13, lineHeight: 1.5,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          }}>
+                            {msg.message}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Message Input */}
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 15 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                {['text', 'note', 'escalation'].map(t => (
+                  <button key={t} onClick={() => setMessageType(t)}
+                    style={{
+                      padding: '4px 12px', fontSize: 11, borderRadius: 8, border: '1px solid',
+                      cursor: 'pointer', fontWeight: messageType === t ? 700 : 400,
+                      background: messageType === t ?
+                        (t === 'escalation' ? '#fef2f2' : t === 'note' ? '#fefce8' : '#eff6ff') : '#f8fafc',
+                      borderColor: messageType === t ?
+                        (t === 'escalation' ? '#fca5a5' : t === 'note' ? '#fde68a' : '#93c5fd') : '#e5e7eb',
+                      color: messageType === t ?
+                        (t === 'escalation' ? '#dc2626' : t === 'note' ? '#92400e' : '#1e40af') : '#6b7280',
+                    }}>
+                    {t === 'text' ? '💬 Message' : t === 'note' ? '📝 Note' : '🚨 Escalation'}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <textarea
+                  value={newMessage}
+                  onChange={e => setNewMessage(e.target.value)}
+                  placeholder={messageType === 'escalation' ? 'Describe the escalation...' : messageType === 'note' ? 'Add an internal note...' : 'Type your message...'}
+                  style={{
+                    flex: 1, padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 8,
+                    fontSize: 13, resize: 'vertical', minHeight: 50, maxHeight: 120, fontFamily: 'inherit',
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                />
+                <button className="primary" style={{ fontSize: 12, padding: '10px 20px', alignSelf: 'flex-end' }}
+                  onClick={sendMessage} disabled={sendingMessage || !newMessage.trim()}>
+                  {sendingMessage ? 'Sending...' : 'Send'}
+                </button>
+              </div>
+              <p style={{ fontSize: 10, color: '#9ca3af', margin: '6px 0 0' }}>Press Enter to send, Shift+Enter for new line</p>
             </div>
           </div>
         )}
