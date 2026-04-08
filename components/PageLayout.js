@@ -1,4 +1,5 @@
 'use client';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { LOB_LIST, LOB_ICONS, COMPANIES } from '@/lib/constants';
@@ -9,9 +10,27 @@ export default function PageLayout({ children }) {
   const pathname = usePathname();
   const { company, setCompany } = useCompany();
   const { user, logout } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
   const companyLabel = COMPANIES.find(c => c.value === company)?.label || company;
   const isAllMode = company === 'All';
   const isDevMode = company === 'Development';
+
+  // Fetch unread mention count for notification badge
+  useEffect(() => {
+    if (user?.email) {
+      fetchUnreadCount();
+      const interval = setInterval(fetchUnreadCount, 30000); // Poll every 30s
+      return () => clearInterval(interval);
+    }
+  }, [user, company]);
+
+  async function fetchUnreadCount() {
+    try {
+      const res = await fetch(`/api/unread-mentions?user_email=${encodeURIComponent(user.email)}&company=${encodeURIComponent(company)}`);
+      const data = await res.json();
+      setUnreadCount(data.unread_count || 0);
+    } catch (e) { /* ignore */ }
+  }
 
   const badgeColor = company === 'NISLA' ? '#1e3a5f' : company === 'Acuere' ? '#2d5016' : company === 'Development' ? '#b45309' : '#7c3aed';
 
@@ -40,6 +59,20 @@ export default function PageLayout({ children }) {
             </nav>
             {user && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 15, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: 15 }}>
+                <Link href="/" style={{ position: 'relative', textDecoration: 'none', cursor: 'pointer', marginRight: 4 }} title={unreadCount > 0 ? `${unreadCount} unread mentions` : 'No unread mentions'}>
+                  <span style={{ fontSize: 18 }}>🔔</span>
+                  {unreadCount > 0 && (
+                    <span style={{
+                      position: 'absolute', top: -6, right: -8,
+                      background: '#dc2626', color: '#fff',
+                      fontSize: 9, fontWeight: 800, minWidth: 16, height: 16,
+                      borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '0 4px', border: '2px solid #1e3a5f',
+                    }}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)' }}>{user.name}</span>
                 <button onClick={logout} style={{ padding: '4px 12px', fontSize: 11, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, cursor: 'pointer' }}>Logout</button>
               </div>
