@@ -58,7 +58,7 @@ export default function GlobalChatBox({ onUnreadChange }) {
 
   async function loadUsers() {
     try {
-      const res = await fetch('/api/auth?company=' + encodeURIComponent(company));
+      const res = await fetch('/api/auth/users?company=' + encodeURIComponent(company));
       const data = await res.json();
       if (Array.isArray(data)) setAllUsers(data.filter(u => u.email !== user?.email));
     } catch (e) {}
@@ -93,7 +93,7 @@ export default function GlobalChatBox({ onUnreadChange }) {
   async function searchFiles(query) {
     if (!query || query.length < 2) { setFileResults([]); return; }
     try {
-      const res = await fetch('/api/claims?search=' + encodeURIComponent(query) + '&company=' + encodeURIComponent(company) + '&limit=8');
+      const res = await fetch('/api/claims?ref_number=' + encodeURIComponent(query) + '&company=' + encodeURIComponent(company) + '&limit=8');
       const data = await res.json();
       if (Array.isArray(data)) setFileResults(data.map(c => ({ id: c.id, ref_number: c.ref_number, insured_name: c.insured_name })));
     } catch (e) { setFileResults([]); }
@@ -179,7 +179,7 @@ export default function GlobalChatBox({ onUnreadChange }) {
 
   async function navigateToFile(refNumber) {
     try {
-      const res = await fetch('/api/claims?search=' + encodeURIComponent(refNumber) + '&company=' + encodeURIComponent(company) + '&limit=1');
+      const res = await fetch('/api/claims?ref_number=' + encodeURIComponent(refNumber) + '&company=' + encodeURIComponent(company) + '&limit=1');
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) router.push('/claim-detail/' + data[0].id);
     } catch (e) {}
