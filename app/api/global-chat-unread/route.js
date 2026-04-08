@@ -6,6 +6,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const userEmail = searchParams.get('user_email');
   const company = searchParams.get('company');
+  const includeMessages = searchParams.get('include_messages') === 'true';
 
   if (!userEmail) {
     return NextResponse.json({ error: 'user_email is required' }, { status: 400 });
@@ -23,7 +24,7 @@ export async function GET(request) {
   const { data: messages, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!messages || messages.length === 0) {
-    return NextResponse.json({ unread_count: 0, unread_mention_count: 0 });
+    return NextResponse.json({ unread_count: 0, unread_mention_count: 0, unread_mentions: [] });
   }
 
   // Get read status for these messages
@@ -40,8 +41,8 @@ export async function GET(request) {
   // Also get unread mentions specifically for bell notification
   let mentionQuery = supabase
     .from('global_chat_messages')
-    .select('id')
-    .like('mentioned_users', '%' + userEmail + '%')
+    .select(includeMessages ? '*' : 'id')
+    .like('mentioned_users', `%${userEmail}%`)
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -49,6 +50,8 @@ export async function GET(request) {
 
   const { data: mentionMsgs } = await mentionQuery;
   let unreadMentionCount = 0;
+  let unreadMentionMessages = [];
+
   if (mentionMsgs && mentionMsgs.length > 0) {
     const mentionIds = mentionMsgs.map(m => m.id);
     const { data: mentionReads } = await supabase
@@ -58,12 +61,18 @@ export async function GET(request) {
       .in('message_id', mentionIds);
 
     const readMentionIds = new Set((mentionReads || []).map(r => r.message_id));
-    unreadMentionCount = mentionMsgs.filter(m => !readMentionIds.has(m.id)).length;
+    const unreadMentions = mentionMsgs.filter(m => !readMentionIds.has(m.id));
+    unreadMentionCount = unreadMentions.length;
+
+    if (includeMessages) {
+      unreadMentionMessages = unreadMentions.slice(0, 20);
+    }
   }
 
   return NextResponse.json({
     unread_count: unreadCount,
     unread_mention_count: unreadMentionCount,
+    unread_mentions: unreadMentionMessages,
   });
 }
 
@@ -75,7 +84,6 @@ export async function POST(request) {
     return NextResponse.json({ error: 'user_email is required' }, { status: 400 });
   }
 
-  // Mark specific message as read
   if (body.message_id) {
     const { error } = await supabase
       .from('global_chat_reads')
@@ -88,7 +96,6 @@ export async function POST(request) {
     return NextResponse.json({ success: true });
   }
 
-  // Mark multiple messages as read (batch)
   if (body.message_ids && Array.isArray(body.message_ids)) {
     const inserts = body.message_ids.map(id => ({
       message_id: id,
