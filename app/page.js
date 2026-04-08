@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [myAssignments, setMyAssignments] = useState([]);
   const [myWorkflowItems, setMyWorkflowItems] = useState([]);
   const [expandedClaims, setExpandedClaims] = useState({});
+  const [unreadMentions, setUnreadMentions] = useState([]);
   const router = useRouter();
   const { company } = useCompany();
   const { user } = useAuth();
@@ -48,7 +49,7 @@ export default function Dashboard() {
   useEffect(() => {
     loadStats();
     loadTatBreaches();
-    if (user?.email) loadMyAssignments();
+    if (user?.email) { loadMyAssignments(); loadUnreadMentions(); }
   }, [company, user]);
 
   async function loadStats() {
@@ -72,6 +73,25 @@ export default function Dashboard() {
       ]);
       setMyAssignments(Array.isArray(assignments) ? assignments.filter(a => a.status !== 'Completed') : []);
       setMyWorkflowItems(Array.isArray(workflowItems) ? workflowItems.filter(w => w.assigned_to === user.email && w.status !== 'Completed' && w.status !== 'Skipped') : []);
+    } catch (e) { console.error(e); }
+  }
+
+  async function loadUnreadMentions() {
+    try {
+      const res = await fetch(`/api/unread-mentions?user_email=${encodeURIComponent(user.email)}&company=${encodeURIComponent(company)}`);
+      const data = await res.json();
+      setUnreadMentions(data.unread || []);
+    } catch (e) { console.error(e); }
+  }
+
+  async function markMentionRead(messageId) {
+    try {
+      await fetch('/api/unread-mentions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_email: user.email, message_id: messageId }),
+      });
+      setUnreadMentions(prev => prev.filter(m => m.id !== messageId));
     } catch (e) { console.error(e); }
   }
 
@@ -131,6 +151,52 @@ export default function Dashboard() {
                 <div className="stat-value" style={{ color: '#16a34a' }}>{stats.report_submitted || 0}</div>
               </div>
             </div>
+
+            {/* Unread @Mentions - Tagged Messages */}
+            {unreadMentions.length > 0 && (
+              <div style={{ marginTop: 20, marginBottom: 20 }}>
+                <h3 style={{ margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>💬</span> You Were Tagged ({unreadMentions.length} unread)
+                </h3>
+                <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 10, overflow: 'hidden' }}>
+                  {unreadMentions.slice(0, 8).map(msg => (
+                    <div key={msg.id} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '12px 16px', borderBottom: '1px solid #bfdbfe', fontSize: 13,
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontWeight: 700, color: '#1e3a5f' }}>{msg.ref_number || `Claim #${msg.claim_id}`}</span>
+                          <span style={{ fontSize: 11, color: '#6b7280' }}>from {msg.sender_name}</span>
+                          <span style={{ fontSize: 10, color: '#9ca3af' }}>
+                            {new Date(msg.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </span>
+                          {msg.message_type === 'escalation' && <span style={{ padding: '1px 6px', background: '#fef2f2', color: '#dc2626', borderRadius: 6, fontSize: 10, fontWeight: 700 }}>ESCALATION</span>}
+                        </div>
+                        <p style={{ margin: 0, color: '#374151', fontSize: 12 }}>
+                          {msg.message.length > 120 ? msg.message.substring(0, 120) + '...' : msg.message}
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginLeft: 12 }}>
+                        <button className="primary" style={{ fontSize: 10, padding: '4px 12px' }}
+                          onClick={() => { markMentionRead(msg.id); router.push(`/claim-detail/${msg.claim_id}`); }}>
+                          Open Chat
+                        </button>
+                        <button className="secondary" style={{ fontSize: 10, padding: '4px 8px' }}
+                          onClick={() => markMentionRead(msg.id)}>
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {unreadMentions.length > 8 && (
+                    <div style={{ padding: '8px 16px', textAlign: 'center', fontSize: 11, color: '#1e40af', cursor: 'pointer' }}>
+                      + {unreadMentions.length - 8} more tagged messages
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* My Assigned Files - Personal Dashboard (Grouped by Claim) */}
             {(myAssignments.length > 0 || myWorkflowItems.length > 0) && (() => {
