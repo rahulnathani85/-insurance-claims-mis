@@ -49,9 +49,10 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+  // Log activity
   const mentionNames = Array.isArray(body.mentioned_names) ? body.mentioned_names : [];
-  const mentionStr = mentionNames.length > 0 ? ' (tagged: ' + mentionNames.join(', ') + ')' : '';
-  const refStr = taggedRefNumbers.length > 0 ? ' (files: ' + taggedRefNumbers.join(', ') + ')' : '';
+  const mentionStr = mentionNames.length > 0 ? ` (tagged: ${mentionNames.join(', ')})` : '';
+  const refStr = taggedRefNumbers.length > 0 ? ` (files: ${taggedRefNumbers.join(', ')})` : '';
 
   await supabase.from('activity_log').insert([{
     user_email: body.sender_email,
@@ -59,9 +60,41 @@ export async function POST(request) {
     action: 'global_chat',
     entity_type: 'global_chat',
     entity_id: data.id,
-    details: 'Global chat: "' + body.message.substring(0, 80) + (body.message.length > 80 ? '...' : '') + '"' + mentionStr + refStr,
+    details: `Global chat: "${body.message.substring(0, 80)}${body.message.length > 80 ? '...' : ''}"${mentionStr}${refStr}`,
     company: body.company || 'NISLA',
   }]);
+
+  // Cross-post to claim communication log for each tagged file
+  if (taggedRefNumbers.length > 0) {
+    for (const refNum of taggedRefNumbers) {
+      try {
+        const { data: claims } = await supabase
+          .from('claims')
+          .select('id, ref_number')
+          .ilike('ref_number', refNum)
+          .limit(1);
+
+        if (claims && claims.length > 0) {
+          const claim = claims[0];
+          await supabase
+            .from('claim_messages')
+            .insert([{
+              claim_id: claim.id,
+              ref_number: claim.ref_number,
+              sender_email: body.sender_email,
+              sender_name: body.sender_name || body.sender_email,
+              message: `[Team Chat] ${body.message}`,
+              message_type: 'text',
+              is_internal: true,
+              mentioned_users: JSON.stringify(mentionedUsers),
+              company: body.company || 'NISLA',
+            }]);
+        }
+      } catch (e) {
+        console.error('Cross-post failed for ref:', refNum, e);
+      }
+    }
+  }
 
   return NextResponse.json(data, { status: 201 });
 }
