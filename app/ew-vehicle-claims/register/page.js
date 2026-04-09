@@ -1,235 +1,281 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
-import Link from 'next/link';
-import { LOB_LIST, LOB_COLORS, COMPANIES } from '@/lib/constants';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import PageLayout from '@/components/PageLayout';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
-import GlobalChatBox from '@/components/GlobalChatBox';
 
-// Colorful icon component for sidebar
-function SideIcon({ letter, bg, color }) {
+const SECTIONS = [
+  { key: 'claim', label: 'Claim Details', icon: '&#x1F4C4;' },
+  { key: 'vehicle', label: 'Vehicle / Certificate', icon: '&#x1F697;' },
+  { key: 'dealer', label: 'Dealer / Service Centre', icon: '&#x1F3ED;' },
+  { key: 'complaint', label: 'Customer Complaint', icon: '&#x1F4E2;' },
+];
+
+// Field component OUTSIDE the page component to avoid re-mounting on every render
+function Field({ label, field, type, span, textarea, form, updateField, fieldStyle, labelStyle }) {
+  const style = fieldStyle;
+  const wrapStyle = span ? { gridColumn: `span ${span}` } : {};
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 22, height: 22, borderRadius: 6, fontSize: 11, fontWeight: 700,
-      background: bg, color: color, flexShrink: 0, lineHeight: 1,
-    }}>
-      {letter}
-    </span>
+    <div style={wrapStyle}>
+      <label style={labelStyle}>{label}</label>
+      {textarea ? (
+        <textarea
+          value={form[field] || ''}
+          onChange={e => updateField(field, e.target.value)}
+          style={{ ...style, minHeight: 80, resize: 'vertical' }}
+        />
+      ) : (
+        <input
+          type={type || 'text'}
+          value={form[field] || ''}
+          onChange={e => updateField(field, e.target.value)}
+          style={style}
+        />
+      )}
+    </div>
   );
 }
 
-// LOB colored dot icon
-function LobDot({ color }) {
-  return (
-    <span style={{
-      display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-      background: color, flexShrink: 0, marginRight: 2,
-    }} />
-  );
-}
+export default function EWRegisterPage() {
+  const router = useRouter();
+  const { company } = useCompany();
+  const { user } = useAuth();
 
-export default function PageLayout({ children }) {
-  const pathname = usePathname();
-  const { company, setCompany } = useCompany();
-  const { user, logout } = useAuth();
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [globalChatMentionCount, setGlobalChatMentionCount] = useState(0);
-  const companyLabel = COMPANIES.find(c => c.value === company)?.label || company;
-  const isAllMode = company === 'All';
-  const isDevMode = company === 'Development';
+  const [activeSection, setActiveSection] = useState('claim');
+  const [saving, setSaving] = useState(false);
+  const [alert, setAlert] = useState(null);
 
-  const totalBellCount = unreadCount + globalChatMentionCount;
+  const [form, setForm] = useState({
+    // Claim Details
+    insured_name: '', insured_address: '', insurer_name: '', insurer_address: '',
+    policy_number: '', claim_file_no: '', person_contacted: '',
+    estimated_loss_amount: '', date_of_intimation: '', report_date: '',
+    // Vehicle / Certificate
+    customer_name: '', vehicle_reg_no: '', date_of_registration: '',
+    vehicle_make: '', model_fuel_type: '', chassis_number: '', engine_number: '',
+    odometer_reading: '', warranty_plan: '', certificate_no: '',
+    certificate_from: '', certificate_to: '', certificate_kms: '',
+    certificate_validity_text: '', product_description: '', terms_conditions: '',
+    // Dealer
+    dealer_name: '', dealer_address: '', dealer_contact: '',
+    // Complaint
+    customer_complaint: '', complaint_date: '',
+  });
 
-  // Fetch unread mention count for notification badge
-  useEffect(() => {
-    if (user?.email) {
-      fetchUnreadCount();
-      const interval = setInterval(fetchUnreadCount, 30000); // Poll every 30s
-      return () => clearInterval(interval);
-    }
-  }, [user, company]);
-
-  async function fetchUnreadCount() {
-    try {
-      const res = await fetch(`/api/unread-mentions?user_email=${encodeURIComponent(user.email)}&company=${encodeURIComponent(company)}`);
-      const data = await res.json();
-      setUnreadCount(data.unread_count || 0);
-    } catch (e) { /* ignore */ }
+  function updateField(field, value) {
+    setForm(prev => ({ ...prev, [field]: value }));
   }
 
-  const badgeColor = company === 'NISLA' ? '#1e3a5f' : company === 'Acuere' ? '#2d5016' : company === 'Development' ? '#b45309' : '#7c3aed';
+  async function handleSubmit() {
+    if (!form.customer_name && !form.insured_name) {
+      setAlert({ msg: 'Please fill at least customer name or insured name', type: 'error' });
+      return;
+    }
+    try {
+      setSaving(true);
+      const payload = { ...form, company, created_by: user?.email || '' };
+      // Convert numeric fields
+      if (payload.estimated_loss_amount) payload.estimated_loss_amount = parseFloat(payload.estimated_loss_amount);
+      // Remove empty strings for date fields
+      ['date_of_intimation', 'report_date', 'date_of_registration', 'certificate_from', 'certificate_to', 'complaint_date'].forEach(f => {
+        if (!payload[f]) delete payload[f];
+      });
+
+      const res = await fetch('/api/ew-claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to create claim');
+      }
+
+      const claim = await res.json();
+      router.push(`/ew-vehicle-claims/${claim.id}`);
+    } catch (e) {
+      setAlert({ msg: e.message, type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fieldStyle = {
+    width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8,
+    fontSize: 13, outline: 'none', boxSizing: 'border-box',
+  };
+  const labelStyle = { display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 };
+  const gridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' };
+  const grid3Style = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px 20px' };
+
+  // Common props passed to every Field
+  const fp = { form, updateField, fieldStyle, labelStyle };
 
   return (
-    <>
-      <header>
-        <div className="header-content">
-          <h1>Insurance Claims MIS</h1>
-          <div className="header-right">
-            <select
-              className="company-selector"
-              value={company}
-              onChange={e => setCompany(e.target.value)}
+    <PageLayout>
+      <div style={{ padding: '20px 24px', maxWidth: 1000, margin: '0 auto' }}>
+        {/* Alert */}
+        {alert && (
+          <div style={{
+            padding: '10px 16px', marginBottom: 16, borderRadius: 8,
+            background: alert.type === 'success' ? '#dcfce7' : '#fee2e2',
+            color: alert.type === 'success' ? '#166534' : '#991b1b',
+            border: `1px solid ${alert.type === 'success' ? '#86efac' : '#fca5a5'}`,
+            fontSize: 13,
+          }}>
+            {alert.msg}
+          </div>
+        )}
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 20, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 24 }}>&#x1F4DD;</span> Register New EW Vehicle Claim
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
+              Company: <strong>{company}</strong> &#x2022; Fill details and save to start the 12-stage lifecycle
+            </p>
+          </div>
+          <button
+            onClick={() => router.push('/ew-vehicle-claims')}
+            style={{
+              padding: '8px 16px', background: '#f1f5f9', border: '1px solid #d1d5db',
+              borderRadius: 8, fontSize: 13, cursor: 'pointer', color: '#475569',
+            }}
+          >
+            &#x2190; Back
+          </button>
+        </div>
+
+        {/* Section Tabs */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+          {SECTIONS.map(s => (
+            <button
+              key={s.key}
+              onClick={() => setActiveSection(s.key)}
+              style={{
+                padding: '8px 16px', borderRadius: 8, border: '2px solid',
+                borderColor: activeSection === s.key ? '#7c3aed' : '#e2e8f0',
+                background: activeSection === s.key ? '#7c3aed' : '#fff',
+                color: activeSection === s.key ? '#fff' : '#475569',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s',
+              }}
             >
-              {COMPANIES.map(c => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </select>
-            <nav>
-              <Link href="/">Dashboard</Link>
-              {!isAllMode && <Link href="/claim-registration">Claim Registration</Link>}
-              <Link href="/mis-portal">MIS Portal</Link>
-              {!isAllMode && <Link href="/workflow-overview">Workflow</Link>}
-              {!isAllMode && <Link href="/file-assignments">Assignments</Link>}
-              {!isAllMode && user?.role === 'Admin' && <Link href="/user-management">Users</Link>}
-            </nav>
-            {user && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 15, borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: 15 }}>
-                <Link href="/" style={{ position: 'relative', textDecoration: 'none', cursor: 'pointer', marginRight: 4 }} title={totalBellCount > 0 ? `${totalBellCount} unread (${unreadCount} claim mentions + ${globalChatMentionCount} chat mentions)` : 'No unread mentions'}>
-                  <span style={{ fontSize: 18 }}>&#x1F514;</span>
-                  {totalBellCount > 0 && (
-                    <span style={{
-                      position: 'absolute', top: -6, right: -8,
-                      background: '#dc2626', color: '#fff',
-                      fontSize: 9, fontWeight: 800, minWidth: 16, height: 16,
-                      borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      padding: '0 4px', border: '2px solid #1e3a5f',
-                    }}>
-                      {totalBellCount > 9 ? '9+' : totalBellCount}
-                    </span>
-                  )}
-                </Link>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)' }}>{user.name}</span>
-                <button onClick={logout} style={{ padding: '4px 12px', fontSize: 11, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, cursor: 'pointer' }}>Logout</button>
-              </div>
-            )}
-          </div>
+              <span dangerouslySetInnerHTML={{ __html: s.icon }} />
+              {s.label}
+            </button>
+          ))}
         </div>
-      </header>
 
-      <div className="layout-wrapper">
-        <div className="sidebar">
-          <div className="sidebar-content">
-            <div className="company-badge" style={{ padding: '10px 15px', marginBottom: 10, background: badgeColor, borderRadius: 8, color: '#fff', textAlign: 'center', fontSize: 12, fontWeight: 600 }}>
-              {companyLabel}
-              {isAllMode && <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>Read-Only Mode</div>}
-              {isDevMode && <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8 }}>Testing & New Features</div>}
-            </div>
-            <div className="nav-section">
-              <Link href="/" className={`nav-item ${pathname === '/' ? 'active' : ''}`}>
-                <SideIcon letter="D" bg="#dbeafe" color="#1d4ed8" /><span>Dashboard</span>
-              </Link>
-            </div>
-            {!isAllMode && (
-              <div className="nav-section">
-                <Link href="/claim-registration" className={`nav-item primary ${pathname === '/claim-registration' ? 'active' : ''}`}>
-                  <SideIcon letter="+" bg="#1e3a5f" color="#fff" /><span>Claim Registration</span>
-                </Link>
+        {/* Form Sections */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 24 }}>
+          {/* Claim Details */}
+          {activeSection === 'claim' && (
+            <div>
+              <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#1e293b', borderBottom: '2px solid #7c3aed', paddingBottom: 8 }}>
+                Claim Details
+              </h3>
+              <div style={gridStyle}>
+                <Field label="Insured Name" field="insured_name" {...fp} />
+                <Field label="Insurer Name" field="insurer_name" {...fp} />
+                <Field label="Insured Address" field="insured_address" span={2} textarea {...fp} />
+                <Field label="Insurer Address" field="insurer_address" span={2} textarea {...fp} />
+                <Field label="Policy Number" field="policy_number" {...fp} />
+                <Field label="Claim File No." field="claim_file_no" {...fp} />
+                <Field label="Person Contacted" field="person_contacted" {...fp} />
+                <Field label="Estimated Loss Amount" field="estimated_loss_amount" type="number" {...fp} />
+                <Field label="Date of Intimation" field="date_of_intimation" type="date" {...fp} />
+                <Field label="Report Date" field="report_date" type="date" {...fp} />
               </div>
-            )}
-
-            {/* Extended Warranty Section */}
-            {!isAllMode && (
-              <div className="nav-section">
-                <div className="nav-section-title">Extended Warranty</div>
-                <Link href="/ew-vehicle-claims" className={`nav-item ${pathname.startsWith('/ew-vehicle-claims') ? 'active' : ''}`}>
-                  <SideIcon letter="EW" bg="#ede9fe" color="#7c3aed" /><span>EW Vehicle Claims</span>
-                </Link>
-              </div>
-            )}
-
-            <div className="nav-section">
-              <Link href="/mis-portal" className={`nav-item ${pathname === '/mis-portal' ? 'active' : ''}`}>
-                <SideIcon letter="M" bg="#dcfce7" color="#15803d" /><span>MIS Portal</span>
-              </Link>
             </div>
-            {!isAllMode && (
-              <>
-                <div className="nav-section">
-                  <div className="nav-section-title">Masters</div>
-                  <Link href="/insurer-master" className={`nav-item ${pathname === '/insurer-master' ? 'active' : ''}`}>
-                    <SideIcon letter="IN" bg="#fef3c7" color="#b45309" /><span>Insurer Master</span>
-                  </Link>
-                  <Link href="/policy-master" className={`nav-item ${pathname === '/policy-master' ? 'active' : ''}`}>
-                    <SideIcon letter="PM" bg="#fce7f3" color="#be185d" /><span>Policy Master</span>
-                  </Link>
-                  <Link href="/broker-master" className={`nav-item ${pathname === '/broker-master' ? 'active' : ''}`}>
-                    <SideIcon letter="BM" bg="#e0e7ff" color="#4338ca" /><span>Broker Master</span>
-                  </Link>
-                  <Link href="/policy-directory" className={`nav-item ${pathname === '/policy-directory' ? 'active' : ''}`}>
-                    <SideIcon letter="PD" bg="#cffafe" color="#0e7490" /><span>Policy Directory</span>
-                  </Link>
-                  <Link href="/ref-number-portal" className={`nav-item ${pathname === '/ref-number-portal' ? 'active' : ''}`}>
-                    <SideIcon letter="R#" bg="#f3e8ff" color="#7e22ce" /><span>Ref Number Portal</span>
-                  </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">Workflow</div>
-                  <Link href="/workflow-overview" className={`nav-item ${pathname === '/workflow-overview' ? 'active' : ''}`}>
-                    <SideIcon letter="WF" bg="#dbeafe" color="#1e40af" /><span>Workflow Overview</span>
-                  </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">Documents</div>
-                  <Link href="/lor-ila-generator" className={`nav-item ${pathname === '/lor-ila-generator' ? 'active' : ''}`}>
-                    <SideIcon letter="LI" bg="#fef9c3" color="#a16207" /><span>LOR / ILA Generator</span>
-                  </Link>
-                  <Link href="/file-tracking" className={`nav-item ${pathname === '/file-tracking' ? 'active' : ''}`}>
-                    <SideIcon letter="FT" bg="#d1fae5" color="#047857" /><span>File Tracking</span>
-                  </Link>
-                  <Link href="/file-assignments" className={`nav-item ${pathname === '/file-assignments' ? 'active' : ''}`}>
-                    <SideIcon letter="FA" bg="#ffe4e6" color="#be123c" /><span>File Assignments</span>
-                  </Link>
-                </div>
-                {user?.role === 'Admin' && (
-                  <div className="nav-section">
-                    <div className="nav-section-title">Admin</div>
-                    <Link href="/user-management" className={`nav-item ${pathname === '/user-management' ? 'active' : ''}`}>
-                      <SideIcon letter="UM" bg="#e0e7ff" color="#3730a3" /><span>User Management</span>
-                    </Link>
-                    <Link href="/activity-log" className={`nav-item ${pathname === '/activity-log' ? 'active' : ''}`}>
-                      <SideIcon letter="AL" bg="#fef3c7" color="#92400e" /><span>Activity Log</span>
-                    </Link>
-                    <Link href="/user-monitoring" className={`nav-item ${pathname === '/user-monitoring' ? 'active' : ''}`}>
-                      <SideIcon letter="UM" bg="#fce7f3" color="#9d174d" /><span>User Monitoring</span>
-                    </Link>
-                  </div>
-                )}
-                <div className="nav-section">
-                  <div className="nav-section-title">Billing</div>
-                  <Link href="/survey-fee-bill" className={`nav-item ${pathname === '/survey-fee-bill' ? 'active' : ''}`}>
-                    <SideIcon letter="SF" bg="#dcfce7" color="#166534" /><span>Survey Fee Bill</span>
-                  </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">System</div>
-                  <Link href="/backup" className={`nav-item ${pathname === '/backup' ? 'active' : ''}`}>
-                    <SideIcon letter="DB" bg="#f1f5f9" color="#475569" /><span>Data Backup</span>
-                  </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">Claims by LOB</div>
-                  {LOB_LIST.map(lob => (
-                    <Link key={lob} href={`/claims/${encodeURIComponent(lob)}`}
-                      className={`nav-item ${pathname.includes(encodeURIComponent(lob)) ? 'active' : ''}`}>
-                      <LobDot color={LOB_COLORS[lob] || '#64748b'} /><span>{lob}</span>
-                    </Link>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          )}
+
+          {/* Vehicle / Certificate */}
+          {activeSection === 'vehicle' && (
+            <div>
+              <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#1e293b', borderBottom: '2px solid #7c3aed', paddingBottom: 8 }}>
+                Vehicle &amp; Certificate Particulars
+              </h3>
+              <div style={grid3Style}>
+                <Field label="Customer Name" field="customer_name" {...fp} />
+                <Field label="Vehicle Reg. No." field="vehicle_reg_no" {...fp} />
+                <Field label="Date of Registration" field="date_of_registration" type="date" {...fp} />
+                <Field label="Vehicle Make" field="vehicle_make" {...fp} />
+                <Field label="Model / Fuel Type" field="model_fuel_type" {...fp} />
+                <Field label="Chassis Number" field="chassis_number" {...fp} />
+                <Field label="Engine Number" field="engine_number" {...fp} />
+                <Field label="Odometer Reading" field="odometer_reading" {...fp} />
+                <Field label="Warranty Plan" field="warranty_plan" {...fp} />
+                <Field label="Certificate No." field="certificate_no" {...fp} />
+                <Field label="Certificate From" field="certificate_from" type="date" {...fp} />
+                <Field label="Certificate To" field="certificate_to" type="date" {...fp} />
+                <Field label="Certificate KMs" field="certificate_kms" {...fp} />
+              </div>
+              <div style={{ ...gridStyle, marginTop: 14 }}>
+                <Field label="Certificate Validity Text" field="certificate_validity_text" span={2} textarea {...fp} />
+                <Field label="Product Description" field="product_description" span={2} textarea {...fp} />
+                <Field label="Terms &amp; Conditions" field="terms_conditions" span={2} textarea {...fp} />
+              </div>
+            </div>
+          )}
+
+          {/* Dealer */}
+          {activeSection === 'dealer' && (
+            <div>
+              <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#1e293b', borderBottom: '2px solid #7c3aed', paddingBottom: 8 }}>
+                Dealer / Service Centre Information
+              </h3>
+              <div style={gridStyle}>
+                <Field label="Dealer / Service Centre Name" field="dealer_name" {...fp} />
+                <Field label="Contact Person / Number" field="dealer_contact" {...fp} />
+                <Field label="Dealer Address" field="dealer_address" span={2} textarea {...fp} />
+              </div>
+            </div>
+          )}
+
+          {/* Complaint */}
+          {activeSection === 'complaint' && (
+            <div>
+              <h3 style={{ margin: '0 0 16px', fontSize: 15, color: '#1e293b', borderBottom: '2px solid #7c3aed', paddingBottom: 8 }}>
+                Customer Complaint
+              </h3>
+              <div style={gridStyle}>
+                <Field label="Complaint Date" field="complaint_date" type="date" {...fp} />
+                <div></div>
+                <Field label="Customer Complaint Description" field="customer_complaint" span={2} textarea {...fp} />
+              </div>
+            </div>
+          )}
         </div>
-        <div className="main-content-wrapper">
-          <div className="container">
-            {children}
-          </div>
+
+        {/* Submit */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+          <button
+            onClick={() => router.push('/ew-vehicle-claims')}
+            style={{
+              padding: '10px 24px', background: '#f1f5f9', border: '1px solid #d1d5db',
+              borderRadius: 8, fontSize: 14, cursor: 'pointer', color: '#475569',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              padding: '10px 24px', background: saving ? '#a78bfa' : '#7c3aed', color: '#fff',
+              border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer',
+              boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+            }}
+          >
+            {saving ? 'Creating...' : 'Create EW Claim & Start Lifecycle'}
+          </button>
         </div>
       </div>
-
-      {/* Global Team Chat - floating bottom-right on every page */}
-      {user && <GlobalChatBox onUnreadChange={setGlobalChatMentionCount} />}
-    </>
+    </PageLayout>
   );
 }
