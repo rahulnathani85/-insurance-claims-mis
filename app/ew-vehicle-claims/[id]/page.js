@@ -164,22 +164,6 @@ export default function EWClaimDetailPage() {
   // Auto-fetch insurer address from Insurer Master
   function fetchFromInsurerMaster() {
     const insurerName = (editForm.insurer_name || '').trim();
-    if (!insurerName) { showAlert('Enter an insurer name fred_name = match.insured_name;
-      if (Object.keys(updates).length > 0) {
-        updateEditForm(updates);
-        showAlert('Insured address fetched from Policy Master');
-      } else {
-        showAlert('Policy found but no address on record', 'error');
-      }
-    } else {
-      showAlert('Policy number not found in Policy Master', 'error');
-    }
-    setFetchingPolicy(false);
-  }
-
-  // Auto-fetch insurer address from Insurer Master
-  function fetchFromInsurerMaster() {
-    const insurerName = (editForm.insurer_name || '').trim();
     if (!insurerName) { showAlert('Enter an insurer name first', 'error'); return; }
     setFetchingInsurer(true);
     const match = insurers.find(ins =>
@@ -678,7 +662,7 @@ export default function EWClaimDetailPage() {
                 <F label="External Damages" field="external_damages" span={2} textarea {...fp} />
                 <div>
                   <label style={LABEL_STYLE}>Service History Verified</label>
-                     <select
+                  <select
                     value={editForm.service_history_verified === false ? 'false' : 'true'}
                     onChange={e => updateEditForm({ service_history_verified: e.target.value === 'true' })}
                     style={FIELD_STYLE}
@@ -845,7 +829,15 @@ export default function EWClaimDetailPage() {
               <button onClick={() => { generateFSR('pdf'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 &#x1F4C4; Download PDF
               </button>
-              <button onClick={() => { generateFSR('word'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12(false)} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+              <button onClick={() => { generateFSR('word'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                &#x1F4DD; Download Word
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { printFSR(); setShowFsrExport(false); }} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                Print
+              </button>
+              <button onClick={() => setShowFsrExport(false)} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
                 Close
               </button>
             </div>
