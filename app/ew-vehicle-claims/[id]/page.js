@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
+import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 
 const EW_STAGES = [
   { number: 1, name: 'Claim Intimation', short: 'Intimation' },
@@ -200,26 +201,51 @@ export default function EWClaimDetailPage() {
     }
   }
 
-  async function generateFSR() {
+  const [fsrHtml, setFsrHtml] = useState(null);
+  const [showFsrExport, setShowFsrExport] = useState(false);
+
+  async function generateFSR(format) {
     try {
       setGeneratingFSR(true);
-      const res = await fetch('/api/ew-fsr-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ew_claim_id: id }),
-      });
-      if (!res.ok) throw new Error('FSR generation failed');
-      const { html } = await res.json();
-      // Open in new window for print/PDF
-      const win = window.open('', '_blank');
-      win.document.write(html);
-      win.document.close();
-      showAlert('FSR report generated - use Print > Save as PDF');
+      // If we already have FSR HTML and a format is specified, use cached
+      let html = fsrHtml;
+      if (!html) {
+        const res = await fetch('/api/ew-fsr-generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ew_claim_id: id }),
+        });
+        if (!res.ok) throw new Error('FSR generation failed');
+        const data = await res.json();
+        html = data.html;
+        setFsrHtml(html);
+      }
+
+      const fname = `FSR-${claim?.ref_number || 'report'}`;
+      if (format === 'pdf') {
+        await downloadAsPDF(html, `${fname}.pdf`);
+        showAlert('FSR downloaded as PDF');
+      } else if (format === 'word') {
+        downloadAsWord(html, `${fname}.doc`);
+        showAlert('FSR downloaded as Word document');
+      } else {
+        // Default: show export options modal
+        setShowFsrExport(true);
+        showAlert('FSR generated! Choose your download format.');
+      }
     } catch (e) {
       showAlert(e.message, 'error');
     } finally {
       setGeneratingFSR(false);
     }
+  }
+
+  function printFSR() {
+    if (!fsrHtml) return;
+    const win = window.open('', '_blank');
+    win.document.write(fsrHtml);
+    win.document.close();
+    win.print();
   }
 
   const fieldStyle = {
@@ -317,7 +343,7 @@ export default function EWClaimDetailPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={generateFSR}
+              onClick={() => generateFSR()}
               disabled={generatingFSR}
               style={{
                 padding: '8px 16px', background: generatingFSR ? '#a78bfa' : '#059669', color: '#fff',
@@ -328,6 +354,13 @@ export default function EWClaimDetailPage() {
               <span style={{ fontSize: 16 }}>&#x1F4C4;</span>
               {generatingFSR ? 'Generating...' : 'Generate FSR'}
             </button>
+            {fsrHtml && (
+              <>
+                <button onClick={() => generateFSR('pdf')} style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>PDF</button>
+                <button onClick={() => generateFSR('word')} style={{ padding: '8px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Word</button>
+                <button onClick={printFSR} style={{ padding: '8px 12px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Print</button>
+              </>
+            )}
             <button
               onClick={saveClaim}
               disabled={saving}
@@ -675,6 +708,32 @@ export default function EWClaimDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* FSR Export Format Modal */}
+      {showFsrExport && fsrHtml && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 16, color: '#1e293b' }}>Download FSR Report</h3>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#64748b' }}>Choose your preferred format:</p>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <button onClick={() => { generateFSR('pdf'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                &#x1F4C4; Download PDF
+              </button>
+              <button onClick={() => { generateFSR('word'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                &#x1F4DD; Download Word
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { printFSR(); setShowFsrExport(false); }} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                Print
+              </button>
+              <button onClick={() => setShowFsrExport(false)} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </PageLayout>
   );
 }
