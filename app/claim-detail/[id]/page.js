@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
+import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 
 const STATUS_STYLES = {
   'Completed': { bg: '#dcfce7', color: '#166534', icon: '✅' },
@@ -701,8 +702,12 @@ export default function ClaimDetail() {
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>{d.document_type || 'Document'}</span>
                       <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 10 }}>{d.template_name || ''}</span>
+                      <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 10 }}>{new Date(d.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
                     </div>
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>{new Date(d.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button style={{ fontSize: 11, padding: '3px 10px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }} onClick={() => downloadAsPDF(d.content, `${d.document_type}-${claim?.ref_number || 'document'}.pdf`)}>PDF</button>
+                      <button style={{ fontSize: 11, padding: '3px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }} onClick={() => downloadAsWord(d.content, `${d.document_type}-${claim?.ref_number || 'document'}.doc`)}>Word</button>
+                    </div>
                   </div>
                 ))}
               </div>
