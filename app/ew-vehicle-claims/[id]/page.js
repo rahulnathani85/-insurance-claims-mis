@@ -37,6 +37,36 @@ const DATA_TABS = [
   { key: 'media', label: 'Photos / Videos' },
 ];
 
+const FIELD_STYLE = {
+  width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6,
+  fontSize: 13, outline: 'none', boxSizing: 'border-box',
+};
+const LABEL_STYLE = { display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 };
+
+// Field component OUTSIDE the page component to prevent re-mount on every keystroke
+function F({ label, field, type, span, textarea, rows, editForm, updateEditForm }) {
+  const wrapStyle = span ? { gridColumn: `span ${span}` } : {};
+  return (
+    <div style={wrapStyle}>
+      <label style={LABEL_STYLE}>{label}</label>
+      {textarea ? (
+        <textarea
+          value={editForm[field] || ''}
+          onChange={e => updateEditForm({ [field]: e.target.value })}
+          style={{ ...FIELD_STYLE, minHeight: rows ? rows * 22 : 60, resize: 'vertical' }}
+        />
+      ) : (
+        <input
+          type={type || 'text'}
+          value={editForm[field] || ''}
+          onChange={e => updateEditForm({ [field]: e.target.value })}
+          style={FIELD_STYLE}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function EWClaimDetailPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -57,7 +87,23 @@ export default function EWClaimDetailPage() {
   const [mediaStageFilter, setMediaStageFilter] = useState('all');
   const fileInputRef = useRef(null);
 
+  // Master data for auto-fetch
+  const [policies, setPolicies] = useState([]);
+  const [insurers, setInsurers] = useState([]);
+  const [fetchingPolicy, setFetchingPolicy] = useState(false);
+  const [fetchingInsurer, setFetchingInsurer] = useState(false);
+
   useEffect(() => { if (id) loadAll(); }, [id]);
+
+  // Load master data for auto-fill
+  useEffect(() => {
+    if (company) {
+      fetch(`/api/policies?company=${encodeURIComponent(company)}`)
+        .then(r => r.json()).then(d => setPolicies(Array.isArray(d) ? d : [])).catch(() => {});
+      fetch('/api/insurers')
+        .then(r => r.json()).then(d => setInsurers(Array.isArray(d) ? d : [])).catch(() => {});
+    }
+  }, [company]);
 
   async function loadAll() {
     try {
@@ -89,6 +135,71 @@ export default function EWClaimDetailPage() {
 
   function updateEditForm(updates) {
     setEditForm(prev => ({ ...prev, ...updates }));
+  }
+
+  // Auto-fetch insured address from Policy Master
+  function fetchFromPolicyMaster() {
+    const policyNum = (editForm.policy_number || '').trim();
+    if (!policyNum) { showAlert('Enter a policy number first', 'error'); return; }
+    setFetchingPolicy(true);
+    const match = policies.find(p =>
+      (p.policy_number || '').trim().toLowerCase() === policyNum.toLowerCase()
+    );
+    if (match) {
+      const updates = {};
+      if (match.insured_address) updates.insured_address = match.insured_address;
+      if (match.insured_name && !editForm.insured_name) updates.insured_name = match.insured_name;
+      if (Object.keys(updates).length > 0) {
+        updateEditForm(updates);
+        showAlert('Insured address fetched from Policy Master');
+      } else {
+        showAlert('Policy found but no address on record', 'error');
+      }
+    } else {
+      showAlert('Policy number not found in Policy Master', 'error');
+    }
+    setFetchingPolicy(false);
+  }
+
+  // Auto-fetch insurer address from Insurer Master
+  function fetchFromInsurerMaster() {
+    const insurerName = (editForm.insurer_name || '').trim();
+    if (!insurerName) { showAlert('Enter an insurer name fred_name = match.insured_name;
+      if (Object.keys(updates).length > 0) {
+        updateEditForm(updates);
+        showAlert('Insured address fetched from Policy Master');
+      } else {
+        showAlert('Policy found but no address on record', 'error');
+      }
+    } else {
+      showAlert('Policy number not found in Policy Master', 'error');
+    }
+    setFetchingPolicy(false);
+  }
+
+  // Auto-fetch insurer address from Insurer Master
+  function fetchFromInsurerMaster() {
+    const insurerName = (editForm.insurer_name || '').trim();
+    if (!insurerName) { showAlert('Enter an insurer name first', 'error'); return; }
+    setFetchingInsurer(true);
+    const match = insurers.find(ins =>
+      (ins.company_name || '').trim().toLowerCase().includes(insurerName.toLowerCase()) ||
+      insurerName.toLowerCase().includes((ins.company_name || '').trim().toLowerCase())
+    );
+    if (match) {
+      // Build full address from insurer master fields
+      const parts = [match.registered_address, match.city, match.state, match.pin].filter(Boolean);
+      const fullAddress = parts.join(', ');
+      if (fullAddress) {
+        updateEditForm({ insurer_address: fullAddress });
+        showAlert(`Insurer address fetched from Insurer Master (${match.company_name})`);
+      } else {
+        showAlert('Insurer found but no address on record', 'error');
+      }
+    } else {
+      showAlert('Insurer name not found in Insurer Master', 'error');
+    }
+    setFetchingInsurer(false);
   }
 
   async function saveClaim() {
@@ -207,7 +318,6 @@ export default function EWClaimDetailPage() {
   async function generateFSR(format) {
     try {
       setGeneratingFSR(true);
-      // If we already have FSR HTML and a format is specified, use cached
       let html = fsrHtml;
       if (!html) {
         const res = await fetch('/api/ew-fsr-generate', {
@@ -229,7 +339,6 @@ export default function EWClaimDetailPage() {
         downloadAsWord(html, `${fname}.doc`);
         showAlert('FSR downloaded as Word document');
       } else {
-        // Default: show export options modal
         setShowFsrExport(true);
         showAlert('FSR generated! Choose your download format.');
       }
@@ -248,36 +357,17 @@ export default function EWClaimDetailPage() {
     win.print();
   }
 
-  const fieldStyle = {
-    width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6,
-    fontSize: 13, outline: 'none', boxSizing: 'border-box',
-  };
-  const labelStyle = { display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 };
   const gridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 18px' };
   const grid3Style = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px 18px' };
 
-  function F({ label, field, type = 'text', span, textarea, rows }) {
-    const wrapStyle = span ? { gridColumn: `span ${span}` } : {};
-    return (
-      <div style={wrapStyle}>
-        <label style={labelStyle}>{label}</label>
-        {textarea ? (
-          <textarea
-            value={editForm[field] || ''}
-            onChange={e => updateEditForm({ [field]: e.target.value })}
-            style={{ ...fieldStyle, minHeight: rows ? rows * 22 : 60, resize: 'vertical' }}
-          />
-        ) : (
-          <input
-            type={type}
-            value={editForm[field] || ''}
-            onChange={e => updateEditForm({ [field]: e.target.value })}
-            style={fieldStyle}
-          />
-        )}
-      </div>
-    );
-  }
+  // Common props passed to every F component
+  const fp = { editForm, updateEditForm };
+
+  // Small fetch button style
+  const fetchBtnStyle = {
+    padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', borderRadius: 5,
+    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4,
+  };
 
   if (loading) {
     return (
@@ -398,11 +488,9 @@ export default function EWClaimDetailPage() {
             {EW_STAGES.map(es => {
               const stageData = stages.find(s => s.stage_number === es.number);
               const status = stageData?.status || 'Pending';
-              const sc = STAGE_STATUS_COLORS[status];
               const isCurrent = claim.current_stage === es.number;
               return (
                 <div key={es.number} style={{ textAlign: 'center' }}>
-                  {/* Stage circle */}
                   <div
                     style={{
                       width: 36, height: 36, borderRadius: '50%', margin: '0 auto 4px',
@@ -417,7 +505,6 @@ export default function EWClaimDetailPage() {
                   >
                     {status === 'Completed' ? '\u2713' : es.number}
                   </div>
-                  {/* Stage label */}
                   <div style={{ fontSize: 9, color: isCurrent ? '#7c3aed' : '#64748b', fontWeight: isCurrent ? 700 : 500, lineHeight: 1.2 }}>
                     {es.short}
                   </div>
@@ -496,17 +583,56 @@ export default function EWClaimDetailPage() {
             {/* CLAIM DETAILS TAB */}
             {activeTab === 'claim' && (
               <div style={gridStyle}>
-                <F label="Ref Number" field="ref_number" />
-                <F label="Report Date" field="report_date" type="date" />
-                <F label="Insured Name" field="insured_name" />
-                <F label="Insurer Name" field="insurer_name" />
-                <F label="Insured Address" field="insured_address" span={2} textarea />
-                <F label="Insurer Address" field="insurer_address" span={2} textarea />
-                <F label="Policy Number" field="policy_number" />
-                <F label="Claim File No." field="claim_file_no" />
-                <F label="Person Contacted" field="person_contacted" />
-                <F label="Estimated Loss Amount" field="estimated_loss_amount" type="number" />
-                <F label="Date of Intimation" field="date_of_intimation" type="date" />
+                <F label="Ref Number" field="ref_number" {...fp} />
+                <F label="Report Date" field="report_date" type="date" {...fp} />
+                <F label="Insured Name" field="insured_name" {...fp} />
+                <F label="Insurer Name" field="insurer_name" {...fp} />
+
+                {/* Insured Address with Fetch from Policy Master */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <label style={LABEL_STYLE}>Insured Address</label>
+                    <button
+                      onClick={fetchFromPolicyMaster}
+                      disabled={fetchingPolicy}
+                      style={{ ...fetchBtnStyle, background: '#fef3c7', color: '#92400e' }}
+                      title="Fetch insured address from Policy Master using the policy number above"
+                    >
+                      {fetchingPolicy ? 'Fetching...' : 'Fetch from Policy Master'}
+                    </button>
+                  </div>
+                  <textarea
+                    value={editForm.insured_address || ''}
+                    onChange={e => updateEditForm({ insured_address: e.target.value })}
+                    style={{ ...FIELD_STYLE, minHeight: 60, resize: 'vertical' }}
+                  />
+                </div>
+
+                {/* Insurer Address with Fetch from Insurer Master */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <label style={LABEL_STYLE}>Insurer Address</label>
+                    <button
+                      onClick={fetchFromInsurerMaster}
+                      disabled={fetchingInsurer}
+                      style={{ ...fetchBtnStyle, background: '#dbeafe', color: '#1e40af' }}
+                      title="Fetch insurer address from Insurer Master using the insurer name above"
+                    >
+                      {fetchingInsurer ? 'Fetching...' : 'Fetch from Insurer Master'}
+                    </button>
+                  </div>
+                  <textarea
+                    value={editForm.insurer_address || ''}
+                    onChange={e => updateEditForm({ insurer_address: e.target.value })}
+                    style={{ ...FIELD_STYLE, minHeight: 60, resize: 'vertical' }}
+                  />
+                </div>
+
+                <F label="Policy Number" field="policy_number" {...fp} />
+                <F label="Claim File No." field="claim_file_no" {...fp} />
+                <F label="Person Contacted" field="person_contacted" {...fp} />
+                <F label="Estimated Loss Amount" field="estimated_loss_amount" type="number" {...fp} />
+                <F label="Date of Intimation" field="date_of_intimation" type="date" {...fp} />
               </div>
             )}
 
@@ -514,29 +640,29 @@ export default function EWClaimDetailPage() {
             {activeTab === 'vehicle' && (
               <div>
                 <div style={grid3Style}>
-                  <F label="Customer Name" field="customer_name" />
-                  <F label="Vehicle Reg. No." field="vehicle_reg_no" />
-                  <F label="Date of Registration" field="date_of_registration" type="date" />
-                  <F label="Vehicle Make" field="vehicle_make" />
-                  <F label="Model / Fuel Type" field="model_fuel_type" />
-                  <F label="Chassis Number" field="chassis_number" />
-                  <F label="Engine Number" field="engine_number" />
-                  <F label="Odometer Reading" field="odometer_reading" />
-                  <F label="Warranty Plan" field="warranty_plan" />
-                  <F label="Certificate No." field="certificate_no" />
-                  <F label="Certificate From" field="certificate_from" type="date" />
-                  <F label="Certificate To" field="certificate_to" type="date" />
-                  <F label="Certificate KMs" field="certificate_kms" />
+                  <F label="Customer Name" field="customer_name" {...fp} />
+                  <F label="Vehicle Reg. No." field="vehicle_reg_no" {...fp} />
+                  <F label="Date of Registration" field="date_of_registration" type="date" {...fp} />
+                  <F label="Vehicle Make" field="vehicle_make" {...fp} />
+                  <F label="Model / Fuel Type" field="model_fuel_type" {...fp} />
+                  <F label="Chassis Number" field="chassis_number" {...fp} />
+                  <F label="Engine Number" field="engine_number" {...fp} />
+                  <F label="Odometer Reading" field="odometer_reading" {...fp} />
+                  <F label="Warranty Plan" field="warranty_plan" {...fp} />
+                  <F label="Certificate No." field="certificate_no" {...fp} />
+                  <F label="Certificate From" field="certificate_from" type="date" {...fp} />
+                  <F label="Certificate To" field="certificate_to" type="date" {...fp} />
+                  <F label="Certificate KMs" field="certificate_kms" {...fp} />
                 </div>
                 <div style={{ ...gridStyle, marginTop: 14 }}>
-                  <F label="Dealer Name" field="dealer_name" />
-                  <F label="Dealer Contact" field="dealer_contact" />
-                  <F label="Dealer Address" field="dealer_address" span={2} textarea />
-                  <F label="Certificate Validity" field="certificate_validity_text" span={2} textarea />
-                  <F label="Product Description" field="product_description" span={2} textarea />
-                  <F label="Terms & Conditions" field="terms_conditions" span={2} textarea />
-                  <F label="Customer Complaint" field="customer_complaint" span={2} textarea />
-                  <F label="Complaint Date" field="complaint_date" type="date" />
+                  <F label="Dealer Name" field="dealer_name" {...fp} />
+                  <F label="Dealer Contact" field="dealer_contact" {...fp} />
+                  <F label="Dealer Address" field="dealer_address" span={2} textarea {...fp} />
+                  <F label="Certificate Validity" field="certificate_validity_text" span={2} textarea {...fp} />
+                  <F label="Product Description" field="product_description" span={2} textarea {...fp} />
+                  <F label="Terms & Conditions" field="terms_conditions" span={2} textarea {...fp} />
+                  <F label="Customer Complaint" field="customer_complaint" span={2} textarea {...fp} />
+                  <F label="Complaint Date" field="complaint_date" type="date" {...fp} />
                 </div>
               </div>
             )}
@@ -544,18 +670,18 @@ export default function EWClaimDetailPage() {
             {/* SURVEY & FINDINGS TAB */}
             {activeTab === 'survey' && (
               <div style={gridStyle}>
-                <F label="Survey / Inspection Date" field="survey_date" type="date" />
-                <F label="Survey Location" field="survey_location" />
-                <F label="Initial Observation" field="initial_observation" span={2} textarea rows={4} />
-                <F label="Dismantled Observation" field="dismantled_observation" span={2} textarea rows={4} />
-                <F label="Defective Parts" field="defective_parts" span={2} textarea rows={3} />
-                <F label="External Damages" field="external_damages" span={2} textarea />
+                <F label="Survey / Inspection Date" field="survey_date" type="date" {...fp} />
+                <F label="Survey Location" field="survey_location" {...fp} />
+                <F label="Initial Observation" field="initial_observation" span={2} textarea rows={4} {...fp} />
+                <F label="Dismantled Observation" field="dismantled_observation" span={2} textarea rows={4} {...fp} />
+                <F label="Defective Parts" field="defective_parts" span={2} textarea rows={3} {...fp} />
+                <F label="External Damages" field="external_damages" span={2} textarea {...fp} />
                 <div>
-                  <label style={labelStyle}>Service History Verified</label>
-                  <select
+                  <label style={LABEL_STYLE}>Service History Verified</label>
+                     <select
                     value={editForm.service_history_verified === false ? 'false' : 'true'}
                     onChange={e => updateEditForm({ service_history_verified: e.target.value === 'true' })}
-                    style={fieldStyle}
+                    style={FIELD_STYLE}
                   >
                     <option value="true">Yes</option>
                     <option value="false">No</option>
@@ -569,26 +695,26 @@ export default function EWClaimDetailPage() {
               <div>
                 <h4 style={{ margin: '0 0 12px', fontSize: 14, color: '#1e293b' }}>Reinspection</h4>
                 <div style={gridStyle}>
-                  <F label="Reinspection Date" field="reinspection_date" type="date" />
-                  <F label="Reinspection Notes" field="reinspection_notes" span={1} textarea />
+                  <F label="Reinspection Date" field="reinspection_date" type="date" {...fp} />
+                  <F label="Reinspection Notes" field="reinspection_notes" span={1} textarea {...fp} />
                 </div>
 
                 <h4 style={{ margin: '20px 0 12px', fontSize: 14, color: '#1e293b' }}>Tax Invoice</h4>
                 <div style={grid3Style}>
-                  <F label="Tax Invoice No." field="tax_invoice_no" />
-                  <F label="Tax Invoice Date" field="tax_invoice_date" type="date" />
-                  <F label="Tax Invoice Amount" field="tax_invoice_amount" type="number" />
-                  <F label="Dealer Invoice Name" field="dealer_invoice_name" />
+                  <F label="Tax Invoice No." field="tax_invoice_no" {...fp} />
+                  <F label="Tax Invoice Date" field="tax_invoice_date" type="date" {...fp} />
+                  <F label="Tax Invoice Amount" field="tax_invoice_amount" type="number" {...fp} />
+                  <F label="Dealer Invoice Name" field="dealer_invoice_name" {...fp} />
                 </div>
 
                 <h4 style={{ margin: '20px 0 12px', fontSize: 14, color: '#1e293b' }}>Assessment of Loss</h4>
                 <div style={grid3Style}>
-                  <F label="Gross Assessed Amount" field="gross_assessed_amount" type="number" />
-                  <F label="GST Amount" field="gst_amount" type="number" />
-                  <F label="Total After GST" field="total_after_gst" type="number" />
-                  <F label="Not Covered Amount" field="not_covered_amount" type="number" />
-                  <F label="Net Adjusted Amount" field="net_adjusted_amount" type="number" />
-                  <F label="Amount in Words" field="amount_in_words" />
+                  <F label="Gross Assessed Amount" field="gross_assessed_amount" type="number" {...fp} />
+                  <F label="GST Amount" field="gst_amount" type="number" {...fp} />
+                  <F label="Total After GST" field="total_after_gst" type="number" {...fp} />
+                  <F label="Not Covered Amount" field="not_covered_amount" type="number" {...fp} />
+                  <F label="Net Adjusted Amount" field="net_adjusted_amount" type="number" {...fp} />
+                  <F label="Amount in Words" field="amount_in_words" {...fp} />
                 </div>
               </div>
             )}
@@ -596,7 +722,7 @@ export default function EWClaimDetailPage() {
             {/* CONCLUSION TAB */}
             {activeTab === 'conclusion' && (
               <div>
-                <F label="Conclusion Text" field="conclusion_text" span={2} textarea rows={8} />
+                <F label="Conclusion Text" field="conclusion_text" span={2} textarea rows={8} {...fp} />
               </div>
             )}
 
@@ -719,15 +845,7 @@ export default function EWClaimDetailPage() {
               <button onClick={() => { generateFSR('pdf'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 &#x1F4C4; Download PDF
               </button>
-              <button onClick={() => { generateFSR('word'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                &#x1F4DD; Download Word
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { printFSR(); setShowFsrExport(false); }} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
-                Print
-              </button>
-              <button onClick={() => setShowFsrExport(false)} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+              <button onClick={() => { generateFSR('word'); setShowFsrExport(false); }} style={{ flex: 1, padding: '12(false)} style={{ flex: 1, padding: '10px', background: '#f1f5f9', color: '#475569', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
                 Close
               </button>
             </div>
