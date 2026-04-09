@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import PageLayout from '@/components/PageLayout';
 import { useCompany } from '@/lib/CompanyContext';
 import { LOB_LIST } from '@/lib/constants';
+import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 
 const PLACEHOLDERS = [
   { tag: '{{ref_number}}', label: 'Ref Number' },
@@ -446,6 +447,8 @@ function LORILAContent() {
               <h4 style={{ margin: 0, fontSize: 14 }}>Document Editor {selectedClaim ? `- ${selectedClaim.ref_number}` : ''}</h4>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => { setPreviewContent(editableContent); setShowPreview(true); }} style={{ padding: '6px 14px', fontSize: 12, background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 6, cursor: 'pointer' }}>Preview</button>
+                <button onClick={() => downloadAsPDF(editableContent, `${docType}-${selectedClaim?.ref_number || 'document'}.pdf`)} style={{ padding: '6px 14px', fontSize: 12, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }} title="Download as PDF">PDF</button>
+                <button onClick={() => downloadAsWord(editableContent, `${docType}-${selectedClaim?.ref_number || 'document'}.doc`)} style={{ padding: '6px 14px', fontSize: 12, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }} title="Download as Word">Word</button>
                 <button onClick={generateDocument} style={{ padding: '6px 14px', fontSize: 12, background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Generate & Save</button>
               </div>
             </div>
@@ -476,7 +479,7 @@ function LORILAContent() {
       {/* HISTORY TAB */}
       {activeTab === 'history' && (
         <div>
-          <GeneratedDocsList company={company} onPreview={previewDoc} />
+          <GeneratedDocsList company={company} onPreview={previewDoc} onDownloadPDF={(d) => downloadAsPDF(d.content, `${d.type}-${d.title || 'document'}.pdf`)} onDownloadWord={(d) => downloadAsWord(d.content, `${d.type}-${d.title || 'document'}.doc`)} />
         </div>
       )}
 
@@ -486,8 +489,10 @@ function LORILAContent() {
           <div style={{ background: '#fff', borderRadius: 12, width: '80%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 25px', borderBottom: '1px solid #e2e8f0' }}>
               <h3 style={{ margin: 0, fontSize: 16 }}>Document Preview</h3>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={printDocument} style={{ padding: '6px 16px', fontSize: 12, background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Print / Save as PDF</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => downloadAsPDF(previewContent || editableContent, `${docType}-${selectedClaim?.ref_number || 'document'}.pdf`)} style={{ padding: '6px 14px', fontSize: 12, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>&#x1F4C4; PDF</button>
+                <button onClick={() => downloadAsWord(previewContent || editableContent, `${docType}-${selectedClaim?.ref_number || 'document'}.doc`)} style={{ padding: '6px 14px', fontSize: 12, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>&#x1F4DD; Word</button>
+                <button onClick={printDocument} style={{ padding: '6px 14px', fontSize: 12, background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Print</button>
                 <button className="secondary" onClick={() => setShowPreview(false)} style={{ padding: '6px 16px', fontSize: 12 }}>Close</button>
               </div>
             </div>
@@ -500,7 +505,7 @@ function LORILAContent() {
 }
 
 // Sub-component: Generated Documents History
-function GeneratedDocsList({ company, onPreview }) {
+function GeneratedDocsList({ company, onPreview, onDownloadPDF, onDownloadWord }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -525,8 +530,10 @@ function GeneratedDocsList({ company, onPreview }) {
                 {d.lob} | {new Date(d.created_at).toLocaleDateString()} {new Date(d.created_at).toLocaleTimeString()}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
               <button className="secondary" style={{ fontSize: 11, padding: '4px 12px' }} onClick={() => onPreview(d)}>Preview</button>
+              <button style={{ fontSize: 11, padding: '4px 10px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }} onClick={() => onDownloadPDF(d)}>PDF</button>
+              <button style={{ fontSize: 11, padding: '4px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }} onClick={() => onDownloadWord(d)}>Word</button>
               <button className="secondary" style={{ fontSize: 11, padding: '4px 12px' }} onClick={() => {
                 const printWindow = window.open('', '_blank');
                 printWindow.document.write(`<html><head><title>${d.title}</title><style>body{font-family:'Times New Roman',serif;padding:40px;max-width:800px;margin:0 auto;font-size:14px;line-height:1.6;}table{border-collapse:collapse;width:100%;}td,th{border:1px solid #333;padding:6px 10px;}</style></head><body>${d.content}</body></html>`);
