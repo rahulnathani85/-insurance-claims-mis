@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import { useCompany } from '@/lib/CompanyContext';
@@ -12,25 +12,30 @@ const SECTIONS = [
   { key: 'complaint', label: 'Customer Complaint', icon: '&#x1F4E2;' },
 ];
 
+const FIELD_STYLE = {
+  width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8,
+  fontSize: 13, outline: 'none', boxSizing: 'border-box',
+};
+const LABEL_STYLE = { display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 };
+
 // Field component OUTSIDE the page component to avoid re-mounting on every render
-function Field({ label, field, type, span, textarea, form, updateField, fieldStyle, labelStyle }) {
-  const style = fieldStyle;
+function Field({ label, field, type, span, textarea, form, updateField }) {
   const wrapStyle = span ? { gridColumn: `span ${span}` } : {};
   return (
     <div style={wrapStyle}>
-      <label style={labelStyle}>{label}</label>
+      <label style={LABEL_STYLE}>{label}</label>
       {textarea ? (
         <textarea
           value={form[field] || ''}
           onChange={e => updateField(field, e.target.value)}
-          style={{ ...style, minHeight: 80, resize: 'vertical' }}
+          style={{ ...FIELD_STYLE, minHeight: 80, resize: 'vertical' }}
         />
       ) : (
         <input
           type={type || 'text'}
           value={form[field] || ''}
           onChange={e => updateField(field, e.target.value)}
-          style={style}
+          style={FIELD_STYLE}
         />
       )}
     </div>
@@ -45,6 +50,10 @@ export default function EWRegisterPage() {
   const [activeSection, setActiveSection] = useState('claim');
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState(null);
+
+  // Master data for auto-fetch
+  const [policies, setPolicies] = useState([]);
+  const [insurers, setInsurers] = useState([]);
 
   const [form, setForm] = useState({
     // Claim Details
@@ -63,8 +72,67 @@ export default function EWRegisterPage() {
     customer_complaint: '', complaint_date: '',
   });
 
+  // Load master data for auto-fill
+  useEffect(() => {
+    if (company) {
+      fetch(`/api/policies?company=${encodeURIComponent(company)}`)
+        .then(r => r.json()).then(d => setPolicies(Array.isArray(d) ? d : [])).catch(() => {});
+      fetch('/api/insurers')
+        .then(r => r.json()).then(d => setInsurers(Array.isArray(d) ? d : [])).catch(() => {});
+    }
+  }, [company]);
+
   function updateField(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  function showAlertMsg(msg, type = 'error') {
+    setAlert({ msg, type });
+    setTimeout(() => setAlert(null), 4000);
+  }
+
+  // Auto-fetch insured address from Policy Master
+  function fetchFromPolicyMaster() {
+    const policyNum = (form.policy_number || '').trim();
+    if (!policyNum) { showAlertMsg('Enter a policy number first'); return; }
+    const match = policies.find(p =>
+      (p.policy_number || '').trim().toLowerCase() === policyNum.toLowerCase()
+    );
+    if (match) {
+      const updates = {};
+      if (match.insured_address) updates.insured_address = match.insured_address;
+      if (match.insured_name && !form.insured_name) updates.insured_name = match.insured_name;
+      if (Object.keys(updates).length > 0) {
+        setForm(prev => ({ ...prev, ...updates }));
+        showAlertMsg('Insured address fetched from Policy Master', 'success');
+      } else {
+        showAlertMsg('Policy found but no address on record');
+      }
+    } else {
+      showAlertMsg('Policy number not found in Policy Master');
+    }
+  }
+
+  // Auto-fetch insurer address from Insurer Master
+  function fetchFromInsurerMaster() {
+    const insurerName = (form.insurer_name || '').trim();
+    if (!insurerName) { showAlertMsg('Enter an insurer name first'); return; }
+    const match = insurers.find(ins =>
+      (ins.company_name || '').trim().toLowerCase().includes(insurerName.toLowerCase()) ||
+      insurerName.toLowerCase().includes((ins.company_name || '').trim().toLowerCase())
+    );
+    if (match) {
+      const parts = [match.registered_address, match.city, match.state, match.pin].filter(Boolean);
+      const fullAddress = parts.join(', ');
+      if (fullAddress) {
+        setForm(prev => ({ ...prev, insurer_address: fullAddress }));
+        showAlertMsg(`Insurer address fetched (${match.company_name})`, 'success');
+      } else {
+        showAlertMsg('Insurer found but no address on record');
+      }
+    } else {
+      showAlertMsg('Insurer name not found in Insurer Master');
+    }
   }
 
   async function handleSubmit() {
@@ -102,16 +170,16 @@ export default function EWRegisterPage() {
     }
   }
 
-  const fieldStyle = {
-    width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8,
-    fontSize: 13, outline: 'none', boxSizing: 'border-box',
-  };
-  const labelStyle = { display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 };
   const gridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' };
   const grid3Style = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px 20px' };
 
-  // Common props passed to every Field
-  const fp = { form, updateField, fieldStyle, labelStyle };
+  // Common props for Field component
+  const fp = { form, updateField };
+
+  const fetchBtnStyle = {
+    padding: '4px 10px', fontSize: 10, fontWeight: 600, border: 'none', borderRadius: 5,
+    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4,
+  };
 
   return (
     <PageLayout>
@@ -182,8 +250,37 @@ export default function EWRegisterPage() {
               <div style={gridStyle}>
                 <Field label="Insured Name" field="insured_name" {...fp} />
                 <Field label="Insurer Name" field="insurer_name" {...fp} />
-                <Field label="Insured Address" field="insured_address" span={2} textarea {...fp} />
-                <Field label="Insurer Address" field="insurer_address" span={2} textarea {...fp} />
+
+                {/* Insured Address with Fetch from Policy Master */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <label style={LABEL_STYLE}>Insured Address</label>
+                    <button onClick={fetchFromPolicyMaster} style={{ ...fetchBtnStyle, background: '#fef3c7', color: '#92400e' }} title="Fetch from Policy Master using policy number">
+                      Fetch from Policy Master
+                    </button>
+                  </div>
+                  <textarea
+                    value={form.insured_address || ''}
+                    onChange={e => updateField('insured_address', e.target.value)}
+                    style={{ ...FIELD_STYLE, minHeight: 80, resize: 'vertical' }}
+                  />
+                </div>
+
+                {/* Insurer Address with Fetch from Insurer Master */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <label style={LABEL_STYLE}>Insurer Address</label>
+                    <button onClick={fetchFromInsurerMaster} style={{ ...fetchBtnStyle, background: '#dbeafe', color: '#1e40af' }} title="Fetch from Insurer Master using insurer name">
+                      Fetch from Insurer Master
+                    </button>
+                  </div>
+                  <textarea
+                    value={form.insurer_address || ''}
+                    onChange={e => updateField('insurer_address', e.target.value)}
+                    style={{ ...FIELD_STYLE, minHeight: 80, resize: 'vertical' }}
+                  />
+                </div>
+
                 <Field label="Policy Number" field="policy_number" {...fp} />
                 <Field label="Claim File No." field="claim_file_no" {...fp} />
                 <Field label="Person Contacted" field="person_contacted" {...fp} />
