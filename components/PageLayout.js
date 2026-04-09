@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LOB_LIST, LOB_ICONS, COMPANIES } from '@/lib/constants';
+import { LOB_LIST, LOB_ICONS, LOB_COLORS, COMPANIES } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
 import GlobalChatBox from '@/components/GlobalChatBox';
@@ -95,13 +95,13 @@ export default function PageLayout({ children }) {
             </div>
             <div className="nav-section">
               <Link href="/" className={`nav-item ${pathname === '/' ? 'active' : ''}`}>
-                <span className="nav-icon">ð</span><span>Dashboard</span>
+                <span className="nav-icon">{'\u25A3'}</span><span>Dashboard</span>
               </Link>
             </div>
             {!isAllMode && (
               <div className="nav-section">
                 <Link href="/claim-registration" className={`nav-item primary ${pathname === '/claim-registration' ? 'active' : ''}`}>
-                  <span className="nav-icon">ð</span><span>Claim Registration</span>
+                  <span className="nav-icon">{'\u270E'}</span><span>Claim Registration</span>
                 </Link>
               </div>
             )}
@@ -109,13 +109,13 @@ export default function PageLayout({ children }) {
               <div className="nav-section">
                 <div className="nav-section-title">Extended Warranty</div>
                 <Link href="/ew-vehicle-claims" className={`nav-item ${pathname.startsWith('/ew-vehicle-claims') ? 'active' : ''}`}>
-                  <span className="nav-icon">ð¡ï¸</span><span>EW Vehicle Claims</span>
+                  <span className="nav-icon">{'\u25C6'}</span><span>EW Vehicle Claims</span>
                 </Link>
               </div>
             )}
             <div className="nav-section">
               <Link href="/mis-portal" className={`nav-item ${pathname === '/mis-portal' ? 'active' : ''}`}>
-                <span className="nav-icon">ð</span><span>MIS Portal</span>
+                <span className="nav-icon">{'\u25B2'}</span><span>MIS Portal</span>
               </Link>
             </div>
             {!isAllMode && (
@@ -123,73 +123,79 @@ export default function PageLayout({ children }) {
                 <div className="nav-section">
                   <div className="nav-section-title">Masters</div>
                   <Link href="/insurer-master" className={`nav-item ${pathname === '/insurer-master' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð¢</span><span>Insurer Master</span>
+                    <span className="nav-icon">{'\u25AB'}</span><span>Insurer Master</span>
                   </Link>
                   <Link href="/policy-master" className={`nav-item ${pathname === '/policy-master' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð</span><span>Policy Master</span>
+                    <span className="nav-icon">{'\u25AB'}</span><span>Policy Master</span>
                   </Link>
                   <Link href="/broker-master" className={`nav-item ${pathname === '/broker-master' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð¤</span><span>Broker Master</span>
+                    <span className="nav-icon">{'\u25AB'}</span><span>Broker Master</span>
                   </Link>
                   <Link href="/policy-directory" className={`nav-item ${pathname === '/policy-directory' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð</span><span>Policy Directory</span>
+                    <span className="nav-icon">{'\u25AB'}</span><span>Policy Directory</span>
                   </Link>
                   <Link href="/ref-number-portal" className={`nav-item ${pathname === '/ref-number-portal' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð¢</span><span>Ref Number Portal</span>
+                    <span className="nav-icon">{'\u25AB'}</span><span>Ref Number Portal</span>
                   </Link>
                 </div>
                 <div className="nav-section">
-                  <div className="nav-section-title">Workflow</div>
+                        <div className="nav-section-title">Workflow</div>
                   <Link href="/workflow-overview" className={`nav-item ${pathname === '/workflow-overview' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð</span><span>Workflow Overview</span>
+                    <span className="nav-icon">{'\u21BB'}</span><span>Workflow Overview</span>
                   </Link>
                 </div>
                 <div className="nav-section">
                   <div className="nav-section-title">Documents</div>
                   <Link href="/lor-ila-generator" className={`nav-item ${pathname === '/lor-ila-generator' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð</span><span>LOR / ILA Generator</span>
+                    <span className="nav-icon">{'\u25A1'}</span><span>LOR / ILA Generator</span>
                   </Link>
                   <Link href="/file-tracking" className={`nav-item ${pathname === '/file-tracking' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð</span><span>File Tracking</span>
+                    <span className="nav-icon">{'\u25A1'}</span><span>File Tracking</span>
                   </Link>
                   <Link href="/file-assignments" className={`nav-item ${pathname === '/file-assignments' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð</span><span>File Assignments</span>
+                    <span className="nav-icon">{'\u25A1'}</span><span>File Assignments</span>
                   </Link>
                 </div>
                 {user?.role === 'Admin' && (
                   <div className="nav-section">
                     <div className="nav-section-title">Admin</div>
                     <Link href="/user-management" className={`nav-item ${pathname === '/user-management' ? 'active' : ''}`}>
-                      <span className="nav-icon">ð¥</span><span>User Management</span>
+                      <span className="nav-icon">{'\u2630'}</span><span>User Management</span>
                     </Link>
                     <Link href="/activity-log" className={`nav-item ${pathname === '/activity-log' ? 'active' : ''}`}>
-                      <span className="nav-icon">ð</span><span>Activity Log</span>
+                      <span className="nav-icon">{'\u2630'}</span><span>Activity Log</span>
                     </Link>
                     <Link href="/user-monitoring" className={`nav-item ${pathname === '/user-monitoring' ? 'active' : ''}`}>
-                      <span className="nav-icon">ðï¸</span><span>User Monitoring</span>
+                      <span className="nav-icon">{'\u2630'}</span><span>User Monitoring</span>
                     </Link>
                   </div>
                 )}
                 <div className="nav-section">
                   <div className="nav-section-title">Billing</div>
                   <Link href="/survey-fee-bill" className={`nav-item ${pathname === '/survey-fee-bill' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð§¾</span><span>Survey Fee Bill</span>
+                    <span className="nav-icon">{'\u25B8'}</span><span>Survey Fee Bill</span>
                   </Link>
                 </div>
                 <div className="nav-section">
                   <div className="nav-section-title">System</div>
                   <Link href="/backup" className={`nav-item ${pathname === '/backup' ? 'active' : ''}`}>
-                    <span className="nav-icon">ð¾</span><span>Data Backup</span>
+                    <span className="nav-icon">{'\u25B8'}</span><span>Data Backup</span>
                   </Link>
                 </div>
                 <div className="nav-section">
                   <div className="nav-section-title">Claims by LOB</div>
-                  {LOB_LIST.map(lob => (
-                    <Link key={lob} href={`/claims/${encodeURIComponent(lob)}`}
-                      className={`nav-item ${pathname.includes(encodeURIComponent(lob)) ? 'active' : ''}`}>
-                      <span className="nav-icon">{LOB_ICONS[lob]}</span><span>{lob}</span>
-                    </Link>
-                  ))}
+                  {LOB_LIST.map(lob => {
+                    const lobHref = lob === 'Extended Warranty' ? '/ew-vehicle-claims' : `/claims/${encodeURIComponent(lob)}`;
+                    const isActive = lob === 'Extended Warranty'
+                      ? pathname.startsWith('/ew-vehicle-claims')
+                      : pathname.includes(encodeURIComponent(lob));
+                    return (
+                      <Link key={lob} href={lobHref}
+                        className={`nav-item ${isActive ? 'active' : ''}`}>
+                        <span className="nav-icon" style={{ color: LOB_COLORS[lob] || '#666' }}>{'\u25CF'}</span><span>{lob}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
               </>
             )}
