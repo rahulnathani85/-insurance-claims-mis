@@ -36,6 +36,38 @@ export default function EWVehicleClaimsPage() {
     }
   }
 
+  // When user clicks an unlinked claim (from claims table), auto-create EW record
+  async function handleClaimClick(claim) {
+    if (claim._needs_ew_setup) {
+      try {
+        setAlert({ msg: 'Setting up EW lifecycle for this claim...', type: 'success' });
+        const res = await fetch('/api/ew-claims', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            claim_id: claim.claim_id,
+            ref_number: claim.ref_number,
+            company: claim.company,
+            insured_name: claim.insured_name,
+            customer_name: claim.customer_name || claim.insured_name,
+            vehicle_reg_no: claim.vehicle_reg_no || null,
+            vehicle_make: claim.vehicle_make || null,
+            chassis_number: claim.chassis_number || null,
+            dealer_name: claim.dealer_name || null,
+            created_by: user?.email,
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to create EW record');
+        const ewClaim = await res.json();
+        router.push(`/ew-vehicle-claims/${ewClaim.id}`);
+      } catch (e) {
+        setAlert({ msg: e.message, type: 'error' });
+      }
+    } else {
+      router.push(`/ew-vehicle-claims/${claim.id}`);
+    }
+  }
+
   async function handleDelete(id, ref) {
     try {
       const res = await fetch(`/api/ew-claims?id=${id}`, { method: 'DELETE' });
@@ -184,12 +216,15 @@ export default function EWVehicleClaimsPage() {
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => router.push(`/ew-vehicle-claims/${c.id}`)}
+                      onClick={() => handleClaimClick(c)}
                       style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
-                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#7c3aed' }}>{c.ref_number || '-'}</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#7c3aed' }}>
+                        {c.ref_number || '-'}
+                        {c._needs_ew_setup && <span style={{ marginLeft: 6, fontSize: 9, padding: '2px 6px', borderRadius: 8, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>NEW</span>}
+                      </td>
                       <td style={{ padding: '10px 12px' }}>{c.customer_name || '-'}</td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>{c.vehicle_make} {c.model_fuel_type || ''}</td>
                       <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12 }}>{c.vehicle_reg_no || '-'}</td>
@@ -217,16 +252,20 @@ export default function EWVehicleClaimsPage() {
                         {c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '-'}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
-                        <button
-                          onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: c.id, ref: c.ref_number }); }}
-                          title="Delete claim"
-                          style={{
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            color: '#ef4444', fontSize: 16, padding: '2px 6px',
-                          }}
-                        >
-                          &#x1F5D1;
-                        </button>
+                        {!c._needs_ew_setup ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: c.id, ref: c.ref_number }); }}
+                            title="Delete claim"
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              color: '#ef4444', fontSize: 16, padding: '2px 6px',
+                            }}
+                          >
+                            &#x1F5D1;
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>Click to setup</span>
+                        )}
                       </td>
                     </tr>
                   );
