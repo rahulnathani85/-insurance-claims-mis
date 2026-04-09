@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 import { MARINE_CLIENT_FORMATS } from '@/lib/constants';
 
@@ -165,5 +166,72 @@ export async function POST(request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Auto-create linked ew_vehicle_claims record when LOB is Extended Warranty
+  if (body.lob === 'Extended Warranty') {
+    try {
+      const ewData = {
+        claim_id: data.id,
+        ref_number: refNumber,
+        company,
+        insured_name: body.insured_name || null,
+        insurer_name: body.insurer_name || null,
+        insurer_address: null,
+        insured_address: null,
+        policy_number: body.policy_number || null,
+        claim_file_no: body.claim_number || null,
+        date_of_intimation: body.date_intimation || null,
+        customer_name: body.insured_name || null,
+        vehicle_reg_no: null,
+        vehicle_make: body.model_spec || null,
+        chassis_number: body.chassis_number || null,
+        dealer_name: body.dealer_name || null,
+        customer_complaint: body.remark || null,
+        survey_date: body.date_survey || null,
+        survey_location: body.place_survey || body.loss_location || null,
+        report_date: body.date_fsr || null,
+        current_stage: 1,
+        current_stage_name: 'Claim Intimation',
+        status: 'Open',
+        created_by: body.created_by || body.assigned_to || null,
+      };
+
+      const { data: ewClaim, error: ewErr } = await supabaseAdmin
+        .from('ew_vehicle_claims')
+        .insert([ewData])
+        .select()
+        .single();
+
+      if (ewClaim && !ewErr) {
+        // Initialize 12 lifecycle stages
+        const EW_STAGES = [
+          { number: 1, name: 'Claim Intimation' },
+          { number: 2, name: 'Claim Registration' },
+          { number: 3, name: 'Contact Dealer' },
+          { number: 4, name: 'Initial Inspection' },
+          { number: 5, name: 'Document Analysis' },
+          { number: 6, name: 'Initial Observation Shared' },
+          { number: 7, name: 'Dismantled Inspection' },
+          { number: 8, name: 'Estimate Approved' },
+          { number: 9, name: 'Reinspection' },
+          { number: 10, name: 'Tax Invoice Collected' },
+          { number: 11, name: 'Assessment Done' },
+          { number: 12, name: 'FSR Prepared' },
+        ];
+        const stages = EW_STAGES.map(s => ({
+          ew_claim_id: ewClaim.id,
+          stage_number: s.number,
+          stage_name: s.name,
+          status: s.number === 1 ? 'In Progress' : 'Pending',
+          started_date: s.number === 1 ? new Date().toISOString() : null,
+        }));
+        await supabaseAdmin.from('ew_claim_stages').insert(stages);
+      }
+    } catch (ewError) {
+      console.error('Failed to auto-create EW record:', ewError);
+      // Don't fail the main claim creation
+    }
+  }
+
   return NextResponse.json({ id: data.id, ref_number: refNumber, folder_path: folderPath }, { status: 201 });
 }
