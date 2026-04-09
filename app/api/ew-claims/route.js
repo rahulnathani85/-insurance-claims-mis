@@ -17,6 +17,7 @@ const EW_STAGES = [
 ];
 
 // GET - List EW claims with filters
+// Also returns unlinked claims from claims table with LOB=Extended Warranty
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -24,7 +25,9 @@ export async function GET(request) {
     const status = searchParams.get('status');
     const search = searchParams.get('search');
     const id = searchParams.get('id');
+    const claimId = searchParams.get('claim_id');
 
+    // Fetch single EW claim by id
     if (id) {
       const { data, error } = await supabaseAdmin
         .from('ew_vehicle_claims')
@@ -35,6 +38,19 @@ export async function GET(request) {
       return NextResponse.json(data);
     }
 
+    // Fetch EW claim by linked claims table id
+    if (claimId) {
+      const { data, error } = await supabaseAdmin
+        .from('ew_vehicle_claims')
+        .select('*')
+        .eq('claim_id', parseInt(claimId))
+        .single();
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) return NextResponse.json(data);
+      return NextResponse.json(null);
+    }
+
+    // List all EW claims
     let query = supabaseAdmin
       .from('ew_vehicle_claims')
       .select('*')
@@ -47,12 +63,51 @@ export async function GET(request) {
       query = query.eq('status', status);
     }
     if (search) {
-      query = query.or(`ref_number.ilike.%${search}%,customer_name.ilike.%${search}%,vehicle_reg_no.ilike.%${search}%,chassis_number.ilike.%${search}%,claim_file_no.ilike.%${search}%`);
+      query = query.or(`ref_number.ilike.%${search}%,customer_name.ilike.%${search}%,vehicle_reg_no.ilike.%${search}%,chassis_number.ilike.%${search}%,claim_file_no.ilike.%${search}%,insured_name.ilike.%${search}%`);
     }
 
     const { data, error } = await query;
     if (error) throw error;
-    return NextResponse.json(data || []);
+
+    // Also find unlinked claims from main claims table with LOB=Extended Warranty
+    const linkedClaimIds = (data || []).filter(d => d.claim_id).map(d => d.claim_id);
+    let unlinkedQuery = supabaseAdmin
+      .from('claims')
+      .select('*')
+      .eq('lob', 'Extended Warranty')
+      .order('created_at', { ascending: false });
+
+    if (company && company !== 'All') {
+      unlinkedQuery = unlinkedQuery.eq('company', company);
+    }
+    if (linkedClaimIds.length > 0) {
+      // Exclude claims already linked to EW records
+      unlinkedQuery = unlinkedQuery.not('id', 'in', `(${linkedClaimIds.join(',')})`);
+    }
+
+    const { data: unlinkedClaims } = await unlinkedQuery;
+
+    // Convert unlinked claims to EW format for display
+    const unlinkedFormatted = (unlinkedClaims || []).map(c => ({
+      id: `claim-${c.id}`,
+      claim_id: c.id,
+      ref_number: c.ref_number,
+      company: c.company,
+      insured_name: c.insured_name,
+      customer_name: c.insured_name,
+      vehicle_reg_no: null,
+      vehicle_make: c.model_spec || null,
+      chassis_number: c.chassis_number || null,
+      dealer_name: c.dealer_name || null,
+      current_stage: 0,
+      current_stage_name: 'Not Started',
+      status: c.status || 'Open',
+      created_at: c.created_at,
+      _source: 'claims',
+      _needs_ew_setup: true,
+    }));
+
+    return NextResponse.json([...(data || []), ...unlinkedFormatted]);
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
