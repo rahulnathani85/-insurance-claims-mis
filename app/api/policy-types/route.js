@@ -1,6 +1,10 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+// Always fetch fresh — never cache this route
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
   const { data, error } = await supabase
     .from('policy_types')
