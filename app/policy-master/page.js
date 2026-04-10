@@ -44,7 +44,9 @@ export default function PolicyMaster() {
   async function loadPolicyTypes(lob) {
     if (!lob) { setPolicyTypes([]); return; }
     try {
-      const data = await fetch(`/api/policy-types/${encodeURIComponent(lob)}`).then(r => r.json());
+      // cache-bust with timestamp + no-store so we always get the latest list from Supabase
+      const url = `/api/policy-types/${encodeURIComponent(lob)}?t=${Date.now()}`;
+      const data = await fetch(url, { cache: 'no-store' }).then(r => r.json());
       setPolicyTypes(Array.isArray(data) ? data : []);
     } catch { setPolicyTypes([]); }
   }
