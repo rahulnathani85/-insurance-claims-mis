@@ -310,10 +310,19 @@ export default function PolicyMaster() {
                 </div>
                 <div className="form-group">
                   <label>Type of Policy</label>
-                  <select value={formData.policy_type || ''} onChange={e => setFormData({ ...formData, policy_type: e.target.value })}>
-                    <option value="">-- Select Policy Type --</option>
-                    {policyTypes.map(pt => <option key={pt.id} value={pt.policy_type}>{pt.policy_type}</option>)}
-                  </select>
+                  <input
+                    list="policy-type-options"
+                    value={formData.policy_type || ''}
+                    onChange={e => setFormData({ ...formData, policy_type: e.target.value })}
+                    placeholder={formData.lob ? 'Select or type a policy type' : 'Select an LOB first'}
+                    disabled={!formData.lob}
+                  />
+                  <datalist id="policy-type-options">
+                    {policyTypes.map(pt => <option key={pt.id} value={pt.policy_type} />)}
+                  </datalist>
+                  <small style={{ color: '#6b7280', fontSize: 11 }}>
+                    Pick from the list or type a custom value. Manage the list in Policy Directory.
+                  </small>
                 </div>
               </div>
             </div>
