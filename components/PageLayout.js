@@ -126,6 +126,16 @@ export default function PageLayout({ children }) {
                 <Link href="/claim-registration" className={`nav-item primary ${pathname === '/claim-registration' ? 'active' : ''}`}>
                   <SideIcon letter="+" bg="#1e3a5f" color="#fff" /><span>Claim Registration</span>
                 </Link>
+                <Link href="/mis-portal" className={`nav-item ${pathname === '/mis-portal' ? 'active' : ''}`}>
+                  <SideIcon letter="M" bg="#dcfce7" color="#15803d" /><span>MIS Portal</span>
+                </Link>
+              </div>
+            )}
+            {isAllMode && (
+              <div className="nav-section">
+                <Link href="/mis-portal" className={`nav-item ${pathname === '/mis-portal' ? 'active' : ''}`}>
+                  <SideIcon letter="M" bg="#dcfce7" color="#15803d" /><span>MIS Portal</span>
+                </Link>
               </div>
             )}
 
@@ -133,17 +143,17 @@ export default function PageLayout({ children }) {
             {!isAllMode && (
               <div className="nav-section">
                 <div className="nav-section-title">Extended Warranty</div>
-                <Link href="/ew-vehicle-claims" className={`nav-item ${pathname.startsWith('/ew-vehicle-claims') ? 'active' : ''}`}>
+                <Link href="/ew-vehicle-claims" className={`nav-item ${pathname === '/ew-vehicle-claims' || (pathname.startsWith('/ew-vehicle-claims/') && !pathname.startsWith('/ew-vehicle-claims/dashboard') && !pathname.startsWith('/ew-vehicle-claims/mis')) ? 'active' : ''}`}>
                   <SideIcon letter="EW" bg="#ede9fe" color="#7c3aed" /><span>EW Vehicle Claims</span>
+                </Link>
+                <Link href="/ew-vehicle-claims/dashboard" className={`nav-item ${pathname === '/ew-vehicle-claims/dashboard' ? 'active' : ''}`}>
+                  <SideIcon letter="ED" bg="#ddd6fe" color="#5b21b6" /><span>EW Dashboard</span>
+                </Link>
+                <Link href="/ew-vehicle-claims/mis" className={`nav-item ${pathname === '/ew-vehicle-claims/mis' ? 'active' : ''}`}>
+                  <SideIcon letter="EM" bg="#e0e7ff" color="#4338ca" /><span>Extended Warranty MIS</span>
                 </Link>
               </div>
             )}
-
-            <div className="nav-section">
-              <Link href="/mis-portal" className={`nav-item ${pathname === '/mis-portal' ? 'active' : ''}`}>
-                <SideIcon letter="M" bg="#dcfce7" color="#15803d" /><span>MIS Portal</span>
-              </Link>
-            </div>
             {!isAllMode && (
               <>
                 <div className="nav-section">
