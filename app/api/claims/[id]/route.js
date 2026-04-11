@@ -1,6 +1,22 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+// Fields that live in both claims and ew_vehicle_claims and should stay in sync.
+// date_intimation <-> date_of_intimation is handled separately (name differs).
+const SHARED_CLAIM_EW_FIELDS = [
+  'insured_name',
+  'insurer_name',
+  'insured_address',
+  'insurer_address',
+  'policy_number',
+  'claim_file_no',
+  'person_contacted',
+  'estimated_loss_amount',
+];
+
 // GET - Fetch single claim by ID
 export async function GET(request, { params }) {
   const { id } = params;
@@ -49,6 +65,11 @@ export async function PUT(request, { params }) {
   delete body._old_lob;
   delete body._new_lob;
 
+  // Flag from the EW detail page telling us to skip the claims -> ew sync
+  // (the caller already updated the EW row and would cause a loop).
+  const skipEwSync = body._skip_ew_sync === true;
+  delete body._skip_ew_sync;
+
   // Remove fields that shouldn't be updated directly
   delete body.id;
   delete body.created_at;
@@ -66,8 +87,43 @@ export async function PUT(request, { params }) {
     delete body.ref_number;
   }
 
+  // Clean empty estimated_loss_amount so Postgres numeric doesn't choke on ""
+  if (body.estimated_loss_amount === '' || body.estimated_loss_amount === null) {
+    delete body.estimated_loss_amount;
+  } else if (body.estimated_loss_amount !== undefined) {
+    const n = parseFloat(body.estimated_loss_amount);
+    if (isNaN(n)) delete body.estimated_loss_amount;
+    else body.estimated_loss_amount = n;
+  }
+
   const { error } = await supabase.from('claims').update(body).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Bidirectional sync: push shared field updates to any linked ew_vehicle_claims row.
+  // Fire-and-forget so the caller's response isn't held up by the sync.
+  if (!skipEwSync) {
+    try {
+      const ewUpdate = {};
+      SHARED_CLAIM_EW_FIELDS.forEach(f => {
+        if (body[f] !== undefined) ewUpdate[f] = body[f];
+      });
+      // Map date_intimation (claims) -> date_of_intimation (ew)
+      if (body.date_intimation !== undefined) {
+        ewUpdate.date_of_intimation = body.date_intimation || null;
+      }
+      if (Object.keys(ewUpdate).length > 0) {
+        ewUpdate.updated_at = new Date().toISOString();
+        await supabase
+          .from('ew_vehicle_claims')
+          .update(ewUpdate)
+          .eq('claim_id', id);
+      }
+    } catch (syncErr) {
+      // Non-fatal
+      console.warn('EW sync from claims update failed:', syncErr?.message || syncErr);
+    }
+  }
+
   return NextResponse.json({ success: true });
 }
 
