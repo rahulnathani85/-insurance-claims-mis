@@ -12,6 +12,7 @@ export default function InsurerMaster() {
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState({});
   const [officeForm, setOfficeForm] = useState({});
+  const [editOfficeId, setEditOfficeId] = useState(null);
   const [selectedInsurer, setSelectedInsurer] = useState(null);
   const [expandedInsurer, setExpandedInsurer] = useState(null);
   const [alert, setAlert] = useState(null);
@@ -97,7 +98,15 @@ export default function InsurerMaster() {
 
   function openAddOffice(insurer) {
     setSelectedInsurer(insurer);
+    setEditOfficeId(null);
     setOfficeForm({ type: 'Regional Office' });
+    setShowOfficeModal(true);
+  }
+
+  function openEditOffice(insurer, office) {
+    setSelectedInsurer(insurer);
+    setEditOfficeId(office.id);
+    setOfficeForm({ ...office });
     setShowOfficeModal(true);
   }
 
@@ -107,14 +116,30 @@ export default function InsurerMaster() {
       return;
     }
     try {
-      const res = await fetch(`/api/insurer-offices/${selectedInsurer.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(officeForm)
-      });
-      if (!res.ok) throw new Error('Failed to add office');
-      showAlert('Office added successfully', 'success');
+      const payload = { ...officeForm };
+      delete payload.id;
+      delete payload.insurer_id;
+      delete payload.created_at;
+
+      if (editOfficeId) {
+        const res = await fetch(`/api/insurer-offices/${editOfficeId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to update office');
+        showAlert('Office updated successfully', 'success');
+      } else {
+        const res = await fetch(`/api/insurer-offices/${selectedInsurer.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to add office');
+        showAlert('Office added successfully', 'success');
+      }
       setShowOfficeModal(false);
+      setEditOfficeId(null);
       await loadInsurers();
     } catch (e) {
       showAlert('Failed: ' + e.message, 'error');
@@ -223,6 +248,7 @@ export default function InsurerMaster() {
                                   <td style={{ padding: '6px 12px', fontSize: 12 }}>{o.city || '-'}</td>
                                   <td style={{ padding: '6px 12px', fontSize: 11 }}>{o.contact_person || '-'}{o.phone ? ` | ${o.phone}` : ''}</td>
                                   <td style={{ padding: '6px 12px' }}>
+                                    <button className="secondary" style={{ fontSize: 11, padding: '2px 8px', marginRight: 4 }} onClick={() => openEditOffice(i, o)}>Edit</button>
                                     <button className="danger" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => deleteOffice(o.id)}>Delete</button>
                                   </td>
                                 </tr>
@@ -320,10 +346,15 @@ export default function InsurerMaster() {
 
       {/* Office Modal */}
       {showOfficeModal && selectedInsurer && (
-        <div className="modal show" onClick={e => e.target.className.includes('modal show') && setShowOfficeModal(false)}>
+        <div className="modal show" onClick={e => {
+          if (e.target.className.includes('modal show')) {
+            setShowOfficeModal(false);
+            setEditOfficeId(null);
+          }
+        }}>
           <div className="modal-content wide">
-            <span className="modal-close" onClick={() => setShowOfficeModal(false)}>&times;</span>
-            <h3>Add Office - {selectedInsurer.company_name}</h3>
+            <span className="modal-close" onClick={() => { setShowOfficeModal(false); setEditOfficeId(null); }}>&times;</span>
+            <h3>{editOfficeId ? 'Edit Office' : 'Add Office'} - {selectedInsurer.company_name}</h3>
 
             <div className="form-section">
               <div className="form-row">
@@ -377,8 +408,8 @@ export default function InsurerMaster() {
             </div>
 
             <div style={{ marginTop: 20 }}>
-              <button className="success" style={{ width: '100%' }} onClick={saveOffice}>Add Office</button>
-              <button className="secondary" style={{ width: '100%', marginTop: 10 }} onClick={() => setShowOfficeModal(false)}>Cancel</button>
+              <button className="success" style={{ width: '100%' }} onClick={saveOffice}>{editOfficeId ? 'Update Office' : 'Add Office'}</button>
+              <button className="secondary" style={{ width: '100%', marginTop: 10 }} onClick={() => { setShowOfficeModal(false); setEditOfficeId(null); }}>Cancel</button>
             </div>
           </div>
         </div>
