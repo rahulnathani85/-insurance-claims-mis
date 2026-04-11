@@ -230,6 +230,36 @@ function ClaimsLobContent() {
     updateFormData(updates);
   }
 
+  // Resolve a single insurer office's full postal address from the
+  // office list loaded from /api/offices. Joins address, city, state,
+  // pin into one line. Returns empty string if the office cannot be
+  // resolved or has no address fields.
+  function buildOfficeAddress(office) {
+    if (!office) return '';
+    const parts = [office.address, office.city, office.state, office.pin].filter(Boolean);
+    return parts.join(', ');
+  }
+
+  // When the user picks an Appointing Insurer Office we want the
+  // Insurer Address on the claim form to reflect THAT specific office
+  // (branch) rather than the insurer-level registered address. Falls
+  // back to the insurer master address if the office has no address
+  // on file, so the user is never left with a blank field.
+  function handleAppointingOfficeSelect(officeKey) {
+    const updates = { appointing_office: officeKey };
+    const office = offices.find(o => `${o.name} - ${o.company}` === officeKey);
+    if (office) {
+      const officeAddr = buildOfficeAddress(office);
+      if (officeAddr) {
+        updates.insurer_address = officeAddr;
+      } else if (office.company) {
+        const fallback = buildInsurerAddress(office.company);
+        if (fallback) updates.insurer_address = fallback;
+      }
+    }
+    updateFormData(updates);
+  }
+
   // Policy autocomplete: filter policies based on search input
   const filteredPolicies = policies.filter(p => {
     if (!policySearch) return true;
@@ -738,7 +768,7 @@ function ClaimsLobContent() {
                 {formData.appointing_type === 'Insurer' && (
                   <div className="form-group">
                     <label>Appointing Insurer Office</label>
-                    <select value={formData.appointing_office || ''} onChange={e => updateFormData({ appointing_office: e.target.value })}>
+                    <select value={formData.appointing_office || ''} onChange={e => handleAppointingOfficeSelect(e.target.value)}>
                       <option value="">-- Select Office --</option>
                       {offices.map(o => <option key={o.id} value={`${o.name} - ${o.company}`}>{o.name} - {o.company} ({o.city})</option>)}
                     </select>
