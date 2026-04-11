@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+// Always run dynamically — never serve a cached response so template
+// edits are reflected in every FSR generation.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // POST - Generate FSR HTML for PDF/Word rendering on the client.
 export async function POST(request) {
   try {
