@@ -105,6 +105,19 @@ export default function EWClaimDetailPage() {
     }
   }, [company]);
 
+  // Shared fields that live in both claims and ew_vehicle_claims
+  // (date_intimation <-> date_of_intimation is handled separately)
+  const SHARED_FIELDS = [
+    'insured_name',
+    'insurer_name',
+    'insured_address',
+    'insurer_address',
+    'policy_number',
+    'claim_file_no',
+    'person_contacted',
+    'estimated_loss_amount',
+  ];
+
   async function loadAll() {
     try {
       setLoading(true);
@@ -113,8 +126,39 @@ export default function EWClaimDetailPage() {
         fetch(`/api/ew-claim-stages?ew_claim_id=${id}`).then(r => r.json()),
         fetch(`/api/ew-claim-media?ew_claim_id=${id}`).then(r => r.json()),
       ]);
-      setClaim(claimRes);
-      setEditForm(claimRes || {});
+
+      let merged = claimRes || {};
+
+      // If this EW claim is linked to a row in the main claims table,
+      // fetch it and pull shared fields across so the form pre-populates
+      // with whatever was entered at Claim Registration time.
+      if (claimRes && claimRes.claim_id) {
+        try {
+          const parentClaim = await fetch(`/api/claims/${claimRes.claim_id}`).then(r => r.json());
+          if (parentClaim && !parentClaim.error) {
+            const enriched = { ...merged };
+            SHARED_FIELDS.forEach(f => {
+              // Parent claim value wins when the EW row is blank, otherwise
+              // keep whatever is already on the EW row (avoid overwriting
+              // data that was edited via the EW detail page).
+              if ((enriched[f] === undefined || enriched[f] === null || enriched[f] === '') && parentClaim[f] !== undefined && parentClaim[f] !== null && parentClaim[f] !== '') {
+                enriched[f] = parentClaim[f];
+              }
+            });
+            // Map date_intimation (claims) -> date_of_intimation (ew)
+            if ((enriched.date_of_intimation === undefined || enriched.date_of_intimation === null || enriched.date_of_intimation === '') && parentClaim.date_intimation) {
+              enriched.date_of_intimation = parentClaim.date_intimation;
+            }
+            merged = enriched;
+          }
+        } catch (fetchErr) {
+          // Non-fatal - fall back to EW row values
+          console.warn('Could not fetch parent claim for auto-populate:', fetchErr);
+        }
+      }
+
+      setClaim(merged);
+      setEditForm(merged);
       setStages(Array.isArray(stagesRes) ? stagesRes : []);
       setMedia(Array.isArray(mediaRes) ? mediaRes : []);
       // Initialize stage notes
@@ -209,6 +253,38 @@ export default function EWClaimDetailPage() {
       const updated = await res.json();
       setClaim(updated);
       setEditForm(updated);
+
+      // Write-back shared fields to the linked parent claim (bidirectional sync)
+      // so Claim Registration and Claim Detail pages reflect the same values.
+      if (updated && updated.claim_id) {
+        try {
+          const syncPayload = {};
+          SHARED_FIELDS.forEach(f => {
+            if (editForm[f] !== undefined && editForm[f] !== null) syncPayload[f] = editForm[f];
+          });
+          // Map date_of_intimation (ew) -> date_intimation (claims)
+          if (editForm.date_of_intimation) {
+            syncPayload.date_intimation = editForm.date_of_intimation;
+          }
+          // Normalize numeric
+          if (syncPayload.estimated_loss_amount === '' || syncPayload.estimated_loss_amount === undefined) {
+            delete syncPayload.estimated_loss_amount;
+          } else if (syncPayload.estimated_loss_amount != null) {
+            const n = parseFloat(syncPayload.estimated_loss_amount);
+            if (!isNaN(n)) syncPayload.estimated_loss_amount = n;
+          }
+          // Flag to stop the /api/claims PUT from re-syncing back to EW and looping
+          syncPayload._skip_ew_sync = true;
+          await fetch(`/api/claims/${updated.claim_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(syncPayload),
+          });
+        } catch (syncErr) {
+          console.warn('Parent claim sync failed (non-fatal):', syncErr);
+        }
+      }
+
       showAlert('Claim data saved');
     } catch (e) {
       showAlert(e.message, 'error');
