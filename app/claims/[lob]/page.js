@@ -795,6 +795,60 @@ function ClaimsLobContent() {
             )}
 
             <div className="form-section">
+              <h4>Contact &amp; Additional Details</h4>
+              <div className="form-row">
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label>Insured Address</label>
+                  <textarea
+                    value={formData.insured_address || ''}
+                    onChange={e => updateFormData({ insured_address: e.target.value })}
+                    rows={2}
+                    placeholder="Address of the insured party"
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label>Insurer Address</label>
+                  <textarea
+                    value={formData.insurer_address || ''}
+                    onChange={e => updateFormData({ insurer_address: e.target.value })}
+                    rows={2}
+                    placeholder="Address of the insurer office"
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Claim File No.</label>
+                  <input
+                    value={formData.claim_file_no || ''}
+                    onChange={e => updateFormData({ claim_file_no: e.target.value })}
+                    placeholder="Insurer's claim file number"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Person Contacted</label>
+                  <input
+                    value={formData.person_contacted || ''}
+                    onChange={e => updateFormData({ person_contacted: e.target.value })}
+                    placeholder="Name of person contacted"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Estimated Loss Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.estimated_loss_amount || ''}
+                    onChange={e => updateFormData({ estimated_loss_amount: e.target.value })}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="form-section">
               <h4>Important Dates</h4>
               <div className="form-row">
                 <div className="form-group">
