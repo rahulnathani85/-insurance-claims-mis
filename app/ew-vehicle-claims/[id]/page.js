@@ -118,6 +118,17 @@ export default function EWClaimDetailPage() {
     'estimated_loss_amount',
   ];
 
+  // Standard opener surveyors use for every initial observation entry
+  // so that the paragraph in the FSR starts consistently.
+  const DEFAULT_INITIAL_OBSERVATION = 'During our survey, it was noted that ';
+
+  // Standard conclusion paragraph. The surrounding Note: bullets,
+  // without-prejudice disclaimer and signatory block already live in
+  // the FSR HTML template â this field is only the main paragraph that
+  // sits under the "5. CONCLUSION:" heading so the surveyor can tweak
+  // it per claim if needed.
+  const DEFAULT_CONCLUSION_TEXT = 'In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued.';
+
   async function loadAll() {
     try {
       setLoading(true);
@@ -155,6 +166,15 @@ export default function EWClaimDetailPage() {
           // Non-fatal - fall back to EW row values
           console.warn('Could not fetch parent claim for auto-populate:', fetchErr);
         }
+      }
+
+      // Prefill survey / conclusion defaults if the surveyor hasn't
+      // written anything yet. Only fills blanks, never overwrites.
+      if (!merged.initial_observation || !merged.initial_observation.trim()) {
+        merged.initial_observation = DEFAULT_INITIAL_OBSERVATION;
+      }
+      if (!merged.conclusion_text || !merged.conclusion_text.trim()) {
+        merged.conclusion_text = DEFAULT_CONCLUSION_TEXT;
       }
 
       setClaim(merged);
