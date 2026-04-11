@@ -56,6 +56,9 @@ function MISPortalContent() {
       const data = await fetch('/api/claims?' + params.toString()).then(r => r.json());
       let result = Array.isArray(data) ? data : [];
 
+      // Always exclude Extended Warranty claims — they have a dedicated Extended Warranty MIS page
+      result = result.filter(c => c.lob !== 'Extended Warranty');
+
       // Client-side filters
       if (filterPolicyType) result = result.filter(c => c.policy_type?.toLowerCase().includes(filterPolicyType.toLowerCase()));
       if (filterDateSubFrom) result = result.filter(c => c.date_submission >= filterDateSubFrom);
@@ -146,8 +149,8 @@ function MISPortalContent() {
           </div>
           <div className="filter-row">
             <select value={filterLob} onChange={e => setFilterLob(e.target.value)}>
-              <option value="">All LOBs</option>
-              {LOB_LIST.map(lob => <option key={lob} value={lob}>{lob}</option>)}
+              <option value="">All LOBs (excl. Extended Warranty)</option>
+              {LOB_LIST.filter(lob => lob !== 'Extended Warranty').map(lob => <option key={lob} value={lob}>{lob}</option>)}
             </select>
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
               <option value="">All Status</option>
