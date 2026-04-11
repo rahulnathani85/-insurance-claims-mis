@@ -185,12 +185,49 @@ function ClaimsLobContent() {
   function handlePolicySelect(policyNumber) {
     const policy = policies.find(p => p.policy_number === policyNumber);
     if (policy) {
-      updateFormData({ policy_number: policyNumber, insured_name: policy.insured_name, insurer_name: policy.insurer });
+      const updates = {
+        policy_number: policyNumber,
+        insured_name: policy.insured_name,
+        insurer_name: policy.insurer,
+      };
+      // Auto-fill insured address from Policy Master if available
+      if (policy.insured_address) {
+        updates.insured_address = policy.insured_address;
+      }
+      // Cascade: also try to auto-fill insurer address from Insurer Master
+      // for whichever insurer this policy is tied to.
+      if (policy.insurer) {
+        const addr = buildInsurerAddress(policy.insurer);
+        if (addr) updates.insurer_address = addr;
+      }
+      updateFormData(updates);
     } else {
       updateFormData({ policy_number: policyNumber });
     }
     setPolicySearch(policyNumber);
     setShowPolicyDropdown(false);
+  }
+
+  // Resolve an insurer's full address from the Insurer Master list
+  // (registered_address, city, state, pin joined into one string).
+  function buildInsurerAddress(insurerName) {
+    if (!insurerName) return '';
+    const needle = insurerName.trim().toLowerCase();
+    const match = insurers.find(ins => {
+      const name = (ins.company_name || '').trim().toLowerCase();
+      if (!name) return false;
+      return name === needle || name.includes(needle) || needle.includes(name);
+    });
+    if (!match) return '';
+    const parts = [match.registered_address, match.city, match.state, match.pin].filter(Boolean);
+    return parts.join(', ');
+  }
+
+  function handleInsurerSelect(insurerName) {
+    const updates = { insurer_name: insurerName };
+    const addr = buildInsurerAddress(insurerName);
+    if (addr) updates.insurer_address = addr;
+    updateFormData(updates);
   }
 
   // Policy autocomplete: filter policies based on search input
@@ -676,7 +713,7 @@ function ClaimsLobContent() {
               <div className="form-row">
                 <div className="form-group">
                   <label>Insurer Name</label>
-                  <select value={formData.insurer_name || ''} onChange={e => updateFormData({ insurer_name: e.target.value })}>
+                  <select value={formData.insurer_name || ''} onChange={e => handleInsurerSelect(e.target.value)}>
                     <option value="">-- Select Insurer --</option>
                     {insurers.map(i => <option key={i.id} value={i.company_name}>{i.company_name}</option>)}
                   </select>
