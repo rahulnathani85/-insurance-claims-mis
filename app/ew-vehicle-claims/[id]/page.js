@@ -124,7 +124,7 @@ export default function EWClaimDetailPage() {
 
   // Standard conclusion paragraph. The surrounding Note: bullets,
   // without-prejudice disclaimer and signatory block already live in
-  // the FSR HTML template â this field is only the main paragraph that
+  // the FSR HTML template — this field is only the main paragraph that
   // sits under the "5. CONCLUSION:" heading so the surveyor can tweak
   // it per claim if needed.
   const DEFAULT_CONCLUSION_TEXT = 'In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued.';
@@ -398,18 +398,18 @@ export default function EWClaimDetailPage() {
   async function generateFSR(format) {
     try {
       setGeneratingFSR(true);
-      let html = fsrHtml;
-      if (!html) {
-        const res = await fetch('/api/ew-fsr-generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ew_claim_id: id }),
-        });
-        if (!res.ok) throw new Error('FSR generation failed');
-        const data = await res.json();
-        html = data.html;
-        setFsrHtml(html);
-      }
+      // Always refetch — never use stale cached HTML so the latest server
+      // template is picked up after deploys / data edits.
+      const res = await fetch(`/api/ew-fsr-generate?_=${Date.now()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+        body: JSON.stringify({ ew_claim_id: id }),
+      });
+      if (!res.ok) throw new Error('FSR generation failed');
+      const data = await res.json();
+      const html = data.html;
+      setFsrHtml(html);
 
       const fname = `FSR-${claim?.ref_number || 'report'}`;
       if (format === 'pdf') {
