@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const EW_STAGES = [
   { number: 1, name: 'Claim Intimation' },
   { number: 2, name: 'Claim Registration' },
@@ -69,8 +72,19 @@ export async function GET(request) {
     const { data, error } = await query;
     if (error) throw error;
 
+    // De-duplicate ew_vehicle_claims themselves defensively by (company, ref_number)
+    // so the UI never shows the same ref twice even if stale duplicates exist pre-migration.
+    const seenRefKeys = new Set();
+    const dedupedEw = [];
+    for (const row of (data || [])) {
+      const key = `${row.company || ''}::${row.ref_number || `__id_${row.id}`}`;
+      if (seenRefKeys.has(key)) continue;
+      seenRefKeys.add(key);
+      dedupedEw.push(row);
+    }
+
     // Also find unlinked claims from main claims table with LOB=Extended Warranty
-    const linkedClaimIds = (data || []).filter(d => d.claim_id).map(d => d.claim_id);
+    const linkedClaimIds = dedupedEw.filter(d => d.claim_id).map(d => d.claim_id);
     let unlinkedQuery = supabaseAdmin
       .from('claims')
       .select('*')
@@ -87,30 +101,60 @@ export async function GET(request) {
 
     const { data: unlinkedClaims } = await unlinkedQuery;
 
-    // Convert unlinked claims to EW format for display
-    const unlinkedFormatted = (unlinkedClaims || []).map(c => ({
-      id: `claim-${c.id}`,
-      claim_id: c.id,
-      ref_number: c.ref_number,
-      company: c.company,
-      insured_name: c.insured_name,
-      customer_name: c.insured_name,
-      vehicle_reg_no: null,
-      vehicle_make: c.model_spec || null,
-      chassis_number: c.chassis_number || null,
-      dealer_name: c.dealer_name || null,
-      current_stage: 0,
-      current_stage_name: 'Not Started',
-      status: c.status || 'Open',
-      created_at: c.created_at,
-      _source: 'claims',
-      _needs_ew_setup: true,
-    }));
+    // Convert unlinked claims to EW format AND suppress any whose ref_number
+    // already appears in the ew_vehicle_claims list for the same company.
+    const unlinkedFormatted = (unlinkedClaims || [])
+      .filter(c => {
+        const key = `${c.company || ''}::${c.ref_number || ''}`;
+        if (seenRefKeys.has(key)) return false; // already shown via ew_vehicle_claims
+        seenRefKeys.add(key);
+        return true;
+      })
+      .map(c => ({
+        id: `claim-${c.id}`,
+        claim_id: c.id,
+        ref_number: c.ref_number,
+        company: c.company,
+        insured_name: c.insured_name,
+        customer_name: c.insured_name,
+        vehicle_reg_no: null,
+        vehicle_make: c.model_spec || null,
+        chassis_number: c.chassis_number || null,
+        dealer_name: c.dealer_name || null,
+        current_stage: 0,
+        current_stage_name: 'Not Started',
+        status: c.status || 'Open',
+        created_at: c.created_at,
+        _source: 'claims',
+        _needs_ew_setup: true,
+      }));
 
-    return NextResponse.json([...(data || []), ...unlinkedFormatted]);
+    return NextResponse.json([...dedupedEw, ...unlinkedFormatted]);
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+// Helper - case-insensitive check whether a ref_number already exists for a company,
+// either in ew_vehicle_claims OR in the main claims table (so we can't create a
+// duplicate across the two surfaces either).
+async function refNumberExists(company, refNumber) {
+  if (!refNumber) return false;
+  const [{ data: ewRow }, { data: cRow }] = await Promise.all([
+    supabaseAdmin
+      .from('ew_vehicle_claims')
+      .select('id')
+      .eq('company', company)
+      .ilike('ref_number', refNumber)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('claims')
+      .select('id')
+      .eq('company', company)
+      .ilike('ref_number', refNumber)
+      .maybeSingle(),
+  ]);
+  return Boolean(ewRow || cRow);
 }
 
 // POST - Create new EW claim and initialize lifecycle stages
@@ -119,19 +163,46 @@ export async function POST(request) {
     const body = await request.json();
     const company = body.company || 'NISLA';
 
-    let ref_number = body.ref_number;
+    let ref_number = (body.ref_number || '').trim() || null;
 
+    // CASE 1: Caller supplied a ref_number explicitly - MUST be unique.
+    if (ref_number) {
+      const exists = await refNumberExists(company, ref_number);
+      if (exists) {
+        return NextResponse.json(
+          { error: `Reference number ${ref_number} is already registered for ${company}. Please use a different reference number.` },
+          { status: 409 }
+        );
+      }
+    }
+
+    // CASE 2: Auto-generate ref_number from the EW counter, skipping any slots
+    // that are already occupied in ew_vehicle_claims or claims.
     if (!ref_number && !body.claim_id) {
-      const { data: counter, error: counterErr } = await supabaseAdmin
+      const { data: counter } = await supabaseAdmin
         .from('ref_counters')
         .select('current_count')
         .eq('lob', 'Extended Warranty')
         .eq('company', company)
         .single();
 
-      let nextCount = 1;
+      let nextCount = (counter?.current_count || 0) + 1;
+      const yearSuffix = getFinancialYearSuffix();
+
+      // Safety: advance the counter past any pre-existing collisions so we
+      // never hand out a ref_number that is already in the database.
+      // Cap at 10_000 iterations so we never loop forever on a pathological table.
+      let candidate = `EW-${String(nextCount).padStart(4, '0')}/${yearSuffix}`;
+      for (let i = 0; i < 10000; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const clash = await refNumberExists(company, candidate);
+        if (!clash) break;
+        nextCount += 1;
+        candidate = `EW-${String(nextCount).padStart(4, '0')}/${yearSuffix}`;
+      }
+      ref_number = candidate;
+
       if (counter) {
-        nextCount = (counter.current_count || 0) + 1;
         await supabaseAdmin
           .from('ref_counters')
           .update({ current_count: nextCount })
@@ -140,11 +211,8 @@ export async function POST(request) {
       } else {
         await supabaseAdmin
           .from('ref_counters')
-          .insert({ lob: 'Extended Warranty', company, current_count: 1 });
+          .insert({ lob: 'Extended Warranty', company, current_count: nextCount });
       }
-
-      const yearSuffix = getFinancialYearSuffix();
-      ref_number = `EW-${String(nextCount).padStart(4, '0')}/${yearSuffix}`;
     }
 
     const claimData = {
@@ -162,7 +230,17 @@ export async function POST(request) {
       .select()
       .single();
 
-    if (insertErr) throw insertErr;
+    if (insertErr) {
+      // Postgres unique_violation - caught here if two POSTs race past the
+      // pre-check and hit the UNIQUE (company, ref_number) constraint added in v15.
+      if (insertErr.code === '23505') {
+        return NextResponse.json(
+          { error: `Reference number ${ref_number} is already registered for ${company}. Please retry - a fresh number will be issued.` },
+          { status: 409 }
+        );
+      }
+      throw insertErr;
+    }
 
     const stages = EW_STAGES.map(s => ({
       ew_claim_id: ewClaim.id,
