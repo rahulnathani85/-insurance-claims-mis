@@ -21,6 +21,9 @@ function ClaimsLobContent() {
   const [insurers, setInsurers] = useState([]);
   const [offices, setOffices] = useState([]);
   const [policyTypes, setPolicyTypes] = useState([]);
+  const [causesOfLoss, setCausesOfLoss] = useState([]);
+  const [subjectMatters, setSubjectMatters] = useState([]);
+  const [lobCategoryId, setLobCategoryId] = useState(null);
   const [surveyors, setSurveyors] = useState([]);
   const [brokers, setBrokers] = useState([]);
   const [teamUsers, setTeamUsers] = useState([]);
@@ -109,6 +112,61 @@ function ClaimsLobContent() {
       loadClaims();
     }
   }, [filterRef, filterStatus, filterInsurer]);
+
+  // Fetch claim categories hierarchy for this LOB
+  useEffect(() => {
+    if (!lob) return;
+    fetch(`/api/claim-categories?level=1`)
+      .then(r => r.json())
+      .then(data => {
+        const lobCat = (Array.isArray(data) ? data : []).find(
+          c => c.name.toLowerCase() === lob.toLowerCase()
+        );
+        if (lobCat) {
+          setLobCategoryId(lobCat.id);
+          // Fetch level 2 children (policy types from categories)
+          // Note: policyTypes state is already loaded from old /api/policy-types endpoint
+          // We load causes when user selects a policy type
+        }
+      })
+      .catch(() => {});
+  }, [lob]);
+
+  // When policy_type changes, load matching causes of loss (level 3)
+  useEffect(() => {
+    setCausesOfLoss([]);
+    setSubjectMatters([]);
+    if (!formData.policy_type || !lobCategoryId) return;
+    // Find the policy type category ID by matching name under this LOB
+    fetch(`/api/claim-categories?parent_id=${lobCategoryId}`)
+      .then(r => r.json())
+      .then(ptCategories => {
+        const match = (Array.isArray(ptCategories) ? ptCategories : []).find(
+          c => c.name.toLowerCase() === (formData.policy_type || '').toLowerCase()
+        );
+        if (match) {
+          updateFormData({ policy_type_category_id: match.id });
+          // Fetch level 3 children (causes of loss)
+          fetch(`/api/claim-categories?parent_id=${match.id}`)
+            .then(r => r.json())
+            .then(causes => setCausesOfLoss(Array.isArray(causes) ? causes : []))
+            .catch(() => setCausesOfLoss([]));
+        } else {
+          updateFormData({ policy_type_category_id: null });
+        }
+      })
+      .catch(() => {});
+  }, [formData.policy_type, lobCategoryId]);
+
+  // When cause_of_loss changes, load subject matters (level 4)
+  useEffect(() => {
+    setSubjectMatters([]);
+    if (!formData.cause_of_loss_id) return;
+    fetch(`/api/claim-categories?parent_id=${formData.cause_of_loss_id}`)
+      .then(r => r.json())
+      .then(subs => setSubjectMatters(Array.isArray(subs) ? subs : []))
+      .catch(() => setSubjectMatters([]));
+  }, [formData.cause_of_loss_id]);
 
   function showAlertMsg(msg, type) {
     setAlert({ msg, type });
@@ -366,6 +424,8 @@ function ClaimsLobContent() {
     }
 
     const payload = { ...formData, lob: formData._new_lob || lob, company };
+    // Include LOB category ID for the hierarchy
+    if (lobCategoryId && !payload.lob_category_id) payload.lob_category_id = lobCategoryId;
     delete payload._tentative_ref;
     delete payload.id;
     delete payload.created_at;
@@ -795,13 +855,39 @@ function ClaimsLobContent() {
               <div className="form-row">
                 <div className="form-group">
                   <label>Policy Type</label>
-                  <select value={formData.policy_type || ''} onChange={e => updateFormData({ policy_type: e.target.value })}>
+                  <select value={formData.policy_type || ''} onChange={e => updateFormData({ policy_type: e.target.value, cause_of_loss_id: null, cause_of_loss: '', subject_matter_id: null, subject_matter: '' })}>
                     <option value="">-- Select --</option>
                     {policyTypes.map(pt => <option key={pt.id} value={pt.policy_type}>{pt.policy_type}</option>)}
                   </select>
                 </div>
-                <div className="form-group">&nbsp;</div>
+                {causesOfLoss.length > 0 && (
+                  <div className="form-group">
+                    <label>Cause / Nature of Loss</label>
+                    <select value={formData.cause_of_loss_id || ''} onChange={e => {
+                      const sel = causesOfLoss.find(c => String(c.id) === e.target.value);
+                      updateFormData({ cause_of_loss_id: sel?.id || null, cause_of_loss: sel?.name || '', subject_matter_id: null, subject_matter: '' });
+                    }}>
+                      <option value="">-- Select --</option>
+                      {causesOfLoss.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
+              {subjectMatters.length > 0 && (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Subject Matter of Loss</label>
+                    <select value={formData.subject_matter_id || ''} onChange={e => {
+                      const sel = subjectMatters.find(s => String(s.id) === e.target.value);
+                      updateFormData({ subject_matter_id: sel?.id || null, subject_matter: sel?.name || '' });
+                    }}>
+                      <option value="">-- Select --</option>
+                      {subjectMatters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">&nbsp;</div>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label>Surveyor Name</label>
