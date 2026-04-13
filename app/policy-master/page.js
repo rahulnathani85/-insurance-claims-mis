@@ -296,11 +296,43 @@ export default function PolicyMaster() {
                 </div>
                 <div className="form-group">
                   <label>Insurer *</label>
-                  <select value={formData.insurer || ''} onChange={e => setFormData({ ...formData, insurer: e.target.value })} required>
+                  <select
+                    value={formData.insurer || ''}
+                    onChange={e => setFormData({ ...formData, insurer: e.target.value, insurer_office: '' })}
+                    required
+                  >
                     <option value="">-- Select Insurer --</option>
                     {insurers.map(i => <option key={i.id} value={i.company_name}>{i.company_name}</option>)}
                   </select>
                 </div>
+              </div>
+              <div className="form-group">
+                <label>Insurer Office</label>
+                {(() => {
+                  const selectedInsurer = insurers.find(i => i.company_name === formData.insurer);
+                  const offices = selectedInsurer?.insurer_offices || [];
+                  return (
+                    <select
+                      value={formData.insurer_office || ''}
+                      onChange={e => setFormData({ ...formData, insurer_office: e.target.value })}
+                      disabled={!formData.insurer}
+                    >
+                      <option value="">
+                        {formData.insurer
+                          ? (offices.length === 0 ? '-- No offices on file --' : '-- Select Office --')
+                          : '-- Select Insurer first --'}
+                      </option>
+                      {offices.map(o => (
+                        <option key={o.id} value={o.name}>
+                          {o.name}{o.city ? ` (${o.city})` : ''}{o.type ? ` – ${o.type}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+                <small style={{ color: '#6b7280', fontSize: 11 }}>
+                  Offices are managed from the Insurer Master page.
+                </small>
               </div>
               <div className="form-row">
                 <div className="form-group">

@@ -21,7 +21,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   const body = await request.json();
-  const allowed = ['policy_number', 'insurer', 'insured_name', 'insured_address', 'city', 'phone', 'email', 'lob', 'policy_type', 'sum_insured', 'premium', 'start_date', 'end_date', 'policy_copy_url', 'company', 'risk_location', 'coverage_amount', 'description', 'folder_path'];
+  const allowed = ['policy_number', 'insurer', 'insurer_office', 'insured_name', 'insured_address', 'city', 'phone', 'email', 'lob', 'policy_type', 'sum_insured', 'premium', 'start_date', 'end_date', 'policy_copy_url', 'company', 'risk_location', 'coverage_amount', 'description', 'folder_path'];
   const cleanBody = {};
   for (const key of allowed) {
     if (body[key] !== undefined && body[key] !== '') cleanBody[key] = body[key];
