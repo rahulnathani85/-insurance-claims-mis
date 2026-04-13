@@ -170,6 +170,9 @@ export default function PageLayout({ children }) {
                   <Link href="/policy-directory" className={`nav-item ${pathname === '/policy-directory' ? 'active' : ''}`}>
                     <SideIcon letter="PD" bg="#cffafe" color="#0e7490" /><span>Policy Directory</span>
                   </Link>
+                  <Link href="/claim-categories" className={`nav-item ${pathname === '/claim-categories' ? 'active' : ''}`}>
+                    <SideIcon letter="CC" bg="#fce7f3" color="#be185d" /><span>Claim Categories</span>
+                  </Link>
                   <Link href="/ref-number-portal" className={`nav-item ${pathname === '/ref-number-portal' ? 'active' : ''}`}>
                     <SideIcon letter="R#" bg="#f3e8ff" color="#7e22ce" /><span>Ref Number Portal</span>
                   </Link>
