@@ -99,7 +99,7 @@ function MISPortalContent() {
       const rows = claims.map(c => {
         const row = [
           c.ref_number || '', c.claim_number || '', c.lob || '', c.policy_number || '', c.policy_type || '',
-          c.insured_name || '', c.insurer_name || '', c.surveyor_name || '', c.appointing_type || '', c.appointing_office || '', c.date_intimation || '', c.date_loss || '',
+          c.insured_name || '', c.insurer_name || '', c.surveyor_name || '', c.appointing_type || '', c.appointing_office || '', c.date_of_intimation || '', c.date_loss || '',
           c.loss_location || '', c.place_survey || '',
           c.gross_loss || '', c.assessed_loss || '',
           c.date_survey || '', c.date_lor || '', c.date_fsr || '', c.date_submission || '', c.status || '',
@@ -243,7 +243,7 @@ function MISPortalContent() {
                   <td>{c.surveyor_name || '-'}</td>
                   <td>{c.appointing_type || '-'}</td>
                   <td>{c.appointing_office || '-'}</td>
-                  <td>{c.date_intimation || '-'}</td>
+                  <td>{c.date_of_intimation || '-'}</td>
                   <td>{c.date_loss || '-'}</td>
                   <td>{c.loss_location || '-'}</td>
                   <td>{c.gross_loss ? parseFloat(c.gross_loss).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '-'}</td>
@@ -290,7 +290,7 @@ function MISPortalContent() {
               </div>
               <div>
                 <h4 style={{ marginBottom: 15, color: '#1e3a8a' }}>Dates</h4>
-                {[['Date Intimation', selectedClaim.date_intimation], ['Date Loss', selectedClaim.date_loss], ['Date Survey', selectedClaim.date_survey], ['Date LOR', selectedClaim.date_lor], ['Date FSR', selectedClaim.date_fsr], ['Date Submission', selectedClaim.date_submission]].map(([l, v]) => (
+                {[['Date Intimation', selectedClaim.date_of_intimation], ['Date Loss', selectedClaim.date_loss], ['Date Survey', selectedClaim.date_survey], ['Date LOR', selectedClaim.date_lor], ['Date FSR', selectedClaim.date_fsr], ['Date Submission', selectedClaim.date_submission]].map(([l, v]) => (
                   <div key={l} style={{ marginBottom: 8, fontSize: 13 }}><strong>{l}:</strong> {v || '-'}</div>
                 ))}
               </div>

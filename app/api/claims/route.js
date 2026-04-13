@@ -141,8 +141,8 @@ export async function GET(request) {
   if (searchParams.get('claim_number')) query = query.ilike('claim_number', `%${searchParams.get('claim_number')}%`);
   if (searchParams.get('date_loss_from')) query = query.gte('date_loss', searchParams.get('date_loss_from'));
   if (searchParams.get('date_loss_to')) query = query.lte('date_loss', searchParams.get('date_loss_to'));
-  if (searchParams.get('date_intimation_from')) query = query.gte('date_intimation', searchParams.get('date_intimation_from'));
-  if (searchParams.get('date_intimation_to')) query = query.lte('date_intimation', searchParams.get('date_intimation_to'));
+  if (searchParams.get('date_intimation_from')) query = query.gte('date_of_intimation', searchParams.get('date_intimation_from'));
+  if (searchParams.get('date_intimation_to')) query = query.lte('date_of_intimation', searchParams.get('date_intimation_to'));
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -175,12 +175,20 @@ export async function POST(request) {
         ref_number: refNumber,
         company,
         insured_name: body.insured_name || null,
-        insurer_name: body.insurer_name || null,
-        insurer_address: null,
         insured_address: null,
+        // 3-office insurer model
+        appointing_office_id: body.appointing_office_id || null,
+        appointing_office_name: body.appointing_office_name || null,
+        appointing_office_address: body.appointing_office_address || null,
+        policy_office_id: body.policy_office_id || null,
+        policy_office_name: body.policy_office_name || null,
+        policy_office_address: body.policy_office_address || null,
+        fsr_office_id: body.fsr_office_id || null,
+        fsr_office_name: body.fsr_office_name || null,
+        fsr_office_address: body.fsr_office_address || null,
         policy_number: body.policy_number || null,
         claim_file_no: body.claim_number || null,
-        date_of_intimation: body.date_intimation || null,
+        date_of_intimation: body.date_of_intimation || null,
         customer_name: body.insured_name || null,
         vehicle_reg_no: null,
         vehicle_make: body.model_spec || null,

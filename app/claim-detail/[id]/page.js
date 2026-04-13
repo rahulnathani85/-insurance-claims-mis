@@ -413,7 +413,7 @@ export default function ClaimDetail() {
                 <table style={{ width: '100%', fontSize: 13 }}>
                   <tbody>
                     {[
-                      ['Date of Intimation', claim.date_intimation],
+                      ['Date of Intimation', claim.date_of_intimation],
                       ['Date of Loss', claim.date_loss],
                       ['Date of Survey', claim.date_survey],
                       ['Date of LOR', claim.date_lor],

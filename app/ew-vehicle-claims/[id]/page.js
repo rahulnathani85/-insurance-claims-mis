@@ -105,17 +105,18 @@ export default function EWClaimDetailPage() {
     }
   }, [company]);
 
-  // Shared fields that live in both claims and ew_vehicle_claims
-  // (date_intimation <-> date_of_intimation is handled separately)
+  // Shared fields that live in both claims and ew_vehicle_claims.
   const SHARED_FIELDS = [
     'insured_name',
-    'insurer_name',
     'insured_address',
-    'insurer_address',
     'policy_number',
     'claim_file_no',
     'person_contacted',
     'estimated_loss_amount',
+    'date_of_intimation',
+    'appointing_office_id', 'appointing_office_name', 'appointing_office_address',
+    'policy_office_id', 'policy_office_name', 'policy_office_address',
+    'fsr_office_id', 'fsr_office_name', 'fsr_office_address',
   ];
 
   // Standard opener surveyors use for every initial observation entry
@@ -156,10 +157,6 @@ export default function EWClaimDetailPage() {
                 enriched[f] = parentClaim[f];
               }
             });
-            // Map date_intimation (claims) -> date_of_intimation (ew)
-            if ((enriched.date_of_intimation === undefined || enriched.date_of_intimation === null || enriched.date_of_intimation === '') && parentClaim.date_intimation) {
-              enriched.date_of_intimation = parentClaim.date_intimation;
-            }
             merged = enriched;
           }
         } catch (fetchErr) {
@@ -225,29 +222,25 @@ export default function EWClaimDetailPage() {
     setFetchingPolicy(false);
   }
 
-  // Auto-fetch insurer address from Insurer Master
-  function fetchFromInsurerMaster() {
-    const insurerName = (editForm.insurer_name || '').trim();
-    if (!insurerName) { showAlert('Enter an insurer name first', 'error'); return; }
-    setFetchingInsurer(true);
-    const match = insurers.find(ins =>
-      (ins.company_name || '').trim().toLowerCase().includes(insurerName.toLowerCase()) ||
-      insurerName.toLowerCase().includes((ins.company_name || '').trim().toLowerCase())
-    );
-    if (match) {
-      // Build full address from insurer master fields
-      const parts = [match.registered_address, match.city, match.state, match.pin].filter(Boolean);
-      const fullAddress = parts.join(', ');
-      if (fullAddress) {
-        updateEditForm({ insurer_address: fullAddress });
-        showAlert(`Insurer address fetched from Insurer Master (${match.company_name})`);
-      } else {
-        showAlert('Insurer found but no address on record', 'error');
-      }
-    } else {
-      showAlert('Insurer name not found in Insurer Master', 'error');
+  // When user selects an insurer office for a role, auto-fill name + address
+  function selectOfficeForRole(role, officeId) {
+    if (!officeId) {
+      updateEditForm({ [`${role}_office_id`]: null, [`${role}_office_name`]: '', [`${role}_office_address`]: '' });
+      return;
     }
-    setFetchingInsurer(false);
+    for (const ins of insurers) {
+      const office = (ins.insurer_offices || []).find(o => String(o.id) === String(officeId));
+      if (office) {
+        const parts = [office.name || ins.company_name, office.address, office.city, office.state, office.pin].filter(Boolean);
+        updateEditForm({
+          [`${role}_office_id`]: office.id,
+          [`${role}_office_name`]: `${ins.company_name} - ${office.name || office.type || 'Office'}`,
+          [`${role}_office_address`]: parts.slice(1).join(', '),
+        });
+        showAlert(`${role.charAt(0).toUpperCase() + role.slice(1)} office set to ${ins.company_name} - ${office.name || office.type}`);
+        return;
+      }
+    }
   }
 
   async function saveClaim() {
@@ -282,10 +275,6 @@ export default function EWClaimDetailPage() {
           SHARED_FIELDS.forEach(f => {
             if (editForm[f] !== undefined && editForm[f] !== null) syncPayload[f] = editForm[f];
           });
-          // Map date_of_intimation (ew) -> date_intimation (claims)
-          if (editForm.date_of_intimation) {
-            syncPayload.date_intimation = editForm.date_of_intimation;
-          }
           // Normalize numeric
           if (syncPayload.estimated_loss_amount === '' || syncPayload.estimated_loss_amount === undefined) {
             delete syncPayload.estimated_loss_amount;
@@ -666,53 +655,53 @@ export default function EWClaimDetailPage() {
                 <F label="Ref Number" field="ref_number" {...fp} />
                 <F label="Report Date" field="report_date" type="date" {...fp} />
                 <F label="Insured Name" field="insured_name" {...fp} />
-                <F label="Insurer Name" field="insurer_name" {...fp} />
-
-                {/* Insured Address with Fetch from Policy Master */}
                 <div style={{ gridColumn: 'span 2' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
                     <label style={LABEL_STYLE}>Insured Address</label>
-                    <button
-                      onClick={fetchFromPolicyMaster}
-                      disabled={fetchingPolicy}
-                      style={{ ...fetchBtnStyle, background: '#fef3c7', color: '#92400e' }}
-                      title="Fetch insured address from Policy Master using the policy number above"
-                    >
+                    <button onClick={fetchFromPolicyMaster} disabled={fetchingPolicy} style={{ ...fetchBtnStyle, background: '#fef3c7', color: '#92400e' }}>
                       {fetchingPolicy ? 'Fetching...' : 'Fetch from Policy Master'}
                     </button>
                   </div>
-                  <textarea
-                    value={editForm.insured_address || ''}
-                    onChange={e => updateEditForm({ insured_address: e.target.value })}
-                    style={{ ...FIELD_STYLE, minHeight: 60, resize: 'vertical' }}
-                  />
+                  <textarea value={editForm.insured_address || ''} onChange={e => updateEditForm({ insured_address: e.target.value })} style={{ ...FIELD_STYLE, minHeight: 60, resize: 'vertical' }} />
                 </div>
-
-                {/* Insurer Address with Fetch from Insurer Master */}
-                <div style={{ gridColumn: 'span 2' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                    <label style={LABEL_STYLE}>Insurer Address</label>
-                    <button
-                      onClick={fetchFromInsurerMaster}
-                      disabled={fetchingInsurer}
-                      style={{ ...fetchBtnStyle, background: '#dbeafe', color: '#1e40af' }}
-                      title="Fetch insurer address from Insurer Master using the insurer name above"
-                    >
-                      {fetchingInsurer ? 'Fetching...' : 'Fetch from Insurer Master'}
-                    </button>
-                  </div>
-                  <textarea
-                    value={editForm.insurer_address || ''}
-                    onChange={e => updateEditForm({ insurer_address: e.target.value })}
-                    style={{ ...FIELD_STYLE, minHeight: 60, resize: 'vertical' }}
-                  />
-                </div>
-
                 <F label="Policy Number" field="policy_number" {...fp} />
                 <F label="Claim File No." field="claim_file_no" {...fp} />
                 <F label="Person Contacted" field="person_contacted" {...fp} />
                 <F label="Estimated Loss Amount" field="estimated_loss_amount" type="number" {...fp} />
                 <F label="Date of Intimation" field="date_of_intimation" type="date" {...fp} />
+
+                {/* 3-Office Insurer Roles */}
+                {[
+                  { role: 'appointing', label: 'Appointing Office', textColor: '#92400e' },
+                  { role: 'policy', label: 'Policy Issuing Office', textColor: '#1e40af' },
+                  { role: 'fsr', label: 'FSR Submitting Office', textColor: '#166534' },
+                ].map(({ role, label, textColor }) => (
+                  <div key={role} style={{ gridColumn: 'span 2', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, background: '#fafafa' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: textColor, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: textColor, display: 'inline-block' }} />
+                      {label}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
+                      <div>
+                        <label style={LABEL_STYLE}>Select Office</label>
+                        <select value={editForm[`${role}_office_id`] || ''} onChange={e => selectOfficeForRole(role, e.target.value)} style={FIELD_STYLE}>
+                          <option value="">-- Select Office --</option>
+                          {insurers.flatMap(ins => (ins.insurer_offices || []).map(o => (
+                            <option key={o.id} value={o.id}>{ins.company_name} - {o.name || o.type || 'Office'} ({o.city || ''})</option>
+                          )))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={LABEL_STYLE}>Office Name</label>
+                        <input type="text" value={editForm[`${role}_office_name`] || ''} onChange={e => updateEditForm({ [`${role}_office_name`]: e.target.value })} style={FIELD_STYLE} />
+                      </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={LABEL_STYLE}>Office Address</label>
+                        <input type="text" value={editForm[`${role}_office_address`] || ''} onChange={e => updateEditForm({ [`${role}_office_address`]: e.target.value })} style={FIELD_STYLE} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 

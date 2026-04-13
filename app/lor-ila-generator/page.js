@@ -168,7 +168,7 @@ function LORILAContent() {
       '{{policy_number}}': claim.policy_number || '',
       '{{policy_type}}': claim.policy_type || '',
       '{{date_loss}}': claim.date_loss || '',
-      '{{date_intimation}}': claim.date_intimation || '',
+      '{{date_intimation}}': claim.date_of_intimation || '',
       '{{date_survey}}': claim.date_survey || '',
       '{{loss_location}}': claim.loss_location || '',
       '{{place_survey}}': claim.place_survey || '',

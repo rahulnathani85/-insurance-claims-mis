@@ -360,7 +360,7 @@ function ClaimsLobContent() {
   }
 
   async function saveClaim() {
-    if (!formData.date_intimation || !formData.date_loss || !formData.loss_location || !formData.insured_name || !formData.status) {
+    if (!formData.date_of_intimation || !formData.date_loss || !formData.loss_location || !formData.insured_name || !formData.status) {
       showAlertMsg('Please fill in all required fields (marked with *)', 'error');
       return;
     }
@@ -920,7 +920,7 @@ function ClaimsLobContent() {
               <div className="form-row">
                 <div className="form-group">
                   <label>Date of Intimation *</label>
-                  <input type="date" value={formData.date_intimation || ''} onChange={e => updateFormData({ date_intimation: e.target.value })} required />
+                  <input type="date" value={formData.date_of_intimation || ''} onChange={e => updateFormData({ date_of_intimation: e.target.value })} required />
                 </div>
                 <div className="form-group">
                   <label>Date of Loss *</label>

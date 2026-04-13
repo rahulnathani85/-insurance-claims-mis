@@ -14,8 +14,8 @@ export async function GET(request) {
   if (searchParams.get('claim_number')) query = query.ilike('claim_number', `%${searchParams.get('claim_number')}%`);
   if (searchParams.get('date_loss_from')) query = query.gte('date_loss', searchParams.get('date_loss_from'));
   if (searchParams.get('date_loss_to')) query = query.lte('date_loss', searchParams.get('date_loss_to'));
-  if (searchParams.get('date_intimation_from')) query = query.gte('date_intimation', searchParams.get('date_intimation_from'));
-  if (searchParams.get('date_intimation_to')) query = query.lte('date_intimation', searchParams.get('date_intimation_to'));
+  if (searchParams.get('date_intimation_from')) query = query.gte('date_of_intimation', searchParams.get('date_intimation_from'));
+  if (searchParams.get('date_intimation_to')) query = query.lte('date_of_intimation', searchParams.get('date_intimation_to'));
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

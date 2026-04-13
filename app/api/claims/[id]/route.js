@@ -5,16 +5,24 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // Fields that live in both claims and ew_vehicle_claims and should stay in sync.
-// date_intimation <-> date_of_intimation is handled separately (name differs).
 const SHARED_CLAIM_EW_FIELDS = [
   'insured_name',
-  'insurer_name',
   'insured_address',
-  'insurer_address',
   'policy_number',
   'claim_file_no',
   'person_contacted',
   'estimated_loss_amount',
+  'date_of_intimation',
+  // 3-office insurer model
+  'appointing_office_id',
+  'appointing_office_name',
+  'appointing_office_address',
+  'policy_office_id',
+  'policy_office_name',
+  'policy_office_address',
+  'fsr_office_id',
+  'fsr_office_name',
+  'fsr_office_address',
 ];
 
 // GET - Fetch single claim by ID
@@ -107,10 +115,6 @@ export async function PUT(request, { params }) {
       SHARED_CLAIM_EW_FIELDS.forEach(f => {
         if (body[f] !== undefined) ewUpdate[f] = body[f];
       });
-      // Map date_intimation (claims) -> date_of_intimation (ew)
-      if (body.date_intimation !== undefined) {
-        ewUpdate.date_of_intimation = body.date_intimation || null;
-      }
       if (Object.keys(ewUpdate).length > 0) {
         ewUpdate.updated_at = new Date().toISOString();
         await supabase

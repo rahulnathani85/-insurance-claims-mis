@@ -69,7 +69,7 @@ export default function ClaimLifecycleDetail() {
         body: JSON.stringify({
           claim_id: parseInt(claimId),
           ref_number: claim?.ref_number,
-          date_intimation: claim?.date_intimation,
+          date_of_intimation: claim?.date_of_intimation,
           company: claim?.company || company,
           assigned_to: user?.email,
           assigned_by: user?.email,
@@ -208,7 +208,7 @@ export default function ClaimLifecycleDetail() {
             <div style={{ fontSize: 12, color: '#6b7280' }}>Current Stage</div>
           </div>
           <div style={{ flex: 1, minWidth: 150, padding: 15, background: '#f8fafc', borderRadius: 10, textAlign: 'center' }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{claim?.date_intimation || '-'}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{claim?.date_of_intimation || '-'}</div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>Date of Intimation</div>
           </div>
         </div>

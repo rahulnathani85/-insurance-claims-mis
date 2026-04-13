@@ -348,7 +348,7 @@ function generateFSRHtml(c, isNISLA) {
     <div class="cover-vin">VIN NUMBER &#8211; ${safe(c.chassis_number) || '-'}</div>
     <div class="cover-insured">INSURED: ${(safe(c.insured_name) || '-').toUpperCase()}</div>
     <div class="cover-insurer-block">
-      <div class="cover-insurer">${safe(c.insurer_name) || 'The Oriental Insurance Co. Ltd.'}</div>
+      <div class="cover-insurer">${safe(c.fsr_office_name) || safe(c.insurer_name) || 'The Oriental Insurance Co. Ltd.'}</div>
       <div class="cover-policy">EXTENDED WARRANTY INSURANCE POLICY NO &#8211; <span class="pno">${safe(c.policy_number) || '-'}</span></div>
       ${c.warranty_plan ? `<div class="cover-plan">${safe(c.warranty_plan)}</div>` : ''}
     </div>
@@ -365,8 +365,8 @@ function generateFSRHtml(c, isNISLA) {
     <div class="address-block">
       To,<br>
       The Claim In-Charge<br>
-      <b>${safe(c.insurer_name) || ''}</b><br>
-      ${(safe(c.insurer_address) || '').replace(/\n/g, '<br>')}
+      <b>${safe(c.fsr_office_name) || safe(c.insurer_name) || ''}</b><br>
+      ${(safe(c.fsr_office_address) || safe(c.insurer_address) || '').replace(/\n/g, '<br>')}
     </div>
     <div class="subject-block">
       <span class="sj-label">Subject:</span>&nbsp;&nbsp;<span class="sj-body">Reported claim under Extended Warranty of VIN No. ${safe(c.chassis_number) || ''}<br>
@@ -374,11 +374,11 @@ function generateFSRHtml(c, isNISLA) {
       Policy No. ${safe(c.policy_number) || ''}&nbsp;&nbsp;||&nbsp;&nbsp;Claim File No. ${safe(c.claim_file_no) || ''}</span>
     </div>
     <p>Dear Sir,</p>
-    <p class="indent">Pursuant to valued instruction received from Claims Hub of ${safe(c.insurer_name) || ''} on ${formatDate(c.date_of_intimation)} for survey and loss assessment of the below-mentioned claim, we made immediate contact with the insured&rsquo;s representative and conducted the survey as per the details below.</p>
+    <p class="indent">Pursuant to valued instruction received from ${safe(c.appointing_office_name) || safe(c.insurer_name) || 'Claims Hub'} on ${formatDate(c.date_of_intimation)} for survey and loss assessment of the below-mentioned claim, we made immediate contact with the insured&rsquo;s representative and conducted the survey as per the details below.</p>
     <div class="section-title">1. CLAIM DETAILS:</div>
     <table class="data-table">
       <tr><td class="label">Insured</td><td>${safe(c.insured_name) || ''}${c.insured_address ? `<br>${safe(c.insured_address)}` : ''}</td></tr>
-      <tr><td class="label">Insurer</td><td>${safe(c.insurer_name) || ''}${c.insurer_address ? `<br>${safe(c.insurer_address)}` : ''}</td></tr>
+      <tr><td class="label">Insurer</td><td>${safe(c.policy_office_name) || safe(c.insurer_name) || ''}${(c.policy_office_address || c.insurer_address) ? `<br>${safe(c.policy_office_address || c.insurer_address)}` : ''}</td></tr>
       <tr><td class="label">Policy No</td><td>${safe(c.policy_number) || ''}</td></tr>
       <tr><td class="label">Claim File No</td><td>${safe(c.claim_file_no) || ''}</td></tr>
       <tr><td class="label">Person Contacted</td><td>${safe(c.person_contacted) || ''}</td></tr>
