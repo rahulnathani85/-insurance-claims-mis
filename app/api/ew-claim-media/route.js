@@ -38,6 +38,7 @@ export async function POST(request) {
     const media_type = formData.get('media_type') || 'photo';
     const caption = formData.get('caption') || '';
     const uploaded_by = formData.get('uploaded_by') || '';
+    const document_category = formData.get('document_category') || null;
 
     if (!file || !ew_claim_id) {
       return NextResponse.json({ error: 'file and ew_claim_id required' }, { status: 400 });
@@ -52,7 +53,8 @@ export async function POST(request) {
 
     const refSafe = (claim?.ref_number || 'unknown').replace(/[\/\\]/g, '-');
     const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const storagePath = `ew-claims/${refSafe}/stage-${stage_number || 'general'}/${fileName}`;
+    const subFolder = document_category || `stage-${stage_number || 'general'}`;
+    const storagePath = `ew-claims/${refSafe}/${subFolder}/${fileName}`;
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -84,6 +86,7 @@ export async function POST(request) {
         file_size: file.size,
         caption,
         uploaded_by,
+        document_category,
       }])
       .select()
       .single();

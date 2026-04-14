@@ -23,6 +23,7 @@ const DATA_TABS = [
   { key: 'assessment', label: 'Assessment' },
   { key: 'conclusion', label: 'Conclusion' },
   { key: 'media', label: 'Photos / Videos' },
+  { key: 'activity', label: 'Activity Log', adminOnly: true },
 ];
 
 const FIELD_STYLE = {
@@ -81,6 +82,8 @@ export default function EWClaimDetailPage() {
   // Document categories for organized uploads
   const [docCategories, setDocCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  // Activity log (admin only)
+  const [activityLogs, setActivityLogs] = useState([]);
 
   // Master data for auto-fetch
   const [policies, setPolicies] = useState([]);
@@ -177,6 +180,10 @@ export default function EWClaimDetailPage() {
       setEditForm(merged);
       setStages(Array.isArray(stagesRes) ? stagesRes : []);
       setMedia(Array.isArray(mediaRes) ? mediaRes : []);
+      // Load activity logs
+      if (user?.role === 'Admin') {
+        fetch(`/api/activity-log?entity_id=${id}`).then(r => r.json()).then(d => setActivityLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : [])).catch(() => {});
+      }
       // Initialize stage notes
       const notes = {};
       (Array.isArray(stagesRes) ? stagesRes : []).forEach(s => { notes[s.stage_number] = s.notes || ''; });
@@ -348,6 +355,9 @@ export default function EWClaimDetailPage() {
   async function handleFileUpload(e) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    // Get selected category from the dropdown
+    const categorySelect = document.getElementById('upload-category');
+    const docCategory = categorySelect?.value || 'other';
     try {
       setUploadingMedia(true);
       for (const file of files) {
@@ -355,10 +365,14 @@ export default function EWClaimDetailPage() {
         formData.append('file', file);
         formData.append('ew_claim_id', id);
         formData.append('stage_number', mediaStageFilter === 'all' ? claim?.current_stage || 1 : mediaStageFilter);
-        formData.append('media_type', file.type.startsWith('video/') ? 'video' : 'photo');
+        formData.append('media_type', file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'photo' : 'document');
         formData.append('uploaded_by', user?.email || '');
+        formData.append('document_category', docCategory);
         const res = await fetch('/api/ew-claim-media', { method: 'POST', body: formData });
-        if (!res.ok) throw new Error(`Upload failed for ${file.name}`);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Upload failed for ${file.name}`);
+        }
       }
       showAlert(`${files.length} file(s) uploaded`);
       logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.DOCUMENT_UPLOADED, entityType: 'ew_claim_media', entityId: id, refNumber: claim?.ref_number, details: { files_count: files.length, file_names: Array.from(files).map(f => f.name) }, company: claim?.company });
@@ -790,7 +804,7 @@ ${cleanCss}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           {/* Tab Bar */}
           <div style={{ display: 'flex', borderBottom: '2px solid #e2e8f0', overflowX: 'auto' }}>
-            {DATA_TABS.map(tab => (
+            {DATA_TABS.filter(tab => !tab.adminOnly || user?.role === 'Admin').map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -1074,8 +1088,48 @@ ${cleanCss}
               </div>
             )}
 
+            {/* ACTIVITY LOG TAB (admin only) */}
+            {activeTab === 'activity' && user?.role === 'Admin' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <h4 style={{ margin: 0, fontSize: 14, color: '#1e293b' }}>📋 Activity Log</h4>
+                  <button onClick={() => {
+                    fetch(`/api/activity-log?entity_id=${id}`).then(r => r.json()).then(d => setActivityLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : [])).catch(() => {});
+                  }} style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>Refresh</button>
+                </div>
+                <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>All user actions on this claim with username and timestamp.</p>
+                {activityLogs.length === 0 ? (
+                  <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>No activity logged yet. Actions will appear here as users work on this claim.</p>
+                ) : (
+                  <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+                    {activityLogs.map((log, i) => (
+                      <div key={log.id || i} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+                          {log.action?.includes('stage') ? '🔄' : log.action?.includes('document') || log.action?.includes('photo') ? '📄' : log.action?.includes('fsr') ? '📑' : log.action?.includes('saved') ? '💾' : '📝'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                            {log.user_name || log.user_email || 'System'}
+                            <span style={{ fontWeight: 400, color: '#64748b' }}> — {(log.action || '').replace(/_/g, ' ')}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                            {log.created_at ? new Date(log.created_at).toLocaleString('en-IN') : '-'}
+                          </div>
+                          {log.details && (
+                            <div style={{ fontSize: 11, color: '#475569', marginTop: 4, background: '#f8fafc', padding: '4px 8px', borderRadius: 4 }}>
+                              {typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Save button at bottom of form tabs */}
-            {activeTab !== 'media' && (
+            {activeTab !== 'media' && activeTab !== 'activity' && (
               <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   onClick={saveClaim}
