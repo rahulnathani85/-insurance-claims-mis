@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getSystemPrompt } from '@/config/ai-prompts';
+import { callAI } from '@/lib/aiClient';
 
 export async function POST(request) {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured. Add ANTHROPIC_API_KEY to environment variables.' }, { status: 503 });
-
     const { claim_id, user_email } = await request.json();
     if (!claim_id) return NextResponse.json({ error: 'claim_id required' }, { status: 400 });
 
@@ -38,28 +36,18 @@ ${(docs || []).map(d => `- ${d.file_name} (${d.file_type || d.mime_type || 'unkn
 
 Please analyse this claim based on the information available. If documents are listed but you cannot read their contents, note what information you would need from each document and ask the surveyor to provide key details.`;
 
-    // Call Anthropic
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey });
-
-    const systemPrompt = getSystemPrompt(claim.lob);
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: systemPrompt,
+    const { text: aiMessage, provider } = await callAI({
+      systemPrompt: getSystemPrompt(claim.lob),
       messages: [{ role: 'user', content: claimContext }],
     });
-
-    const aiMessage = response.content[0].text;
 
     // Save to conversation history
     await supabaseAdmin.from('claim_ai_conversations').insert([
       { claim_id, role: 'user', message: 'Analyse this claim and its documents.', created_by: user_email },
-      { claim_id, role: 'assistant', message: aiMessage, created_by: 'AI' },
+      { claim_id, role: 'assistant', message: aiMessage, created_by: `AI (${provider})` },
     ]);
 
-    return NextResponse.json({ analysis: aiMessage, claim_ref: claim.ref_number });
+    return NextResponse.json({ analysis: aiMessage, provider, claim_ref: claim.ref_number });
   } catch (err) {
     console.error('AI analysis error:', err);
     return NextResponse.json({ error: err.message || 'AI analysis failed' }, { status: 500 });

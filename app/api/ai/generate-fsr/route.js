@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getSystemPrompt, FSR_GENERATION_PROMPT } from '@/config/ai-prompts';
+import { callAI } from '@/lib/aiClient';
 
 export async function POST(request) {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured. Add ANTHROPIC_API_KEY to environment variables.' }, { status: 503 });
 
     const { claim_id, user_email } = await request.json();
     if (!claim_id) return NextResponse.json({ error: 'claim_id required' }, { status: 400 });
@@ -72,18 +71,11 @@ ${conversationSummary || 'No prior analysis available. Generate FSR based on ava
 
 Generate the complete FSR now in HTML format. Use the EXACT section structure from the template (Cover Page table, Claim Details table, Vehicle Particulars table, Survey Findings narrative, Assessment table, Conclusion). Fill in all data from the claim fields above. Mark any missing/estimated data with [AI] tags.`;
 
-    // Call Anthropic
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey });
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
-      system: getSystemPrompt(claim.lob),
+    const { text: fsrHtml, provider } = await callAI({
+      systemPrompt: getSystemPrompt(claim.lob),
       messages: [{ role: 'user', content: prompt }],
+      maxTokens: 8192,
     });
-
-    const fsrHtml = response.content[0].text;
 
     // Get next version number
     const { data: existing } = await supabaseAdmin
