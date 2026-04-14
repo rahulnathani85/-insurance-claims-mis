@@ -173,6 +173,9 @@ export default function PageLayout({ children }) {
                   <Link href="/claim-categories" className={`nav-item ${pathname === '/claim-categories' ? 'active' : ''}`}>
                     <SideIcon letter="CC" bg="#fce7f3" color="#be185d" /><span>Claim Categories</span>
                   </Link>
+                  <Link href="/fsr-template-editor" className={`nav-item ${pathname === '/fsr-template-editor' ? 'active' : ''}`}>
+                    <SideIcon letter="FT" bg="#fef3c7" color="#92400e" /><span>FSR Template Editor</span>
+                  </Link>
                   <Link href="/ref-number-portal" className={`nav-item ${pathname === '/ref-number-portal' ? 'active' : ''}`}>
                     <SideIcon letter="R#" bg="#f3e8ff" color="#7e22ce" /><span>Ref Number Portal</span>
                   </Link>

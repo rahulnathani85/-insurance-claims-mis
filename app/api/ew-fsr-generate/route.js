@@ -23,7 +23,21 @@ export async function POST(request) {
     if (error || !claim) return NextResponse.json({ error: 'Claim not found' }, { status: 404 });
 
     const isNISLA = claim.company === 'NISLA';
-    const html = generateFSRHtml(claim, isNISLA);
+
+    // Try loading template from DB
+    let template = null;
+    try {
+      const { data: tpl } = await supabaseAdmin
+        .from('fsr_templates')
+        .select('*')
+        .eq('company', claim.company || 'NISLA')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+      if (tpl) template = tpl;
+    } catch (e) { /* No template in DB, use hardcoded */ }
+
+    const html = generateFSRHtml(claim, isNISLA, template);
 
     return NextResponse.json({ html, claim });
   } catch (err) {
@@ -53,28 +67,39 @@ function safe(v) {
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function generateFSRHtml(c, isNISLA) {
-  const brand = isNISLA
-    ? {
-        name: 'NATHANI INSURANCE SURVEYORS &amp; LOSS ASSESSORS PVT. LTD.',
-        shortName: 'NATHANI INSURANCE SURVEYORS AND LOSS ASSESSORS PVT. LTD.',
-        color: '#4B0082',
-        sla: 'IRDA/CORP/S.L.A. No - 200025 Exp. 03/10/2028',
-        slaCover: '(IRDA/CORP/S.L.A. 200025 EXP. 03/10/2028)',
-        tagline: 'LOP &#10070; Fire &#10070; Engineering &#10070; Misc. &#10070; Marine Cargo &#10070; Motor',
-        addrLine: 'Head Office: 507, Garnet Palladium, Behind Express Zone Bldg., Off WE Highway, Goregaon-E, Mumbai &#8211; 400063',
-        contactLine: 'Mobile: 9892171640, 9890084540&nbsp;&nbsp;|&nbsp;&nbsp;E-mail: pranav.kumar554@gmail.com, nathani.surveyors@gmail.com',
-      }
-    : {
-        name: 'ACUERE SURVEYORS',
-        shortName: 'ACUERE SURVEYORS',
-        color: '#1a7ab5',
-        sla: 'S.L.A. 85225 Exp. 02/03/2028',
-        slaCover: '(S.L.A. 85225 EXP. 02/03/2028)',
-        tagline: 'Fire &#10070; Misc. &#10070; Engineering &#10070; Marine Cargo &#10070; Motor',
-        addrLine: '507, Garnet Palladium, Panch-Bawadi, Goregaon (E), Mumbai - 400063',
-        contactLine: 'Contact: 9892976754&nbsp;&nbsp;|&nbsp;&nbsp;Email: niteennathani@gmail.com, acueresurveyors@gmail.com',
-      };
+function generateFSRHtml(c, isNISLA, template) {
+  // Use template from DB if available, otherwise use hardcoded defaults
+  const t = template || {};
+  const brand = {
+    name: safe(t.company_full_name) || (isNISLA ? 'NATHANI INSURANCE SURVEYORS &amp; LOSS ASSESSORS PVT. LTD.' : 'ACUERE SURVEYORS'),
+    shortName: safe(t.company_short_name) || (isNISLA ? 'NATHANI INSURANCE SURVEYORS AND LOSS ASSESSORS PVT. LTD.' : 'ACUERE SURVEYORS'),
+    color: t.brand_color || (isNISLA ? '#4B0082' : '#1a7ab5'),
+    sla: `${safe(t.sla_number) || (isNISLA ? 'IRDA/CORP/S.L.A. No - 200025' : 'S.L.A. 85225')} Exp. ${safe(t.sla_expiry) || (isNISLA ? '03/10/2028' : '02/03/2028')}`,
+    slaCover: `(${safe(t.sla_number) || (isNISLA ? 'IRDA/CORP/S.L.A. 200025' : 'S.L.A. 85225')} EXP. ${safe(t.sla_expiry) || (isNISLA ? '03/10/2028' : '02/03/2028')})`,
+    tagline: safe(t.tagline) || (isNISLA ? 'LOP &#10070; Fire &#10070; Engineering &#10070; Misc. &#10070; Marine Cargo &#10070; Motor' : 'Fire &#10070; Misc. &#10070; Engineering &#10070; Marine Cargo &#10070; Motor'),
+    addrLine: safe(t.address_line) || (isNISLA ? 'Head Office: 507, Garnet Palladium, Behind Express Zone Bldg., Off WE Highway, Goregaon-E, Mumbai &#8211; 400063' : '507, Garnet Palladium, Panch-Bawadi, Goregaon (E), Mumbai - 400063'),
+    contactLine: safe(t.contact_line) || (isNISLA ? 'Mobile: 9892171640, 9890084540&nbsp;&nbsp;|&nbsp;&nbsp;E-mail: pranav.kumar554@gmail.com, nathani.surveyors@gmail.com' : 'Contact: 9892976754&nbsp;&nbsp;|&nbsp;&nbsp;Email: niteennathani@gmail.com, acueresurveyors@gmail.com'),
+    // Section titles from template
+    s1Title: safe(t.section1_title) || '1. CLAIM DETAILS:',
+    s2Title: safe(t.section2_title) || '2. CERTIFICATE / VEHICLE PARTICULARS:',
+    s3Title: safe(t.section3_title) || '3. OUR SURVEY / INSPECTION / FINDINGS:',
+    s4Title: safe(t.section4_title) || '4. ASSESSMENT OF LOSS:',
+    s5Title: safe(t.section5_title) || '5. CONCLUSION:',
+    // Boilerplate from template
+    conclusionText: t.conclusion_text || 'In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued.',
+    note1: t.note1_text || 'Kindly check annexure for proof of payment for the amount of repair and photos of defective parts and installed parts.',
+    note2: t.note2_text || 'This report is furnished without prejudice to the rights, liabilities, terms and conditions of the policy issued by the insurer.',
+    note3: t.note3_text || 'This report is based on the facts and information made available and known to us at the time of survey and preparation of the report.',
+    signatureText: t.signature_text || 'Authorised Signatory',
+    // Assessment labels from template
+    aGross: safe(t.assessment_label_gross) || 'Gross Assessed Loss',
+    aGst: safe(t.assessment_label_gst) || 'Less: GST @ 18% (As the insured is eligible for GST credit)',
+    aTotal: safe(t.assessment_label_total) || 'Total',
+    aNotCovered: safe(t.assessment_label_not_covered) || 'Less: Not Covered / Excess',
+    aNet: safe(t.assessment_label_net) || 'Net Adjusted Loss Amount',
+    // Cover title
+    coverTitle: safe(t.cover_title) || 'EXTENDED WARRANTY REPORT',
+  };
 
   const refNo = safe(c.ref_number) || '';
   const dateStr = formatDate(c.report_date);
@@ -373,7 +398,7 @@ function generateFSRHtml(c, isNISLA) {
     </div>
     <p>Dear Sir,</p>
     <p class="indent">Pursuant to valued instruction received from ${safe(c.appointing_office_name) || safe(c.insurer_name) || 'Claims Hub'} on ${formatDate(c.date_of_intimation)} for survey and loss assessment of the below-mentioned claim, we made immediate contact with the insured&rsquo;s representative and conducted the survey as per the details below.</p>
-    <div class="section-title">1. CLAIM DETAILS:</div>
+    <div class="section-title">${brand.s1Title}</div>
     <table class="data-table">
       <tr><td class="label">Insured</td><td>${safe(c.insured_name) || ''}${c.insured_address ? `<br>${safe(c.insured_address)}` : ''}</td></tr>
       <tr><td class="label">Insurer</td><td>${safe(c.policy_office_name) || safe(c.insurer_name) || ''}${(c.policy_office_address || c.insurer_address) ? `<br>${safe(c.policy_office_address || c.insurer_address)}` : ''}</td></tr>
@@ -392,7 +417,7 @@ function generateFSRHtml(c, isNISLA) {
 <div class="page">
   <div class="page-content">
     ${innerHead}
-    <div class="section-title">2. CERTIFICATE / VEHICLE PARTICULARS:</div>
+    <div class="section-title">${brand.s2Title}</div>
     <table class="data-table">
       <tr><td class="idx">a.</td><td class="key">Name of Customer</td><td>${safe(c.customer_name) || ''}</td></tr>
       <tr><td class="idx">b.</td><td class="key">Registration No.</td><td>${safe(c.vehicle_reg_no) || ''}</td></tr>
@@ -408,7 +433,7 @@ function generateFSRHtml(c, isNISLA) {
       <tr><td class="idx">l.</td><td class="key">Product</td><td>${safe(c.product_description) || ''}</td></tr>
       <tr><td class="idx">m.</td><td class="key">Terms &amp; Conditions</td><td>${safe(c.terms_conditions) || ''}</td></tr>
     </table>
-    <div class="section-title">3. OUR SURVEY / INSPECTION / FINDINGS:</div>
+    <div class="section-title">${brand.s3Title}</div>
     <ul class="findings">
       <li>As per instructions received, we made immediate contact with the Service Centre at <b>${safe(c.dealer_name) || 'the authorized dealer'}</b>${c.dealer_address ? `, ${safe(c.dealer_address)}` : ''} on ${formatDate(c.survey_date)} and conducted the survey.</li>
       <li>During our survey the service person has showed the <b>Vehicle No. ${safe(c.vehicle_reg_no) || ''}</b> (of customer ${safe(c.customer_name) || ''}). It was informed that the vehicle was received with customer complaint <b>&ldquo;${(safe(c.customer_complaint) || '').toUpperCase()}&rdquo;</b> on <b>${formatDate(c.complaint_date)}</b>.</li>
@@ -436,7 +461,7 @@ function generateFSRHtml(c, isNISLA) {
         </ul>
       </li>
     </ul>
-    <div class="section-title">4. ASSESSMENT OF LOSS:</div>
+    <div class="section-title">${brand.s4Title}</div>
     <ul class="findings">
       <li>We have assessed the loss based on the physical observation of the damages and documents/details submitted by the insured.</li>
       <li>The insured has provided the repair invoice from <b>${safe(c.dealer_invoice_name) || safe(c.dealer_name) || ''}</b>, vide Invoice No. ${safe(c.tax_invoice_no) || ''} dated ${formatDate(c.tax_invoice_date)} for Rs. ${formatAmount(c.tax_invoice_amount)}, which we have considered in our assessment.</li>
