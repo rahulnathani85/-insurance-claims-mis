@@ -70,6 +70,7 @@ export default function EWClaimDetailPage() {
   const [stageNotes, setStageNotes] = useState({});
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [generatingFSR, setGeneratingFSR] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [mediaStageFilter, setMediaStageFilter] = useState('all');
   const fileInputRef = useRef(null);
 
@@ -510,6 +511,16 @@ export default function EWClaimDetailPage() {
               <span style={{ fontSize: 16 }}>&#x1F4C4;</span>
               {generatingFSR ? 'Generating...' : 'Generate FSR'}
             </button>
+            <button
+              onClick={() => { if (!fsrHtml) { generateFSR(); } setShowPreview(!showPreview); }}
+              style={{
+                padding: '8px 16px', background: showPreview ? '#1e40af' : '#f1f5f9', color: showPreview ? '#fff' : '#475569',
+                border: showPreview ? 'none' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {showPreview ? '✕ Close Preview' : '👁 Preview FSR'}
+            </button>
             {fsrHtml && (
               <>
                 <button onClick={() => generateFSR('pdf')} style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>PDF</button>
@@ -529,6 +540,10 @@ export default function EWClaimDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* Split Layout: Left = Form, Right = FSR Preview */}
+        <div style={{ display: 'flex', gap: 16 }}>
+        <div style={{ flex: showPreview ? '0 0 55%' : '1 1 100%', minWidth: 0, transition: 'flex 0.3s' }}>
 
         {/* Progress Bar */}
         <div style={{ marginBottom: 16 }}>
@@ -928,6 +943,40 @@ export default function EWClaimDetailPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Close left panel */}
+        </div>
+
+        {/* Right Panel: FSR Preview */}
+        {showPreview && (
+          <div style={{ flex: '0 0 43%', minWidth: 0, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
+            <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f0fdf4', borderBottom: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>FSR Preview</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => generateFSR()}
+                    disabled={generatingFSR}
+                    style={{ padding: '4px 10px', background: generatingFSR ? '#94a3b8' : '#059669', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: generatingFSR ? 'default' : 'pointer' }}
+                  >
+                    {generatingFSR ? '...' : '↻ Refresh'}
+                  </button>
+                  <button onClick={() => setShowPreview(false)} style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 11, cursor: 'pointer' }}>✕</button>
+                </div>
+              </div>
+              {fsrHtml ? (
+                <div style={{ transform: 'scale(0.65)', transformOrigin: 'top left', width: '154%', padding: 0 }} dangerouslySetInnerHTML={{ __html: fsrHtml }} />
+              ) : (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                  {generatingFSR ? 'Generating preview...' : 'Click "Refresh" to generate FSR preview'}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Close split layout */}
         </div>
       </div>
 
