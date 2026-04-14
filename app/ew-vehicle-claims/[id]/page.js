@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
 import { FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
+import { logActivity, ACTIONS } from '@/lib/activityLogger';
 
 const STAGE_STATUS_COLORS = {
   'Pending': { bg: '#f1f5f9', color: '#64748b', ring: '#cbd5e1' },
@@ -77,6 +78,9 @@ export default function EWClaimDetailPage() {
 
   // Surveyor list for assignment
   const [surveyorList, setSurveyorList] = useState([]);
+  // Document categories for organized uploads
+  const [docCategories, setDocCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   // Master data for auto-fetch
   const [policies, setPolicies] = useState([]);
@@ -95,6 +99,8 @@ export default function EWClaimDetailPage() {
         .then(r => r.json()).then(d => setInsurers(Array.isArray(d) ? d : [])).catch(() => {});
       fetch('/api/surveyors')
         .then(r => r.json()).then(d => setSurveyorList(Array.isArray(d) ? d : [])).catch(() => setSurveyorList([]));
+      fetch('/api/ew-document-categories')
+        .then(r => r.json()).then(d => setDocCategories(Array.isArray(d) ? d : [])).catch(() => setDocCategories([]));
     }
   }, [company]);
 
@@ -288,6 +294,7 @@ export default function EWClaimDetailPage() {
       }
 
       showAlert('Claim data saved');
+      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.CHANGES_SAVED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: 'Claim data saved', company: claim?.company });
     } catch (e) {
       showAlert(e.message, 'error');
     } finally {
@@ -312,7 +319,8 @@ export default function EWClaimDetailPage() {
       });
       if (!res.ok) throw new Error('Stage update failed');
       showAlert(`Stage ${stageNum} marked as ${newStatus}`);
-      loadAll(); // Reload to get updated claim + stages
+      logActivity({ userEmail: user?.email, userName: user?.name, action: newStatus === 'Completed' ? ACTIONS.STAGE_COMPLETED : newStatus === 'Skipped' ? ACTIONS.STAGE_SKIPPED : ACTIONS.STAGE_UPDATED, entityType: 'ew_claim_stages', entityId: id, refNumber: claim?.ref_number, details: { stage_number: stageNum, new_status: newStatus }, company: claim?.company });
+      loadAll();
     } catch (e) {
       showAlert(e.message, 'error');
     }
@@ -353,6 +361,7 @@ export default function EWClaimDetailPage() {
         if (!res.ok) throw new Error(`Upload failed for ${file.name}`);
       }
       showAlert(`${files.length} file(s) uploaded`);
+      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.DOCUMENT_UPLOADED, entityType: 'ew_claim_media', entityId: id, refNumber: claim?.ref_number, details: { files_count: files.length, file_names: Array.from(files).map(f => f.name) }, company: claim?.company });
       loadAll();
     } catch (e) {
       showAlert(e.message, 'error');
@@ -417,17 +426,22 @@ export default function EWClaimDetailPage() {
       const fname = `FSR-${claim?.ref_number || 'report'}`;
       if (format === 'pdf') {
         await downloadAsPDF(html, `${fname}.pdf`);
-        showAlert('FSR downloaded as PDF');
+        // Save PDF to claim folder
+        saveToCloudFolder(html, fname, 'pdf');
+        logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_DOWNLOADED_PDF, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: 'pdf', filename: `${fname}.pdf` }, company: claim?.company });
+        showAlert('FSR downloaded as PDF and saved to claim folder');
       } else if (format === 'word') {
         downloadAsWord(html, `${fname}.doc`);
-        showAlert('FSR downloaded as Word document');
+        // Save Word to claim folder
+        saveToCloudFolder(html, fname, 'word');
+        logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_DOWNLOADED_WORD, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: 'word', filename: `${fname}.doc` }, company: claim?.company });
+        showAlert('FSR downloaded as Word and saved to claim folder');
       } else {
         setShowFsrExport(true);
         showAlert('FSR generated! Choose your download format.');
       }
 
-      // Save FSR to cloud folder (fire-and-forget)
-      saveToCloudFolder(html, fname);
+      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'preview' }, company: claim?.company });
     } catch (e) {
       showAlert(e.message, 'error');
     } finally {
@@ -435,8 +449,8 @@ export default function EWClaimDetailPage() {
     }
   }
 
-  // Save FSR Word file to the claim's cloud folder
-  async function saveToCloudFolder(html, fname) {
+  // Save FSR file to the claim's cloud folder (Word or PDF placeholder)
+  async function saveToCloudFolder(html, fname, format = 'word') {
     try {
       // Get the parent claim's folder_path
       let folderPath = '';
@@ -450,16 +464,27 @@ export default function EWClaimDetailPage() {
       const relativePath = folderPath.replace(/^D:\\\\2026-27\\\\?/, '').replace(/^D:\\2026-27\\?/, '');
       if (!relativePath) return;
 
-      // Create Word doc as Blob and upload to file server
-      const wordHtml = buildWordHtml(html);
-      const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
-      const file = new File([blob], `${fname}.doc`, { type: 'application/msword' });
+      // Save to FSR subfolder
+      const fsrFolder = `${relativePath}\\FSR`;
+
+      // Create file as Blob
+      let blob, fileName;
+      if (format === 'word') {
+        const wordHtml = buildWordHtml(html);
+        blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
+        fileName = `${fname}.doc`;
+      } else {
+        // For PDF, save the HTML as .html (user can print to PDF from there)
+        blob = new Blob([html], { type: 'text/html' });
+        fileName = `${fname}.html`;
+      }
+      const file = new File([blob], fileName, { type: blob.type });
 
       const fd = new FormData();
       fd.append('files', file);
-      fd.append('folder_path', relativePath);
+      fd.append('folder_path', fsrFolder);
 
-      const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(relativePath)}`, {
+      const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
         method: 'POST',
         headers: { 'X-API-Key': FILE_SERVER_KEY },
         body: fd,
@@ -545,7 +570,9 @@ ${cleanCss}
   const progressPct = Math.round((completedCount / STAGE_COUNT) * 100);
   const currentStageData = stages.find(s => s.status === 'In Progress');
   const isOverdue = claim.sla_due_date && new Date(claim.sla_due_date) < new Date();
-  const filteredMedia = mediaStageFilter === 'all' ? media : media.filter(m => m.stage_number === parseInt(mediaStageFilter));
+  let filteredMedia = media;
+  if (mediaStageFilter !== 'all') filteredMedia = filteredMedia.filter(m => m.stage_number === parseInt(mediaStageFilter));
+  if (selectedCategory !== 'all') filteredMedia = filteredMedia.filter(m => m.document_category === selectedCategory);
 
   return (
     <PageLayout>
@@ -930,9 +957,18 @@ ${cleanCss}
             {/* MEDIA TAB */}
             {activeTab === 'media' && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Stage:</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Category:</label>
+                    <select
+                      value={selectedCategory}
+                      onChange={e => setSelectedCategory(e.target.value)}
+                      style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}
+                    >
+                      <option value="all">All Categories</option>
+                      {docCategories.map(cat => <option key={cat.id} value={cat.code}>{cat.name}</option>)}
+                    </select>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginLeft: 8 }}>Stage:</label>
                     <select
                       value={mediaStageFilter}
                       onChange={e => setMediaStageFilter(e.target.value)}
@@ -942,12 +978,15 @@ ${cleanCss}
                       {EW_STAGES.map(s => <option key={s.number} value={s.number}>Stage {s.number}: {s.name}</option>)}
                     </select>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select id="upload-category" style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11 }}>
+                      {docCategories.map(cat => <option key={cat.id} value={cat.code}>{cat.name}</option>)}
+                    </select>
                     <input
                       ref={fileInputRef}
                       type="file"
                       multiple
-                      accept="image/*,video/*"
+                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
                       onChange={handleFileUpload}
                       style={{ display: 'none' }}
                     />
@@ -955,16 +994,35 @@ ${cleanCss}
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploadingMedia}
                       style={{
-                        padding: '8px 16px', background: uploadingMedia ? '#a78bfa' : '#7c3aed', color: '#fff',
-                        border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                        padding: '8px 14px', background: uploadingMedia ? '#a78bfa' : '#7c3aed', color: '#fff',
+                        border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600,
                         cursor: uploadingMedia ? 'default' : 'pointer',
                         display: 'flex', alignItems: 'center', gap: 6,
                       }}
                     >
-                      <span style={{ fontSize: 16 }}>&#x1F4F7;</span>
-                      {uploadingMedia ? 'Uploading...' : 'Upload Photos / Videos'}
+                      <span style={{ fontSize: 14 }}>📁</span>
+                      {uploadingMedia ? 'Uploading...' : 'Upload Files'}
                     </button>
                   </div>
+                </div>
+
+                {/* Document Category Summary */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+                  {docCategories.slice(0, 10).map(cat => {
+                    const count = media.filter(m => m.document_category === cat.code).length;
+                    return (
+                      <div key={cat.id}
+                        onClick={() => setSelectedCategory(selectedCategory === cat.code ? 'all' : cat.code)}
+                        style={{
+                          padding: '4px 10px', borderRadius: 12, fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                          background: selectedCategory === cat.code ? '#7c3aed' : count > 0 ? '#dcfce7' : '#f1f5f9',
+                          color: selectedCategory === cat.code ? '#fff' : count > 0 ? '#166534' : '#94a3b8',
+                          border: `1px solid ${selectedCategory === cat.code ? '#7c3aed' : '#e2e8f0'}`,
+                        }}>
+                        {cat.name} ({count})
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {filteredMedia.length === 0 ? (
