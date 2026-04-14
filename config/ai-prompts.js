@@ -172,24 +172,91 @@ export function getSystemPrompt(lob) {
   return AI_PROMPTS[lob] || AI_PROMPTS['Fire'] || BASE_PROMPT;
 }
 
-// FSR generation prompt
-export const FSR_GENERATION_PROMPT = `You are writing a Final Survey Report (FSR) for Nathani Insurance Surveyors & Loss Assessors Pvt. Ltd. (NISLA).
+// FSR generation prompt — matches NISLA/Acuere real report format
+export const FSR_GENERATION_PROMPT = `You are writing a Final Survey Report (FSR) for an insurance surveying firm.
 
-Generate a professional FSR in HTML format with these sections:
-1. APPOINTMENT & SCOPE
-2. POLICY / WARRANTY DETAILS (table format)
-3. FACTS OF THE CLAIM
-4. SURVEY FINDINGS & OBSERVATIONS
-5. DOCUMENTS VERIFIED (table format)
-6. ASSESSMENT & LIABILITY (with amounts in INR)
-7. RECOMMENDATION
+Generate a professional FSR in HTML format that EXACTLY matches this structure (used by NISLA and Acuere for Extended Warranty claims):
 
-Rules:
-- Use formal, professional insurance surveyor language
-- Cite specific documents and facts — no generic statements
-- Wrap AI-generated content in <span class="ai-field">[AI]</span> tags
-- Use proper HTML tables for structured data
-- Include amounts formatted in Indian number system (e.g., 1,50,000)
-- End with signature block for NISLA authorised signatory
+=== SECTION 1: COVER PAGE (as an HTML table) ===
+A branded cover table containing:
+- Surveyor firm name and S.L.A. number
+- Report reference number and date
+- "REPORTED LOSS TO VEHICLE NO. [reg_no]"
+- "VIN NUMBER - [chassis_number]"
+- "INSURED: [insured_name]"
+- Insurer name
+- "EXTENDED WARRANTY INSURANCE POLICY NO - [policy_number]"
+- Warranty plan name
 
-The report will be printed on NISLA letterhead. Do not include letterhead in the HTML.`;
+=== SECTION 2: COVER LETTER ===
+Addressed: "To, The Claim In-Charge, [Insurer Name], [Insurer Address]"
+Subject line: "Reported claim under Extended Warranty of VIN No. [vin], Vehicle No. [reg], Insured: [name], Policy No. [policy] || Claim File No. [file_no]"
+Opening paragraph: "Pursuant to valued instruction received from [appointing_office] on [date_of_intimation] for survey and loss assessment..."
+Closing: "Now we are submitting our final survey and loss assessment report..."
+
+=== SECTION 3: CLAIM DETAILS TABLE (labeled 1. CLAIM DETAILS) ===
+Two-column table with rows:
+- Insured | [name and address]
+- Insurer | [insurer name and address]
+- Policy No | [policy_number]
+- Claim File No | [claim_file_no]
+- Person Contacted | [person]
+- Estimated loss Amount | Rs. [amount]
+- Claim Type | Claim under Extended Warranty of VIN No. [chassis]
+
+=== SECTION 4: VEHICLE PARTICULARS TABLE (labeled 2. CERTIFICATE / VEHICLE PARTICULARS) ===
+Two-column table with lettered rows (a through m):
+a) Customer Name
+b) Registration No
+c) Date of Registration
+d) Vehicle Make
+e) Model / Fuel Type
+f) Chassis No
+g) Engine No
+h) Odometer Reading (at the time of breakdown)
+i) Name of Plan
+j) Certificate No
+k) Certificate From / Certificate To
+l) Product Description (covered components list from warranty)
+m) Terms & Conditions
+
+=== SECTION 5: SURVEY FINDINGS (labeled 3. OUR SURVEY / INSPECTION / FINDINGS) ===
+Narrative text following this exact flow:
+1. "During our survey, it was noted that..." — initial contact with authorised service centre
+2. Customer complaint description — what the customer reported
+3. Diagnosis findings — what the service centre found on inspection
+4. Dismantling observations — what was found after dismantling (if applicable)
+5. Defective parts identified — specific parts that failed
+6. Service history verification — whether maintenance records check out
+7. Reinspection details — post-repair inspection findings
+8. Tax invoice details — invoice number, date, amount, dealer name
+
+=== SECTION 6: ASSESSMENT TABLE (labeled 4. ASSESSMENT OF LOSS) ===
+Table with these exact rows:
+- Gross Assessed Loss | Rs. [amount]
+- Less: GST @ [rate]% (As the insured is eligible for GST credit) | Rs. [gst_amount]
+- Total | Rs. [total_after_gst]
+- Less: Not Covered / Excess | Rs. [not_covered]
+- Net Adjusted Loss Amount | Rs. [net_amount]
+- Amount in words | Rupees [amount_in_words] Only
+
+=== SECTION 7: CONCLUSION (labeled 5. CONCLUSION) ===
+Standard paragraph: "In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued."
+
+Followed by Notes:
+- Note 1: Annexure reference for proof of payment/photos
+- Note 2: "This report is furnished without prejudice to the rights..."
+- Note 3: Disclaimer about matters known at the time
+
+Signature block:
+"For [Surveyor Firm Name]"
+"Authorised Signatory"
+
+FORMAT RULES:
+- Use proper HTML tables with borders for all data tables
+- Format all amounts in Indian number system (e.g., Rs. 1,20,690.07)
+- Use professional insurance surveyor language
+- Wrap any AI-estimated/inferred content in <span class="ai-field" style="background:#fef3c7;padding:2px 4px;border-radius:3px;font-size:11px;color:#92400e">[AI]</span> tags
+- If data is missing, use placeholder like "[TO BE FILLED]" in yellow highlight
+- Do NOT include headers/footers — those are added separately
+- Keep the exact section numbering (1. CLAIM DETAILS, 2. CERTIFICATE/VEHICLE, 3. SURVEY, 4. ASSESSMENT, 5. CONCLUSION)`;
