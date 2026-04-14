@@ -127,14 +127,11 @@ function generateFSRHtml(c, isNISLA) {
     padding: 38px 56px 26px 56px;
     page-break-after: always;
     mso-page-break-after: always;
-    display: flex;
-    flex-direction: column;
     position: relative;
   }
   .page:last-child { page-break-after: auto; mso-page-break-after: auto; }
-  .page-content { flex: 1 1 auto; }
+  .page-content { }
   .page-foot {
-    flex: 0 0 auto;
     border-top: 0.75pt solid #555;
     padding-top: 6px;
     margin-top: 14px;
@@ -214,7 +211,7 @@ function generateFSRHtml(c, isNISLA) {
     font-size: 11pt;
     font-style: italic;
   }
-  .cover-foot { margin-top: auto; }
+  .cover-foot { margin-top: 60px; }
 
   /* INNER PAGES */
   .inner-head {
@@ -226,11 +223,12 @@ function generateFSRHtml(c, isNISLA) {
   .hd-sla { color: ${brand.color}; font-size: 9.5pt; }
   .hd-tagline { color: ${brand.color}; font-size: 9.5pt; font-style: italic; margin-top: 2px; }
   .ref-row {
-    display: flex;
-    justify-content: space-between;
+    overflow: hidden;
     margin-top: 14px;
     font-size: 10.5pt;
   }
+  .ref-row span:first-child { float: left; }
+  .ref-row span:last-child { float: right; }
   .report-title {
     text-align: center;
     font-size: 14pt;
