@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS fsr_templates (
   assessment_label_net text DEFAULT 'Net Adjusted Loss Amount',
   font_family text DEFAULT 'Times New Roman, Times, serif',
   font_size text DEFAULT '11pt',
+  logo_base64 text,
   is_active boolean DEFAULT true,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
