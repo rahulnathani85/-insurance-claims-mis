@@ -180,9 +180,9 @@ export default function EWClaimDetailPage() {
       setEditForm(merged);
       setStages(Array.isArray(stagesRes) ? stagesRes : []);
       setMedia(Array.isArray(mediaRes) ? mediaRes : []);
-      // Load activity logs
-      if (user?.role === 'Admin') {
-        fetch(`/api/activity-log?entity_id=${id}`).then(r => r.json()).then(d => setActivityLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : [])).catch(() => {});
+      // Load activity logs by ref_number (captures all actions for this claim file)
+      if (user?.role === 'Admin' && merged?.ref_number) {
+        fetch(`/api/activity-log?ref_number=${encodeURIComponent(merged.ref_number)}`).then(r => r.json()).then(d => setActivityLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : [])).catch(() => {});
       }
       // Initialize stage notes
       const notes = {};
@@ -1094,7 +1094,9 @@ ${cleanCss}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <h4 style={{ margin: 0, fontSize: 14, color: '#1e293b' }}>📋 Activity Log</h4>
                   <button onClick={() => {
-                    fetch(`/api/activity-log?entity_id=${id}`).then(r => r.json()).then(d => setActivityLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : [])).catch(() => {});
+                    if (claim?.ref_number) {
+                      fetch(`/api/activity-log?ref_number=${encodeURIComponent(claim.ref_number)}`).then(r => r.json()).then(d => setActivityLogs(Array.isArray(d) ? d.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : [])).catch(() => {});
+                    }
                   }} style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>Refresh</button>
                 </div>
                 <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>All user actions on this claim with username and timestamp.</p>

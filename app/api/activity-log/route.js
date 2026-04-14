@@ -6,6 +6,8 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const userEmail = searchParams.get('user_email');
   const claimId = searchParams.get('claim_id');
+  const refNumber = searchParams.get('ref_number');
+  const entityId = searchParams.get('entity_id');
   const action = searchParams.get('action');
   const company = searchParams.get('company');
   const fromDate = searchParams.get('from_date');
@@ -20,6 +22,8 @@ export async function GET(request) {
 
   if (userEmail) query = query.eq('user_email', userEmail);
   if (claimId) query = query.eq('claim_id', claimId);
+  if (refNumber) query = query.eq('ref_number', refNumber);
+  if (entityId) query = query.eq('entity_id', entityId);
   if (action) query = query.eq('action', action);
   if (company) query = query.eq('company', company);
   if (fromDate) query = query.gte('created_at', fromDate);
