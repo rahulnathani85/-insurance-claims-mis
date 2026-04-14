@@ -4,12 +4,15 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import { LOB_COLORS, LOB_ICONS, LOB_LIST, FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
+import { useAuth } from '@/lib/AuthContext';
+import { PIPELINE_STAGES } from '@/lib/pipelineStages';
 
 function ClaimsLobContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
   const { company } = useCompany();
+  const { user } = useAuth();
   const lob = decodeURIComponent(params.lob);
   const clientCategory = searchParams.get('client_category') || '';
 
@@ -500,6 +503,23 @@ function ClaimsLobContent() {
     }
   }
 
+  // Inline pipeline stage update from list
+  async function updatePipelineStage(claimId, stageNumber) {
+    const stage = PIPELINE_STAGES.find(s => s.number === stageNumber);
+    if (!stage) return;
+    try {
+      await fetch('/api/claim-stages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_id: claimId, stage: stage.name, stage_number: stage.number, updated_by: user?.email || '', company }),
+      });
+      showAlertMsg(`Stage updated to "${stage.name}"`, 'success');
+      await loadClaims();
+    } catch (e) {
+      showAlertMsg('Stage update failed: ' + e.message, 'error');
+    }
+  }
+
   // Drag handlers
   const handleMouseDown = useCallback((e) => {
     if (e.target.closest('.modal-close') || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' ||
@@ -582,6 +602,7 @@ function ClaimsLobContent() {
                   <th>Surveyor</th>
                   <th>Gross Loss</th>
                   <th>Status</th>
+                  <th>Pipeline</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -599,6 +620,17 @@ function ClaimsLobContent() {
                       <span className={`badge ${c.status.toLowerCase().replace(/\s+/g, '-')}`}>
                         {c.status}
                       </span>
+                    </td>
+                    <td>
+                      <select
+                        value={c.pipeline_stage_number || 1}
+                        onChange={e => { e.stopPropagation(); updatePipelineStage(c.id, parseInt(e.target.value)); }}
+                        style={{ padding: '3px 6px', fontSize: 11, borderRadius: 4, border: '1px solid #d1d5db', cursor: 'pointer', maxWidth: 130 }}
+                      >
+                        {PIPELINE_STAGES.map(ps => (
+                          <option key={ps.number} value={ps.number}>{ps.number}. {ps.short}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="action-buttons">
                       <button className="secondary" onClick={() => openEditClaim(c)}>Edit</button>

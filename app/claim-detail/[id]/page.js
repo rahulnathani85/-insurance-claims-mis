@@ -5,6 +5,7 @@ import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
+import { PIPELINE_STAGES, getClaimTatDeadline, getTatBadge } from '@/lib/pipelineStages';
 
 const STATUS_STYLES = {
   'Completed': { bg: '#dcfce7', color: '#166534', icon: '✅' },
@@ -25,6 +26,7 @@ export default function ClaimDetail() {
   const [assignments, setAssignments] = useState([]);
   const [activityLogs, setActivityLogs] = useState([]);
   const [reminders, setReminders] = useState([]);
+  const [pipelineStages, setPipelineStages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -56,7 +58,7 @@ export default function ClaimDetail() {
   async function loadAll() {
     try {
       setLoading(true);
-      const [c, w, h, d, gd, a, al, r] = await Promise.all([
+      const [c, w, h, d, gd, a, al, r, ps] = await Promise.all([
         fetch(`/api/claims/${id}`).then(r => r.json()),
         fetch(`/api/claim-workflow?claim_id=${id}`).then(r => r.json()).catch(() => []),
         fetch(`/api/claim-workflow-history?claim_id=${id}`).then(r => r.json()).catch(() => []),
@@ -65,6 +67,7 @@ export default function ClaimDetail() {
         fetch(`/api/claim-assignments?claim_id=${id}`).then(r => r.json()).catch(() => []),
         fetch(`/api/activity-log?claim_id=${id}`).then(r => r.json()).catch(() => []),
         fetch(`/api/claim-reminders?claim_id=${id}`).then(r => r.json()).catch(() => []),
+        fetch(`/api/claim-stages?claim_id=${id}`).then(r => r.json()).catch(() => []),
       ]);
       setClaim(c);
       setWorkflow(Array.isArray(w) ? w : []);
@@ -74,6 +77,7 @@ export default function ClaimDetail() {
       setAssignments(Array.isArray(a) ? a : []);
       setActivityLogs(Array.isArray(al) ? al : []);
       setReminders(Array.isArray(r) ? r : []);
+      setPipelineStages(Array.isArray(ps) ? ps : []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }
@@ -359,6 +363,66 @@ export default function ClaimDetail() {
             <div style={{ fontSize: 11, color: '#6b7280' }}>Assigned To</div>
           </div>
         </div>
+
+        {/* 9-Stage Pipeline Stepper */}
+        {claim.lob !== 'Extended Warranty' && (() => {
+          const currentPipelineNum = claim.pipeline_stage_number || 1;
+          const tatInfo = getClaimTatDeadline(claim.lob, claim.date_of_intimation || claim.date_intimation, currentPipelineNum);
+          const tatBadge = tatInfo ? getTatBadge(tatInfo.deadline) : null;
+          return (
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>Claim Pipeline</span>
+                {tatBadge && (
+                  <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: tatBadge.bg, color: tatBadge.color, border: `1px solid ${tatBadge.border}` }}>
+                    {tatBadge.label}{tatInfo ? ` — ${tatInfo.milestone}` : ''}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                {PIPELINE_STAGES.map((ps, i) => {
+                  const isCompleted = ps.number < currentPipelineNum;
+                  const isCurrent = ps.number === currentPipelineNum;
+                  const isFuture = ps.number > currentPipelineNum;
+                  return (
+                    <div key={ps.number} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                      {/* Connector line */}
+                      {i > 0 && <div style={{ position: 'absolute', top: 14, left: 0, right: '50%', height: 3, background: isCompleted || isCurrent ? '#16a34a' : '#e2e8f0', zIndex: 0 }} />}
+                      {i < PIPELINE_STAGES.length - 1 && <div style={{ position: 'absolute', top: 14, left: '50%', right: 0, height: 3, background: isCompleted ? '#16a34a' : '#e2e8f0', zIndex: 0 }} />}
+                      {/* Circle */}
+                      <div
+                        onClick={() => {
+                          if (isFuture && confirm(`Advance claim to "${ps.name}"?`)) {
+                            fetch('/api/claim-stages', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ claim_id: parseInt(id), stage: ps.name, stage_number: ps.number, updated_by: user?.email, company: 'NISLA' }),
+                            }).then(() => loadAll());
+                          }
+                        }}
+                        style={{
+                          width: isCurrent ? 30 : 24, height: isCurrent ? 30 : 24, borderRadius: '50%',
+                          background: isCompleted ? '#16a34a' : isCurrent ? '#2563eb' : '#e2e8f0',
+                          color: isCompleted || isCurrent ? '#fff' : '#94a3b8',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 10, fontWeight: 700, zIndex: 1, position: 'relative',
+                          cursor: isFuture ? 'pointer' : 'default',
+                          border: isCurrent ? '3px solid #93c5fd' : '2px solid transparent',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        {isCompleted ? '\u2713' : ps.number}
+                      </div>
+                      <div style={{ fontSize: 8, color: isCurrent ? '#2563eb' : '#64748b', fontWeight: isCurrent ? 700 : 500, marginTop: 3, textAlign: 'center', lineHeight: 1.1 }}>
+                        {ps.short}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #e5e7eb', marginBottom: 20 }}>

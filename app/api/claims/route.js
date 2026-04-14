@@ -167,6 +167,22 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+  // Auto-insert initial pipeline stage for the new claim
+  try {
+    await supabaseAdmin.from('claim_stages').insert([{
+      claim_id: data.id,
+      stage: 'Pending Assignment',
+      stage_number: 1,
+      stage_date: new Date().toISOString().split('T')[0],
+      notes: 'Claim registered',
+      updated_by: body.created_by || body.assigned_to || null,
+      entered_by: body.created_by || body.assigned_to || null,
+      company,
+    }]);
+  } catch (stageErr) {
+    console.warn('Pipeline stage insert failed (non-fatal):', stageErr?.message);
+  }
+
   // Auto-create linked ew_vehicle_claims record when LOB is Extended Warranty
   if (body.lob === 'Extended Warranty') {
     try {

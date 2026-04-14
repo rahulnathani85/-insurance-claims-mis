@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import { LOB_LIST, FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
+import { PIPELINE_STAGE_NAMES } from '@/lib/pipelineStages';
 
 function MISPortalContent() {
   const router = useRouter();
@@ -26,6 +27,7 @@ function MISPortalContent() {
   const [filterPolicyNumber, setFilterPolicyNumber] = useState('');
   const [filterClaimNumber, setFilterClaimNumber] = useState('');
   const [filterPolicyType, setFilterPolicyType] = useState('');
+  const [filterPipeline, setFilterPipeline] = useState('');
   const [filterDateLossFrom, setFilterDateLossFrom] = useState('');
   const [filterDateLossTo, setFilterDateLossTo] = useState('');
   const [filterDateIntFrom, setFilterDateIntFrom] = useState('');
@@ -61,6 +63,7 @@ function MISPortalContent() {
 
       // Client-side filters
       if (filterPolicyType) result = result.filter(c => c.policy_type?.toLowerCase().includes(filterPolicyType.toLowerCase()));
+      if (filterPipeline) result = result.filter(c => c.pipeline_stage === filterPipeline);
       if (filterDateSubFrom) result = result.filter(c => c.date_submission >= filterDateSubFrom);
       if (filterDateSubTo) result = result.filter(c => c.date_submission <= filterDateSubTo);
       if (isAllMode && filterCompany) result = result.filter(c => c.company === filterCompany);
@@ -160,6 +163,10 @@ function MISPortalContent() {
             </select>
             <input placeholder="Insurer Name" value={filterInsurer} onChange={e => setFilterInsurer(e.target.value)} />
             <input placeholder="Policy Type" value={filterPolicyType} onChange={e => setFilterPolicyType(e.target.value)} />
+            <select value={filterPipeline} onChange={e => setFilterPipeline(e.target.value)}>
+              <option value="">All Pipeline Stages</option>
+              {PIPELINE_STAGE_NAMES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
           {isAllMode && (
             <div className="filter-row">
@@ -225,6 +232,7 @@ function MISPortalContent() {
                 <th>Date FSR</th>
                 <th>Date Submission</th>
                 <th>Status</th>
+                <th>Pipeline</th>
                 <th>Survey Fee</th>
                 <th>Actions</th>
               </tr>
@@ -253,6 +261,7 @@ function MISPortalContent() {
                   <td>{c.date_fsr || '-'}</td>
                   <td>{c.date_submission || '-'}</td>
                   <td><span className={`badge ${c.status?.toLowerCase().replace(/\s+/g, '-')}`}>{c.status}</span></td>
+                  <td style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{c.pipeline_stage || '-'}</td>
                   <td style={{ fontSize: 11 }}>{c.survey_fee_bill_number || '-'}{c.survey_fee_bill_amount ? ` (₹${parseFloat(c.survey_fee_bill_amount).toLocaleString('en-IN')})` : ''}</td>
                   <td className="action-buttons" style={{ whiteSpace: 'nowrap' }}>
                     <button className="secondary" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => openViewModal(c)}>View</button>
