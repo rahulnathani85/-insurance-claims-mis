@@ -32,6 +32,7 @@ export default function ClaimDetail() {
   const [aiLoading, setAiLoading] = useState(false);
   const [fsrDrafts, setFsrDrafts] = useState([]);
   const [fsrGenerating, setFsrGenerating] = useState(false);
+  const [ewFsrHtml, setEwFsrHtml] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -1161,83 +1162,86 @@ export default function ClaimDetail() {
         {/* TAB: FSR Draft */}
         {activeTab === 'fsr' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-              <h4 style={{ margin: 0, color: '#1e293b' }}>AI-Generated FSR Draft</h4>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={async () => {
-                    setFsrGenerating(true);
-                    try {
-                      const res = await fetch('/api/ai/generate-fsr', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ claim_id: parseInt(id), user_email: user?.email }),
-                      });
-                      const data = await res.json();
-                      if (data.error) throw new Error(data.error);
-                      // Reload drafts
-                      const draftRes = await fetch(`/api/ai/fsr-drafts?claim_id=${id}`);
-                      setFsrDrafts(await draftRes.json());
-                    } catch (e) { alert('FSR Error: ' + e.message); }
-                    finally { setFsrGenerating(false); }
-                  }}
-                  disabled={fsrGenerating}
-                  style={{ padding: '8px 16px', background: fsrGenerating ? '#94a3b8' : '#059669', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: fsrGenerating ? 'default' : 'pointer' }}
-                >
-                  {fsrGenerating ? 'Generating...' : '📝 Generate FSR Draft'}
-                </button>
-                <button
-                  onClick={async () => {
-                    const draftRes = await fetch(`/api/ai/fsr-drafts?claim_id=${id}`);
-                    setFsrDrafts(await draftRes.json());
-                  }}
-                  style={{ padding: '8px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
+            {/* EW Claims: Use template-based FSR generator */}
+            {claim.lob === 'Extended Warranty' ? (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                  <h4 style={{ margin: 0, color: '#1e293b' }}>EW Final Survey Report</h4>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={async () => {
+                        setFsrGenerating(true);
+                        try {
+                          // Find the EW claim ID linked to this claim
+                          const ewRes = await fetch(`/api/ew-claims?claim_id=${id}`);
+                          const ewClaim = await ewRes.json();
+                          if (!ewClaim || !ewClaim.id) throw new Error('No EW claim linked. Open from EW Vehicle Claims page instead.');
+                          const res = await fetch(`/api/ew-fsr-generate?_=${Date.now()}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+                            cache: 'no-store',
+                            body: JSON.stringify({ ew_claim_id: ewClaim.id }),
+                          });
+                          if (!res.ok) throw new Error('FSR generation failed');
+                          const data = await res.json();
+                          setEwFsrHtml(data.html);
+                        } catch (e) { alert('FSR Error: ' + e.message); }
+                        finally { setFsrGenerating(false); }
+                      }}
+                      disabled={fsrGenerating}
+                      style={{ padding: '8px 16px', background: fsrGenerating ? '#94a3b8' : '#059669', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: fsrGenerating ? 'default' : 'pointer' }}
+                    >
+                      {fsrGenerating ? 'Generating...' : '📄 Generate EW FSR'}
+                    </button>
+                    {ewFsrHtml && (
+                      <>
+                        <button onClick={async () => {
+                          const { downloadAsPDF } = await import('@/lib/documentExport');
+                          await downloadAsPDF(ewFsrHtml, `FSR-${claim.ref_number || 'report'}.pdf`);
+                        }} style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          PDF
+                        </button>
+                        <button onClick={async () => {
+                          const { downloadAsWord } = await import('@/lib/documentExport');
+                          downloadAsWord(ewFsrHtml, `FSR-${claim.ref_number || 'report'}.doc`);
+                        }} style={{ padding: '8px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          Word
+                        </button>
+                        <button onClick={() => {
+                          const win = window.open('', '_blank');
+                          win.document.write(ewFsrHtml);
+                          win.document.close();
+                          win.print();
+                        }} style={{ padding: '8px 12px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          Print
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
 
-            {fsrDrafts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
-                <div style={{ fontSize: 40, marginBottom: 10 }}>📑</div>
-                <p>No FSR drafts yet. Click "Generate FSR Draft" to create one using AI.</p>
-                <p style={{ fontSize: 12 }}>Tip: Run "Analyse Documents" first in the AI Analyst tab for better results.</p>
+                {ewFsrHtml ? (
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#166534', fontWeight: 600 }}>
+                      ✅ FSR Generated — Review below, then download as PDF or Word
+                    </div>
+                    <div style={{ padding: 16, maxHeight: 600, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: ewFsrHtml }} />
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
+                    <div style={{ fontSize: 40, marginBottom: 10 }}>📑</div>
+                    <p>Click "Generate EW FSR" to create the Final Survey Report.</p>
+                    <p style={{ fontSize: 12 }}>The report uses NISLA/Acuere template format with all claim data pre-filled.</p>
+                  </div>
+                )}
               </div>
             ) : (
-              fsrDrafts.map(draft => (
-                <div key={draft.id} style={{ marginBottom: 20, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    <div>
-                      <span style={{ fontWeight: 700, fontSize: 13 }}>Version {draft.version_number}</span>
-                      <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
-                        background: draft.status === 'approved' ? '#dcfce7' : draft.status === 'final' ? '#dbeafe' : '#fef3c7',
-                        color: draft.status === 'approved' ? '#166534' : draft.status === 'final' ? '#1e40af' : '#92400e'
-                      }}>{draft.status.toUpperCase()}</span>
-                      <span style={{ marginLeft: 10, fontSize: 11, color: '#94a3b8' }}>{draft.generated_at ? new Date(draft.generated_at).toLocaleString('en-IN') : ''}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {draft.status === 'draft' && (
-                        <button onClick={async () => {
-                          await fetch('/api/ai/fsr-drafts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: draft.id, status: 'approved', approved_by: user?.email }) });
-                          const draftRes = await fetch(`/api/ai/fsr-drafts?claim_id=${id}`);
-                          setFsrDrafts(await draftRes.json());
-                        }} style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                          ✓ Approve
-                        </button>
-                      )}
-                      <button onClick={() => {
-                        const win = window.open('', '_blank');
-                        win.document.write(`<html><head><title>FSR - ${claim.ref_number}</title><style>body{font-family:Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto;line-height:1.6} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px;text-align:left} .ai-field{background:#fef3c7;padding:2px 4px;border-radius:3px;font-size:11px;color:#92400e} @media print{body{padding:20px}}</style></head><body>${draft.draft_content}</body></html>`);
-                        win.document.close();
-                        win.print();
-                      }} style={{ padding: '4px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>
-                        🖨️ Print
-                      </button>
-                    </div>
-                  </div>
-                  <div style={{ padding: 20, fontSize: 13, lineHeight: 1.7 }} dangerouslySetInnerHTML={{ __html: draft.draft_content }} />
-                </div>
-              ))
+              /* Non-EW Claims: AI-powered FSR (future) */
+              <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
+                <div style={{ fontSize: 40, marginBottom: 10 }}>📑</div>
+                <p>AI-powered FSR generation for {claim.lob} claims coming soon.</p>
+                <p style={{ fontSize: 12 }}>Currently available for Extended Warranty claims. Other LOBs will be added after AI integration is configured.</p>
+              </div>
             )}
           </div>
         )}
