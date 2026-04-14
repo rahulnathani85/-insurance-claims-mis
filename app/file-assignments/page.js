@@ -6,6 +6,10 @@ import { useCompany } from '@/lib/CompanyContext';
 
 const ASSIGNMENT_STATUSES = ['Assigned', 'In Progress', 'Completed', 'Reassigned'];
 const ASSIGNMENT_ROLES = ['Surveyor', 'Staff', 'Reviewer'];
+const ASSIGNMENT_TYPES = ['lead_surveyor', 'supporting', 'specialist', 'general'];
+const TYPE_LABELS = { lead_surveyor: 'Lead', supporting: 'Support', specialist: 'Specialist', general: 'General' };
+const TYPE_COLORS = { lead_surveyor: { bg: '#dbeafe', color: '#1e40af' }, supporting: { bg: '#fef3c7', color: '#92400e' }, specialist: { bg: '#fae8ff', color: '#86198f' }, general: { bg: '#f3f4f6', color: '#374151' } };
+const PRIORITY_COLORS = { Normal: { bg: '#f3f4f6', color: '#374151' }, High: { bg: '#fef3c7', color: '#92400e' }, Urgent: { bg: '#fef2f2', color: '#dc2626' } };
 
 const STATUS_COLORS = {
   'Assigned': { bg: '#dbeafe', color: '#1e40af' },
@@ -26,6 +30,9 @@ export default function FileAssignments() {
   const [alert, setAlert] = useState(null);
   const [filterUser, setFilterUser] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
+  const [workload, setWorkload] = useState([]);
   const [viewMode, setViewMode] = useState('assignments'); // 'assignments' or 'member-progress'
   const [claimSearch, setClaimSearch] = useState('');
   const [showClaimDropdown, setShowClaimDropdown] = useState(false);
@@ -39,14 +46,16 @@ export default function FileAssignments() {
   async function loadAll() {
     try {
       setLoading(true);
-      const [a, c, u] = await Promise.all([
+      const [a, c, u, w] = await Promise.all([
         fetch(`/api/claim-assignments?company=${encodeURIComponent(company)}`).then(r => r.json()),
         fetch(`/api/claims?company=${encodeURIComponent(company)}`).then(r => r.json()),
         fetch('/api/auth/users').then(r => r.json()),
+        fetch('/api/claim-assignments?workload=true').then(r => r.json()).catch(() => []),
       ]);
       setAssignments(Array.isArray(a) ? a : []);
       setClaims(Array.isArray(c) ? c : []);
       setUsers(Array.isArray(u) ? u.filter(u => u.is_active) : []);
+      setWorkload(Array.isArray(w) ? w : []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -65,7 +74,7 @@ export default function FileAssignments() {
   }
 
   function openNewAssignment() {
-    setFormData({ role: 'Surveyor', company, assigned_by: user?.email });
+    setFormData({ role: 'Surveyor', assignment_type: 'lead_surveyor', priority: 'Normal', company, assigned_by: user?.email });
     setClaimSearch('');
     setShowModal(true);
   }
@@ -83,10 +92,13 @@ export default function FileAssignments() {
       return;
     }
     try {
+      // Denormalize the user name
+      const assignee = users.find(u => u.email === formData.assigned_to);
+      const payload = { ...formData, assigned_to_name: assignee?.name || formData.assigned_to };
       const res = await fetch('/api/claim-assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
       showAlertMsg('File assigned successfully!', 'success');
@@ -125,6 +137,8 @@ export default function FileAssignments() {
   const filteredAssignments = assignments.filter(a => {
     if (filterUser && a.assigned_to !== filterUser) return false;
     if (filterStatus && a.status !== filterStatus) return false;
+    if (filterType && a.assignment_type !== filterType) return false;
+    if (filterPriority && a.priority !== filterPriority) return false;
     return true;
   });
 
@@ -170,6 +184,30 @@ export default function FileAssignments() {
           </div>
         </div>
 
+        {/* Workload Panel */}
+        {workload.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 15, overflowX: 'auto', paddingBottom: 5 }}>
+            {workload.map(w => (
+              <div key={w.email}
+                onClick={() => setFilterUser(filterUser === w.email ? '' : w.email)}
+                style={{
+                  minWidth: 140, padding: '10px 14px', background: filterUser === w.email ? '#1e40af' : '#fff',
+                  color: filterUser === w.email ? '#fff' : '#1e293b',
+                  border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s',
+                }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{w.name}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 11 }}>
+                  <span style={{ color: filterUser === w.email ? '#93c5fd' : '#ef4444', fontWeight: 700 }}>{w.active} active</span>
+                  <span style={{ color: filterUser === w.email ? '#86efac' : '#16a34a' }}>{w.completion_rate}%</span>
+                </div>
+                <div style={{ height: 4, background: filterUser === w.email ? 'rgba(255,255,255,0.3)' : '#f3f4f6', borderRadius: 2, marginTop: 6 }}>
+                  <div style={{ height: '100%', width: `${w.completion_rate}%`, background: filterUser === w.email ? '#86efac' : '#22c55e', borderRadius: 2 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {viewMode === 'assignments' && (
           <>
             <div className="filter-section">
@@ -182,6 +220,16 @@ export default function FileAssignments() {
                 <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                   <option value="">All Status</option>
                   {ASSIGNMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select value={filterType} onChange={e => setFilterType(e.target.value)}>
+                  <option value="">All Types</option>
+                  {ASSIGNMENT_TYPES.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+                </select>
+                <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)}>
+                  <option value="">All Priority</option>
+                  <option value="Normal">Normal</option>
+                  <option value="High">High</option>
+                  <option value="Urgent">Urgent</option>
                 </select>
               </div>
             </div>
@@ -197,10 +245,11 @@ export default function FileAssignments() {
                     <tr>
                       <th>Claim / File</th>
                       <th>Assigned To</th>
-                      <th>Role</th>
+                      <th>Type</th>
+                      <th>Priority</th>
                       <th>Status</th>
-                      <th>Assigned Date</th>
-                      <th>Due Date</th>
+                      <th>Target Inspection</th>
+                      <th>Target Report</th>
                       <th>Notes</th>
                       {isAdmin && <th>Actions</th>}
                     </tr>
@@ -211,8 +260,17 @@ export default function FileAssignments() {
                       return (
                         <tr key={a.id}>
                           <td style={{ fontWeight: 600, fontSize: 13 }}>{getClaimLabel(a.claim_id)}</td>
-                          <td>{users.find(u => u.email === a.assigned_to)?.name || a.assigned_to}</td>
-                          <td style={{ fontSize: 12 }}>{a.role}</td>
+                          <td>{a.assigned_to_name || users.find(u => u.email === a.assigned_to)?.name || a.assigned_to}</td>
+                          <td>
+                            {(() => { const tc = TYPE_COLORS[a.assignment_type] || TYPE_COLORS.general; return (
+                              <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: tc.bg, color: tc.color }}>{TYPE_LABELS[a.assignment_type] || 'General'}</span>
+                            ); })()}
+                          </td>
+                          <td>
+                            {(() => { const pc = PRIORITY_COLORS[a.priority] || PRIORITY_COLORS.Normal; return (
+                              <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: pc.bg, color: pc.color }}>{a.priority || 'Normal'}</span>
+                            ); })()}
+                          </td>
                           <td>
                             {isAdmin ? (
                               <select value={a.status} onChange={e => updateStatus(a.id, e.target.value)}
@@ -223,9 +281,11 @@ export default function FileAssignments() {
                               <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600, background: sc.bg, color: sc.color }}>{a.status}</span>
                             )}
                           </td>
-                          <td style={{ fontSize: 12, color: '#6b7280' }}>{a.assigned_date || '-'}</td>
-                          <td style={{ fontSize: 12, color: a.due_date && new Date(a.due_date) < new Date() && a.status !== 'Completed' ? '#dc2626' : '#6b7280', fontWeight: a.due_date && new Date(a.due_date) < new Date() && a.status !== 'Completed' ? 700 : 400 }}>
-                            {a.due_date || '-'}
+                          <td style={{ fontSize: 11, color: a.target_inspection_date && new Date(a.target_inspection_date) < new Date() && a.status !== 'Completed' ? '#dc2626' : '#6b7280' }}>
+                            {a.target_inspection_date || '-'}
+                          </td>
+                          <td style={{ fontSize: 11, color: a.target_report_date && new Date(a.target_report_date) < new Date() && a.status !== 'Completed' ? '#dc2626' : '#6b7280' }}>
+                            {a.target_report_date || '-'}
                           </td>
                           <td style={{ fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.notes || '-'}</td>
                           {isAdmin && (
@@ -360,34 +420,65 @@ export default function FileAssignments() {
               )}
             </div>
 
-            <div className="form-group" style={{ marginBottom: 15 }}>
-              <label>Assign To *</label>
-              <select value={formData.assigned_to || ''} onChange={e => setFormData(prev => ({ ...prev, assigned_to: e.target.value }))}>
-                <option value="">-- Select Team Member --</option>
-                {users.map(u => <option key={u.id} value={u.email}>{u.name} ({u.role})</option>)}
-              </select>
+            <div className="form-row" style={{ marginBottom: 15 }}>
+              <div className="form-group">
+                <label>Assign To *</label>
+                <select value={formData.assigned_to || ''} onChange={e => setFormData(prev => ({ ...prev, assigned_to: e.target.value }))}>
+                  <option value="">-- Select Team Member --</option>
+                  {users.map(u => <option key={u.id} value={u.email}>{u.name} ({u.role})</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Assignment Type *</label>
+                <select value={formData.assignment_type || 'lead_surveyor'} onChange={e => setFormData(prev => ({ ...prev, assignment_type: e.target.value }))}>
+                  {ASSIGNMENT_TYPES.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+                </select>
+              </div>
             </div>
 
             <div className="form-row" style={{ marginBottom: 15 }}>
               <div className="form-group">
-                <label>Role</label>
-                <select value={formData.role || 'Surveyor'} onChange={e => setFormData(prev => ({ ...prev, role: e.target.value }))}>
-                  {ASSIGNMENT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                <label>Priority</label>
+                <select value={formData.priority || 'Normal'} onChange={e => setFormData(prev => ({ ...prev, priority: e.target.value }))}>
+                  <option value="Normal">Normal</option>
+                  <option value="High">High</option>
+                  <option value="Urgent">Urgent</option>
                 </select>
               </div>
               <div className="form-group">
-                <label>Due Date</label>
-                <input type="date" value={formData.due_date || ''} onChange={e => setFormData(prev => ({ ...prev, due_date: e.target.value }))} />
+                <label>Assignment Basis</label>
+                <select value={formData.assignment_basis || ''} onChange={e => setFormData(prev => ({ ...prev, assignment_basis: e.target.value }))}>
+                  <option value="">-- Select --</option>
+                  <option value="Location">Location</option>
+                  <option value="Expertise">Expertise</option>
+                  <option value="Workload">Workload</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 15 }}>
+              <label>Location of Loss</label>
+              <input value={formData.location_of_loss || ''} onChange={e => setFormData(prev => ({ ...prev, location_of_loss: e.target.value }))} placeholder="City, area..." />
+            </div>
+
+            <div className="form-row" style={{ marginBottom: 15 }}>
+              <div className="form-group">
+                <label>Target Inspection Date</label>
+                <input type="date" value={formData.target_inspection_date || ''} onChange={e => setFormData(prev => ({ ...prev, target_inspection_date: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>Target Report Date</label>
+                <input type="date" value={formData.target_report_date || ''} onChange={e => setFormData(prev => ({ ...prev, target_report_date: e.target.value }))} />
               </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: 15 }}>
               <label>Notes</label>
-              <textarea value={formData.notes || ''} onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))} rows={3} placeholder="Any special instructions..." />
+              <textarea value={formData.notes || ''} onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))} rows={2} placeholder="Any special instructions..." />
             </div>
 
             <div style={{ marginTop: 20 }}>
-              <button className="success" style={{ width: '100%' }} onClick={saveAssignment}>Assign File</button>
+              <button className="success" style={{ width: '100%' }} onClick={saveAssignment}>Assign Team Member</button>
               <button className="secondary" style={{ width: '100%', marginTop: 10 }} onClick={closeModal}>Cancel</button>
             </div>
           </div>

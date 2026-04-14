@@ -965,32 +965,80 @@ export default function ClaimDetail() {
         {activeTab === 'assignments' && (
           <div>
             {assignments.length === 0 ? (
-              <p style={{ color: '#999', fontSize: 13 }}>No assignments for this claim</p>
+              <p style={{ color: '#999', fontSize: 13 }}>No assignments for this claim. Go to File Assignments to assign team members.</p>
             ) : (
-              <div className="mis-table-container">
-                <table className="mis-table">
-                  <thead>
-                    <tr><th>Assigned To</th><th>Role</th><th>Status</th><th>Date</th><th>Due</th><th>Notes</th></tr>
-                  </thead>
-                  <tbody>
-                    {assignments.map(a => (
-                      <tr key={a.id}>
-                        <td style={{ fontWeight: 600 }}>{a.assigned_to}</td>
-                        <td>{a.role}</td>
-                        <td>
-                          <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-                            background: a.status === 'Completed' ? '#dcfce7' : a.status === 'In Progress' ? '#fef3c7' : '#dbeafe',
-                            color: a.status === 'Completed' ? '#166534' : a.status === 'In Progress' ? '#92400e' : '#1e40af' }}>
-                            {a.status}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: 12 }}>{a.assigned_date || '-'}</td>
-                        <td style={{ fontSize: 12 }}>{a.due_date || '-'}</td>
-                        <td style={{ fontSize: 12 }}>{a.notes || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div>
+                {/* Structured Team View */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+                  {/* Lead Surveyor */}
+                  {(() => { const lead = assignments.find(a => a.assignment_type === 'lead_surveyor'); return (
+                    <div style={{ border: '2px solid #1e40af', borderRadius: 10, padding: 14, background: '#eff6ff' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', marginBottom: 6 }}>Lead Surveyor</div>
+                      {lead ? (
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{lead.assigned_to_name || lead.assigned_to}</div>
+                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                            <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600,
+                              background: lead.status === 'Completed' ? '#dcfce7' : lead.status === 'In Progress' ? '#fef3c7' : '#dbeafe',
+                              color: lead.status === 'Completed' ? '#166534' : lead.status === 'In Progress' ? '#92400e' : '#1e40af' }}>{lead.status}</span>
+                            {lead.priority && lead.priority !== 'Normal' && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: lead.priority === 'Urgent' ? '#fef2f2' : '#fef3c7', color: lead.priority === 'Urgent' ? '#dc2626' : '#92400e' }}>{lead.priority}</span>}
+                          </div>
+                          {lead.target_inspection_date && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>Inspection: {lead.target_inspection_date}</div>}
+                          {lead.target_report_date && <div style={{ fontSize: 11, color: '#6b7280' }}>Report: {lead.target_report_date}</div>}
+                        </div>
+                      ) : <div style={{ fontSize: 12, color: '#94a3b8' }}>Not assigned</div>}
+                    </div>
+                  ); })()}
+
+                  {/* Supporting Members */}
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', marginBottom: 6 }}>Supporting Members</div>
+                    {(() => { const supports = assignments.filter(a => a.assignment_type === 'supporting'); return supports.length > 0 ? supports.map(s => (
+                      <div key={s.id} style={{ padding: '4px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12 }}>
+                        <span style={{ fontWeight: 600 }}>{s.assigned_to_name || s.assigned_to}</span>
+                        <span style={{ marginLeft: 8, padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600,
+                          background: s.status === 'Completed' ? '#dcfce7' : '#fef3c7',
+                          color: s.status === 'Completed' ? '#166534' : '#92400e' }}>{s.status}</span>
+                      </div>
+                    )) : <div style={{ fontSize: 12, color: '#94a3b8' }}>None assigned</div>; })()}
+                  </div>
+
+                  {/* Specialist */}
+                  {(() => { const spec = assignments.find(a => a.assignment_type === 'specialist'); return (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, background: '#faf5ff' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#86198f', textTransform: 'uppercase', marginBottom: 6 }}>Specialist</div>
+                      {spec ? (
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{spec.assigned_to_name || spec.assigned_to}</div>
+                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{spec.role} | {spec.status}</div>
+                        </div>
+                      ) : <div style={{ fontSize: 12, color: '#94a3b8' }}>Not assigned</div>}
+                    </div>
+                  ); })()}
+                </div>
+
+                {/* Full Assignments Table */}
+                <h4 style={{ marginBottom: 10, fontSize: 13, color: '#475569' }}>All Assignments</h4>
+                <div className="mis-table-container">
+                  <table className="mis-table">
+                    <thead>
+                      <tr><th>Assigned To</th><th>Type</th><th>Priority</th><th>Status</th><th>Inspection</th><th>Report</th><th>Notes</th></tr>
+                    </thead>
+                    <tbody>
+                      {assignments.map(a => (
+                        <tr key={a.id}>
+                          <td style={{ fontWeight: 600 }}>{a.assigned_to_name || a.assigned_to}</td>
+                          <td><span style={{ padding: '2px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: a.assignment_type === 'lead_surveyor' ? '#dbeafe' : a.assignment_type === 'specialist' ? '#fae8ff' : '#f3f4f6', color: a.assignment_type === 'lead_surveyor' ? '#1e40af' : a.assignment_type === 'specialist' ? '#86198f' : '#374151' }}>{a.assignment_type === 'lead_surveyor' ? 'Lead' : a.assignment_type === 'supporting' ? 'Support' : a.assignment_type === 'specialist' ? 'Specialist' : 'General'}</span></td>
+                          <td style={{ fontSize: 11 }}>{a.priority || 'Normal'}</td>
+                          <td><span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: a.status === 'Completed' ? '#dcfce7' : a.status === 'In Progress' ? '#fef3c7' : '#dbeafe', color: a.status === 'Completed' ? '#166534' : a.status === 'In Progress' ? '#92400e' : '#1e40af' }}>{a.status}</span></td>
+                          <td style={{ fontSize: 11 }}>{a.target_inspection_date || '-'}</td>
+                          <td style={{ fontSize: 11 }}>{a.target_report_date || '-'}</td>
+                          <td style={{ fontSize: 11 }}>{a.notes || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
