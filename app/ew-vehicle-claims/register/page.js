@@ -206,7 +206,7 @@ export default function EWRegisterPage() {
               <span style={{ fontSize: 24 }}>&#x1F4DD;</span> Register New EW Vehicle Claim
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
-              Company: <strong>{company}</strong> &#x2022; Fill details and save to start the 12-stage lifecycle
+              Company: <strong>{company}</strong> &#x2022; Fill details and save to start the 8-stage lifecycle
             </p>
           </div>
           <button

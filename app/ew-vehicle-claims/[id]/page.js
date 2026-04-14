@@ -5,21 +5,7 @@ import PageLayout from '@/components/PageLayout';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
-
-const EW_STAGES = [
-  { number: 1, name: 'Claim Intimation', short: 'Intimation' },
-  { number: 2, name: 'Claim Registration', short: 'Registration' },
-  { number: 3, name: 'Contact Dealer', short: 'Dealer' },
-  { number: 4, name: 'Initial Inspection', short: 'Inspection' },
-  { number: 5, name: 'Document Analysis', short: 'Documents' },
-  { number: 6, name: 'Initial Observation Shared', short: 'Observation' },
-  { number: 7, name: 'Dismantled Inspection', short: 'Dismantled' },
-  { number: 8, name: 'Estimate Approved', short: 'Estimate' },
-  { number: 9, name: 'Reinspection', short: 'Reinspect' },
-  { number: 10, name: 'Tax Invoice Collected', short: 'Invoice' },
-  { number: 11, name: 'Assessment Done', short: 'Assessment' },
-  { number: 12, name: 'FSR Prepared', short: 'FSR' },
-];
+import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
 
 const STAGE_STATUS_COLORS = {
   'Pending': { bg: '#f1f5f9', color: '#64748b', ring: '#cbd5e1' },
@@ -87,6 +73,9 @@ export default function EWClaimDetailPage() {
   const [mediaStageFilter, setMediaStageFilter] = useState('all');
   const fileInputRef = useRef(null);
 
+  // Surveyor list for assignment
+  const [surveyorList, setSurveyorList] = useState([]);
+
   // Master data for auto-fetch
   const [policies, setPolicies] = useState([]);
   const [insurers, setInsurers] = useState([]);
@@ -102,6 +91,8 @@ export default function EWClaimDetailPage() {
         .then(r => r.json()).then(d => setPolicies(Array.isArray(d) ? d : [])).catch(() => {});
       fetch('/api/insurers')
         .then(r => r.json()).then(d => setInsurers(Array.isArray(d) ? d : [])).catch(() => {});
+      fetch('/api/surveyors')
+        .then(r => r.json()).then(d => setSurveyorList(Array.isArray(d) ? d : [])).catch(() => setSurveyorList([]));
     }
   }, [company]);
 
@@ -460,7 +451,9 @@ export default function EWClaimDetailPage() {
   }
 
   const completedCount = stages.filter(s => s.status === 'Completed').length;
-  const progressPct = Math.round((completedCount / 12) * 100);
+  const progressPct = Math.round((completedCount / STAGE_COUNT) * 100);
+  const currentStageData = stages.find(s => s.status === 'In Progress');
+  const isOverdue = claim.sla_due_date && new Date(claim.sla_due_date) < new Date();
   const filteredMedia = mediaStageFilter === 'all' ? media : media.filter(m => m.stage_number === parseInt(mediaStageFilter));
 
   return (
@@ -495,9 +488,13 @@ export default function EWClaimDetailPage() {
                 background: STAGE_STATUS_COLORS[claim.status]?.bg || '#f1f5f9',
                 color: STAGE_STATUS_COLORS[claim.status]?.color || '#64748b',
               }}>{claim.status}</span>
+              {isOverdue && (
+                <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600, background: '#fee2e2', color: '#991b1b' }}>OVERDUE</span>
+              )}
             </div>
             <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
               {claim.customer_name || claim.insured_name || '-'} &#x2022; {claim.vehicle_reg_no || '-'} &#x2022; {claim.vehicle_make || ''} {claim.model_fuel_type || ''}
+              {claim.assigned_surveyor_name && <> &#x2022; <span style={{ color: '#7c3aed', fontWeight: 600 }}>Surveyor: {claim.assigned_surveyor_name}</span></>}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -537,7 +534,7 @@ export default function EWClaimDetailPage() {
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
-              Stage {claim.current_stage}/12: {claim.current_stage_name}
+              Stage {claim.current_stage}/{STAGE_COUNT}: {claim.current_stage_name}
             </span>
             <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700 }}>{progressPct}%</span>
           </div>
@@ -553,7 +550,7 @@ export default function EWClaimDetailPage() {
           <h3 style={{ margin: '0 0 14px', fontSize: 14, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>&#x1F504;</span> Claim Lifecycle
           </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${STAGE_COUNT}, 1fr)`, gap: 6 }}>
             {EW_STAGES.map(es => {
               const stageData = stages.find(s => s.stage_number === es.number);
               const status = stageData?.status || 'Pending';
@@ -582,48 +579,78 @@ export default function EWClaimDetailPage() {
             })}
           </div>
 
-          {/* Stage Action Buttons */}
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>
-            {stages.map(s => {
-              if (s.status !== 'In Progress') return null;
-              return (
-                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
-                    Stage {s.stage_number}: {s.stage_name}
-                  </span>
+          {/* Quick-Action Panel: Current Stage + Surveyor + SLA */}
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #f1f5f9', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* Left: Current Stage Actions */}
+            <div>
+              {currentStageData ? (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>
+                    Stage {currentStageData.stage_number}: {currentStageData.stage_name}
+                  </div>
                   <textarea
                     placeholder="Stage notes..."
-                    value={stageNotes[s.stage_number] || ''}
-                    onChange={e => setStageNotes(prev => ({ ...prev, [s.stage_number]: e.target.value }))}
-                    style={{ flex: 1, minWidth: 200, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, minHeight: 32, resize: 'vertical' }}
+                    value={stageNotes[currentStageData.stage_number] || ''}
+                    onChange={e => setStageNotes(prev => ({ ...prev, [currentStageData.stage_number]: e.target.value }))}
+                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, minHeight: 40, resize: 'vertical', boxSizing: 'border-box', marginBottom: 8 }}
                   />
-                  <button
-                    onClick={() => saveStageNotes(s.stage_number)}
-                    style={{ padding: '6px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
-                  >
-                    Save Notes
-                  </button>
-                  <button
-                    onClick={() => updateStageStatus(s.stage_number, 'Completed')}
-                    style={{
-                      padding: '6px 14px', background: '#22c55e', color: '#fff', border: 'none',
-                      borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                    }}
-                  >
-                    &#x2713; Complete Stage
-                  </button>
-                  <button
-                    onClick={() => updateStageStatus(s.stage_number, 'Skipped')}
-                    style={{
-                      padding: '6px 14px', background: '#94a3b8', color: '#fff', border: 'none',
-                      borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                    }}
-                  >
-                    Skip
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={async () => { await saveStageNotes(currentStageData.stage_number); updateStageStatus(currentStageData.stage_number, 'Completed'); }}
+                      style={{ flex: 1, padding: '8px 14px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      &#x2713; Complete &amp; Advance
+                    </button>
+                    <button
+                      onClick={() => saveStageNotes(currentStageData.stage_number)}
+                      style={{ padding: '8px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      Save Notes
+                    </button>
+                    <button
+                      onClick={() => updateStageStatus(currentStageData.stage_number, 'Skipped')}
+                      style={{ padding: '8px 12px', background: '#94a3b8', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      Skip
+                    </button>
+                  </div>
                 </div>
-              );
-            })}
+              ) : (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>All stages completed or no active stage</div>
+              )}
+            </div>
+
+            {/* Right: Surveyor + SLA */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>Assigned Surveyor</label>
+                <select
+                  value={editForm.assigned_surveyor || ''}
+                  onChange={e => {
+                    const sv = surveyorList.find(s => s.name === e.target.value);
+                    updateEditForm({ assigned_surveyor: e.target.value, assigned_surveyor_name: sv?.name || e.target.value });
+                  }}
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
+                >
+                  <option value="">-- Select Surveyor --</option>
+                  {surveyorList.map(s => <option key={s.id} value={s.name}>{s.name}{s.designation ? ` (${s.designation})` : ''}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>SLA Due Date</label>
+                <input
+                  type="date"
+                  value={editForm.sla_due_date || ''}
+                  onChange={e => updateEditForm({ sla_due_date: e.target.value })}
+                  style={{
+                    width: '100%', padding: '7px 10px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box',
+                    border: isOverdue ? '2px solid #ef4444' : '1px solid #d1d5db',
+                    background: isOverdue ? '#fef2f2' : '#fff',
+                  }}
+                />
+                {isOverdue && <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>Past due!</span>}
+              </div>
+            </div>
           </div>
         </div>
 

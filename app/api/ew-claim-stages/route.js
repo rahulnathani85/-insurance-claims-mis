@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
 
 // GET - Fetch stages for an EW claim
 export async function GET(request) {
@@ -21,11 +22,11 @@ export async function GET(request) {
   }
 }
 
-// PUT - Update a stage (complete, skip, add notes)
+// PUT - Update a stage (complete, skip, add notes, set due_date)
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { id, ew_claim_id, stage_number, status, notes, updated_by } = body;
+    const { id, ew_claim_id, stage_number, status, notes, updated_by, due_date } = body;
 
     if (!id && !ew_claim_id) return NextResponse.json({ error: 'id or ew_claim_id required' }, { status: 400 });
 
@@ -33,6 +34,7 @@ export async function PUT(request) {
     if (status) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
     if (updated_by) updates.updated_by = updated_by;
+    if (due_date !== undefined) updates.due_date = due_date || null;
 
     if (status === 'In Progress' && !updates.started_date) {
       updates.started_date = new Date().toISOString();
@@ -56,8 +58,7 @@ export async function PUT(request) {
       const completedStage = data.stage_number;
       const nextStage = completedStage + 1;
 
-      // Start next stage if exists
-      if (nextStage <= 12) {
+      if (nextStage <= STAGE_COUNT) {
         await supabaseAdmin
           .from('ew_claim_stages')
           .update({ status: 'In Progress', started_date: new Date().toISOString() })
@@ -65,7 +66,6 @@ export async function PUT(request) {
           .eq('stage_number', nextStage)
           .eq('status', 'Pending');
 
-        // Get next stage name
         const { data: nextStageData } = await supabaseAdmin
           .from('ew_claim_stages')
           .select('stage_name')
@@ -73,15 +73,15 @@ export async function PUT(request) {
           .eq('stage_number', nextStage)
           .single();
 
-        // Update claim status
+        // Stage 7+ = Assessment status
         let claimStatus = 'In Progress';
-        if (nextStage >= 11) claimStatus = 'Assessment';
+        if (nextStage >= 7) claimStatus = 'Assessment';
 
         await supabaseAdmin
           .from('ew_vehicle_claims')
           .update({
             current_stage: nextStage,
-            current_stage_name: nextStageData?.stage_name || `Stage ${nextStage}`,
+            current_stage_name: nextStageData?.stage_name || EW_STAGES.find(s => s.number === nextStage)?.name || `Stage ${nextStage}`,
             status: claimStatus,
             updated_at: new Date().toISOString(),
           })
@@ -91,8 +91,8 @@ export async function PUT(request) {
         await supabaseAdmin
           .from('ew_vehicle_claims')
           .update({
-            current_stage: 12,
-            current_stage_name: 'FSR Prepared',
+            current_stage: STAGE_COUNT,
+            current_stage_name: EW_STAGES[STAGE_COUNT - 1].name,
             status: 'Completed',
             updated_at: new Date().toISOString(),
           })

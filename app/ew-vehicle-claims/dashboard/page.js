@@ -46,12 +46,12 @@ export default function EWDashboard() {
   const active = statusCounts['Open'] + statusCounts['In Progress'] + statusCounts['Assessment'];
   const completed = statusCounts['Completed'] + statusCounts['Closed'];
 
-  // Stage distribution
+  // Stage distribution (8 stages)
   const stageCounts = {};
-  for (let i = 1; i <= 12; i++) stageCounts[i] = 0;
+  for (let i = 1; i <= 8; i++) stageCounts[i] = 0;
   claims.forEach(c => {
     const s = parseInt(c.current_stage);
-    if (s >= 1 && s <= 12) stageCounts[s]++;
+    if (s >= 1 && s <= 8) stageCounts[s]++;
   });
   const maxStage = Math.max(1, ...Object.values(stageCounts));
 

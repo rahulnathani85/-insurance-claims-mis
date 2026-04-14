@@ -80,6 +80,23 @@ export default function EWVehicleClaimsPage() {
     }
   }
 
+  // Inline advance: complete current stage from list page
+  async function advanceStage(claimId, currentStage) {
+    try {
+      setAlert({ msg: 'Advancing stage...', type: 'success' });
+      const res = await fetch('/api/ew-claim-stages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ew_claim_id: claimId, stage_number: currentStage, status: 'Completed', updated_by: user?.email || '' }),
+      });
+      if (!res.ok) throw new Error('Stage advance failed');
+      setAlert({ msg: 'Stage advanced!', type: 'success' });
+      loadClaims();
+    } catch (e) {
+      setAlert({ msg: e.message, type: 'error' });
+    }
+  }
+
   const statusColors = {
     'Open': { bg: '#dbeafe', color: '#1e40af', border: '#93c5fd' },
     'In Progress': { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
@@ -205,7 +222,7 @@ export default function EWVehicleClaimsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                  {['Ref No.', 'Customer', 'Vehicle', 'Reg No.', 'Current Stage', 'Status', 'Created', 'Actions'].map(h => (
+                  {['Ref No.', 'Customer', 'Vehicle', 'Reg No.', 'Surveyor', 'Current Stage', 'Status', 'SLA Due', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
                   ))}
                 </tr>
@@ -228,6 +245,7 @@ export default function EWVehicleClaimsPage() {
                       <td style={{ padding: '10px 12px' }}>{c.customer_name || '-'}</td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>{c.vehicle_make} {c.model_fuel_type || ''}</td>
                       <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12 }}>{c.vehicle_reg_no || '-'}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>{c.assigned_surveyor_name || '-'}</td>
                       <td style={{ padding: '10px 12px' }}>
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -248,10 +266,30 @@ export default function EWVehicleClaimsPage() {
                           fontSize: 11, fontWeight: 600,
                         }}>{c.status}</span>
                       </td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>
-                        {c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '-'}
+                      <td style={{ padding: '10px 12px', fontSize: 11 }}>
+                        {c.sla_due_date ? (
+                          <span style={{
+                            color: new Date(c.sla_due_date) < new Date() ? '#ef4444' :
+                              new Date(c.sla_due_date) < new Date(Date.now() + 2*86400000) ? '#d97706' : '#059669',
+                            fontWeight: 600,
+                          }}>
+                            {new Date(c.sla_due_date).toLocaleDateString('en-IN')}
+                          </span>
+                        ) : '-'}
                       </td>
-                      <td style={{ padding: '10px 12px' }}>
+                      <td style={{ padding: '10px 12px', display: 'flex', gap: 4, alignItems: 'center' }}>
+                        {!c._needs_ew_setup && c.status !== 'Completed' && (
+                          <button
+                            onClick={e => { e.stopPropagation(); advanceStage(c.id, c.current_stage); }}
+                            title="Complete current stage & advance"
+                            style={{
+                              padding: '3px 8px', background: '#22c55e', color: '#fff',
+                              border: 'none', borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                            }}
+                          >
+                            Next &rarr;
+                          </button>
+                        )}
                         {!c._needs_ew_setup ? (
                           <button
                             onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: c.id, ref: c.ref_number }); }}

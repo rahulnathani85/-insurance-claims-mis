@@ -1,23 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { EW_STAGES } from '@/lib/ewStages';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-
-const EW_STAGES = [
-  { number: 1, name: 'Claim Intimation' },
-  { number: 2, name: 'Claim Registration' },
-  { number: 3, name: 'Contact Dealer' },
-  { number: 4, name: 'Initial Inspection' },
-  { number: 5, name: 'Document Analysis' },
-  { number: 6, name: 'Initial Observation Shared' },
-  { number: 7, name: 'Dismantled Inspection' },
-  { number: 8, name: 'Estimate Approved' },
-  { number: 9, name: 'Reinspection' },
-  { number: 10, name: 'Tax Invoice Collected' },
-  { number: 11, name: 'Assessment Done' },
-  { number: 12, name: 'FSR Prepared' },
-];
 
 // GET - List EW claims with filters
 // Also returns unlinked claims from claims table with LOB=Extended Warranty
@@ -220,7 +206,7 @@ export async function POST(request) {
       ref_number,
       company,
       current_stage: 1,
-      current_stage_name: 'Claim Intimation',
+      current_stage_name: EW_STAGES[0].name,
       status: 'Open',
     };
 
