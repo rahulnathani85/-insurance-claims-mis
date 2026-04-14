@@ -6,6 +6,7 @@ import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
+import { FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
 
 const STAGE_STATUS_COLORS = {
   'Pending': { bg: '#f1f5f9', color: '#64748b', ring: '#cbd5e1' },
@@ -376,11 +377,32 @@ export default function EWClaimDetailPage() {
   const [fsrHtml, setFsrHtml] = useState(null);
   const [showFsrExport, setShowFsrExport] = useState(false);
 
+  // Fetch FSR HTML only (for preview) — no download, no popup
+  async function fetchFsrHtml() {
+    try {
+      setGeneratingFSR(true);
+      const res = await fetch(`/api/ew-fsr-generate?_=${Date.now()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+        body: JSON.stringify({ ew_claim_id: id }),
+      });
+      if (!res.ok) throw new Error('FSR generation failed');
+      const data = await res.json();
+      setFsrHtml(data.html);
+      return data.html;
+    } catch (e) {
+      showAlert(e.message, 'error');
+      return null;
+    } finally {
+      setGeneratingFSR(false);
+    }
+  }
+
+  // Generate FSR, download, and save to cloud folder
   async function generateFSR(format) {
     try {
       setGeneratingFSR(true);
-      // Always refetch — never use stale cached HTML so the latest server
-      // template is picked up after deploys / data edits.
       const res = await fetch(`/api/ew-fsr-generate?_=${Date.now()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
@@ -403,11 +425,79 @@ export default function EWClaimDetailPage() {
         setShowFsrExport(true);
         showAlert('FSR generated! Choose your download format.');
       }
+
+      // Save FSR to cloud folder (fire-and-forget)
+      saveToCloudFolder(html, fname);
     } catch (e) {
       showAlert(e.message, 'error');
     } finally {
       setGeneratingFSR(false);
     }
+  }
+
+  // Save FSR Word file to the claim's cloud folder
+  async function saveToCloudFolder(html, fname) {
+    try {
+      // Get the parent claim's folder_path
+      let folderPath = '';
+      if (claim?.claim_id) {
+        const claimRes = await fetch(`/api/claims/${claim.claim_id}`);
+        const parentClaim = await claimRes.json();
+        folderPath = parentClaim?.folder_path || '';
+      }
+      if (!folderPath) return; // No folder path, skip save
+
+      const relativePath = folderPath.replace(/^D:\\\\2026-27\\\\?/, '').replace(/^D:\\2026-27\\?/, '');
+      if (!relativePath) return;
+
+      // Create Word doc as Blob and upload to file server
+      const wordHtml = buildWordHtml(html);
+      const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
+      const file = new File([blob], `${fname}.doc`, { type: 'application/msword' });
+
+      const fd = new FormData();
+      fd.append('files', file);
+      fd.append('folder_path', relativePath);
+
+      const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(relativePath)}`, {
+        method: 'POST',
+        headers: { 'X-API-Key': FILE_SERVER_KEY },
+        body: fd,
+      });
+      const uploadData = await uploadRes.json();
+      if (uploadData.success) {
+        showAlert('FSR saved to claim folder', 'success');
+      }
+    } catch (e) {
+      console.warn('Cloud folder save failed (non-fatal):', e.message);
+    }
+  }
+
+  // Build Word-compatible HTML from FSR HTML
+  function buildWordHtml(htmlContent) {
+    const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const bodyContent = bodyMatch ? bodyMatch[1] : htmlContent;
+    const styleMatch = [...htmlContent.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]).join('\n');
+    const cleanCss = styleMatch
+      .replace(/display:\s*flex[^;]*/gi, 'display: block')
+      .replace(/flex-direction:[^;]*/gi, '').replace(/flex:[^;]*/gi, '')
+      .replace(/justify-content:[^;]*/gi, '').replace(/align-items:[^;]*/gi, '')
+      .replace(/width:\s*794px/gi, 'width: 100%').replace(/min-height:\s*\d+px/gi, 'min-height: auto')
+      .replace(/position:\s*(relative|fixed|absolute)/gi, 'position: static');
+
+    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml>
+<style>
+@page Section1 { size: 21cm 29.7cm; margin: 1.5cm 1.5cm 1.8cm 1.5cm; }
+div.Section1 { page: Section1; }
+body { font-family: 'Times New Roman', serif; font-size: 11pt; line-height: 1.45; }
+.page { width: 100%; display: block; page-break-after: always; }
+.page:last-child { page-break-after: auto; }
+.ref-row { overflow: hidden; } .ref-row span:first-child { float: left; } .ref-row span:last-child { float: right; }
+table { border-collapse: collapse; width: 100%; } td, th { border: 0.5pt solid #444; padding: 5px 8px; vertical-align: top; }
+${cleanCss}
+</style></head><body><div class="Section1">${bodyContent}</div></body></html>`;
   }
 
   function printFSR() {
@@ -500,33 +590,33 @@ export default function EWClaimDetailPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={() => generateFSR()}
+              onClick={async () => {
+                if (!showPreview) { await fetchFsrHtml(); setShowPreview(true); }
+                else { setShowPreview(false); }
+              }}
               disabled={generatingFSR}
               style={{
-                padding: '8px 16px', background: generatingFSR ? '#a78bfa' : '#059669', color: '#fff',
-                border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: generatingFSR ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}
-            >
-              <span style={{ fontSize: 16 }}>&#x1F4C4;</span>
-              {generatingFSR ? 'Generating...' : 'Generate FSR'}
-            </button>
-            <button
-              onClick={() => { if (!fsrHtml) { generateFSR(); } setShowPreview(!showPreview); }}
-              style={{
                 padding: '8px 16px', background: showPreview ? '#1e40af' : '#f1f5f9', color: showPreview ? '#fff' : '#475569',
-                border: showPreview ? 'none' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                border: showPreview ? 'none' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                cursor: generatingFSR ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6,
               }}
             >
-              {showPreview ? '✕ Close Preview' : '👁 Preview FSR'}
+              {generatingFSR ? 'Loading...' : showPreview ? '✕ Close Preview' : '👁 Preview FSR'}
             </button>
-            {fsrHtml && (
-              <>
-                <button onClick={() => generateFSR('pdf')} style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>PDF</button>
-                <button onClick={() => generateFSR('word')} style={{ padding: '8px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Word</button>
-                <button onClick={printFSR} style={{ padding: '8px 12px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Print</button>
-              </>
+            {!showPreview && (
+              <button
+                onClick={() => generateFSR()}
+                disabled={generatingFSR}
+                style={{
+                  padding: '8px 16px', background: generatingFSR ? '#a78bfa' : '#059669', color: '#fff',
+                  border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: generatingFSR ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ fontSize: 16 }}>&#x1F4C4;</span>
+                {generatingFSR ? 'Generating...' : 'Generate FSR'}
+              </button>
             )}
             <button
               onClick={saveClaim}
@@ -956,7 +1046,7 @@ export default function EWClaimDetailPage() {
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>FSR Preview</span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
-                    onClick={() => generateFSR()}
+                    onClick={() => fetchFsrHtml()}
                     disabled={generatingFSR}
                     style={{ padding: '4px 10px', background: generatingFSR ? '#94a3b8' : '#059669', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: generatingFSR ? 'default' : 'pointer' }}
                   >
