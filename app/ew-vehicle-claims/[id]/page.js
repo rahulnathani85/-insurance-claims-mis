@@ -74,6 +74,7 @@ export default function EWClaimDetailPage() {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [generatingFSR, setGeneratingFSR] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null); // { url, name, type } for document preview
   const [mediaStageFilter, setMediaStageFilter] = useState('all');
   const fileInputRef = useRef(null);
 
@@ -680,7 +681,7 @@ ${cleanCss}
 
         {/* Split Layout: Left = Form, Right = FSR Preview */}
         <div style={{ display: 'flex', gap: 16 }}>
-        <div style={{ flex: showPreview ? '0 0 55%' : '1 1 100%', minWidth: 0, transition: 'flex 0.3s' }}>
+        <div style={{ flex: (showPreview || previewDoc) ? '0 0 55%' : '1 1 100%', minWidth: 0, transition: 'flex 0.3s' }}>
 
         {/* Progress Bar */}
         <div style={{ marginBottom: 16 }}>
@@ -1053,21 +1054,26 @@ ${cleanCss}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                     {filteredMedia.map(m => (
                       <div key={m.id} style={{
-                        border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
-                        background: '#f8fafc',
-                      }}>
+                        border: previewDoc?.url === m.file_url ? '2px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
+                        background: '#f8fafc', cursor: 'pointer',
+                      }}
+                        onClick={() => setPreviewDoc({ url: m.file_url, name: m.file_name, type: m.media_type })}
+                      >
                         {m.media_type === 'video' ? (
                           <video
                             src={m.file_url}
                             style={{ width: '100%', height: 120, objectFit: 'cover', background: '#000' }}
-                            controls
                           />
+                        ) : m.media_type === 'document' || m.file_name?.match(/\.(pdf|doc|docx|xls|xlsx)$/i) ? (
+                          <div style={{ width: '100%', height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', fontSize: 36 }}>
+                            {m.file_name?.endsWith('.pdf') ? '📕' : m.file_name?.match(/\.docx?$/i) ? '📘' : m.file_name?.match(/\.xlsx?$/i) ? '📗' : '📄'}
+                          </div>
                         ) : (
                           <img
                             src={m.file_url}
                             alt={m.file_name}
                             style={{ width: '100%', height: 120, objectFit: 'cover' }}
-                            onError={e => { e.target.style.display = 'none'; }}
+                            onError={e => { e.target.src = ''; e.target.style.display = 'none'; }}
                           />
                         )}
                         <div style={{ padding: '8px 10px' }}>
@@ -1075,12 +1081,17 @@ ${cleanCss}
                             {m.file_name}
                           </div>
                           <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
-                            Stage {m.stage_number} &#x2022; {m.file_size ? `${(m.file_size / 1024).toFixed(0)}KB` : ''}
+                            {m.document_category || `Stage ${m.stage_number}`} &#x2022; {m.file_size ? `${(m.file_size / 1024).toFixed(0)}KB` : ''}
                           </div>
+                          <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setPreviewDoc({ url: m.file_url, name: m.file_name, type: m.media_type }); }}
+                              style={{ padding: '3px 8px', background: '#eff6ff', color: '#1e40af', border: '1px solid #93c5fd', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}
+                            >👁 View</button>
                           <button
-                            onClick={() => deleteMedia(m.id)}
+                            onClick={(e) => { e.stopPropagation(); deleteMedia(m.id); }}
                             style={{
-                              marginTop: 6, padding: '3px 8px', background: '#fee2e2', color: '#dc2626',
+                              padding: '3px 8px', background: '#fee2e2', color: '#dc2626',
                               border: '1px solid #fca5a5', borderRadius: 4, fontSize: 10, cursor: 'pointer',
                             }}
                           >
@@ -1158,9 +1169,40 @@ ${cleanCss}
         {/* Close left panel */}
         </div>
 
-        {/* Right Panel: FSR Preview */}
-        {showPreview && (
+        {/* Right Panel: FSR Preview OR Document Preview */}
+        {(showPreview || previewDoc) && (
           <div style={{ flex: '0 0 43%', minWidth: 0, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
+
+            {/* Document Preview */}
+            {previewDoc && !showPreview && (
+              <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#eff6ff', borderBottom: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1e40af' }}>📄 {previewDoc.name}</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <a href={previewDoc.url} target="_blank" rel="noopener noreferrer" style={{ padding: '4px 10px', background: '#1e40af', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}>Open</a>
+                    <button onClick={() => setPreviewDoc(null)} style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 11, cursor: 'pointer' }}>✕</button>
+                  </div>
+                </div>
+                <div style={{ padding: 0, minHeight: 400 }}>
+                  {previewDoc.type === 'photo' || previewDoc.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
+                    <img src={previewDoc.url} alt={previewDoc.name} style={{ width: '100%', objectFit: 'contain', maxHeight: 600 }} />
+                  ) : previewDoc.name?.endsWith('.pdf') ? (
+                    <iframe src={previewDoc.url} style={{ width: '100%', height: 600, border: 'none' }} title={previewDoc.name} />
+                  ) : previewDoc.type === 'video' ? (
+                    <video src={previewDoc.url} controls style={{ width: '100%', maxHeight: 500 }} />
+                  ) : (
+                    <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
+                      <div style={{ fontSize: 48, marginBottom: 10 }}>📄</div>
+                      <p style={{ fontSize: 13 }}>Preview not available for this file type.</p>
+                      <a href={previewDoc.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', textDecoration: 'underline', fontSize: 13 }}>Open in new tab →</a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* FSR Preview */}
+            {showPreview && (
             <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f0fdf4', borderBottom: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>FSR Preview</span>
@@ -1183,6 +1225,7 @@ ${cleanCss}
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
 

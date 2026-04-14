@@ -63,21 +63,39 @@ export async function POST(request) {
         const fname = `FSR-${(claim.ref_number || 'report').replace(/[\/\\]/g, '-')}.doc`;
 
         // Build Word-compatible HTML
+        const bodyContent = html.replace(/<html[\s\S]*?<body[^>]*>/i, '').replace(/<\/body[\s\S]*<\/html>/i, '');
         const wordHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8"><style>@page Section1{size:21cm 29.7cm;margin:1.5cm}div.Section1{page:Section1}.page{page-break-after:always}table{border-collapse:collapse;width:100%}td,th{border:0.5pt solid #444;padding:5px 8px}</style></head>
-<body><div class="Section1">${html.replace(/<html[\s\S]*?<body[^>]*>/i, '').replace(/<\/body[\s\S]*<\/html>/i, '')}</div></body></html>`;
+<head><meta charset="utf-8"><style>@page Section1{size:21cm 29.7cm;margin:1.5cm}div.Section1{page:Section1}.page{page-break-after:always;width:100%}table{border-collapse:collapse;width:100%}td,th{border:0.5pt solid #444;padding:5px 8px}</style></head>
+<body><div class="Section1">${bodyContent}</div></body></html>`;
 
-        const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
-        const formData = new FormData();
-        formData.append('files', blob, fname);
+        // Use multipart boundary approach for Node.js (no native FormData with files)
+        const boundary = '----FormBoundary' + Date.now();
+        const fileBuffer = Buffer.from('\ufeff' + wordHtml, 'utf-8');
+        const bodyParts = [
+          `--${boundary}\r\n`,
+          `Content-Disposition: form-data; name="files"; filename="${fname}"\r\n`,
+          `Content-Type: application/msword\r\n\r\n`,
+        ];
+        const bodyEnd = `\r\n--${boundary}--\r\n`;
+
+        const bodyBuffers = [
+          Buffer.from(bodyParts.join('')),
+          fileBuffer,
+          Buffer.from(bodyEnd),
+        ];
+        const fullBody = Buffer.concat(bodyBuffers);
 
         const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
           method: 'POST',
-          headers: { 'X-API-Key': FILE_SERVER_KEY },
-          body: formData,
+          headers: {
+            'X-API-Key': FILE_SERVER_KEY,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          },
+          body: fullBody,
         });
         const uploadData = await uploadRes.json();
         savedToFolder = uploadData?.success || false;
+        if (!savedToFolder) console.warn('FSR upload response:', JSON.stringify(uploadData));
       }
     } catch (fsrSaveErr) {
       console.warn('FSR save to folder failed (non-fatal):', fsrSaveErr.message);
