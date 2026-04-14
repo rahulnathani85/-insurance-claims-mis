@@ -27,6 +27,11 @@ export default function ClaimDetail() {
   const [activityLogs, setActivityLogs] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [pipelineStages, setPipelineStages] = useState([]);
+  const [aiConversations, setAiConversations] = useState([]);
+  const [aiMessage, setAiMessage] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [fsrDrafts, setFsrDrafts] = useState([]);
+  const [fsrGenerating, setFsrGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -50,10 +55,34 @@ export default function ClaimDetail() {
   const [loadingEmails, setLoadingEmails] = useState(false);
   const [taggingEmail, setTaggingEmail] = useState(null);
 
+  // AI chat send function
+  async function sendAiMessage() {
+    if (!aiMessage.trim() || aiLoading) return;
+    const msg = aiMessage.trim();
+    setAiMessage('');
+    setAiLoading(true);
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_id: parseInt(id), message: msg, user_email: user?.email }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const convRes = await fetch(`/api/ai/conversations?claim_id=${id}`);
+      setAiConversations(await convRes.json());
+    } catch (e) { alert('AI Error: ' + e.message); }
+    finally { setAiLoading(false); }
+  }
+
   // Document upload state
   const [uploadingDoc, setUploadingDoc] = useState(false);
 
-  useEffect(() => { loadAll(); loadChatMessages(); loadUsers(); }, [id]);
+  useEffect(() => {
+    loadAll(); loadChatMessages(); loadUsers();
+    // Load AI data
+    fetch(`/api/ai/conversations?claim_id=${id}`).then(r => r.json()).then(d => setAiConversations(Array.isArray(d) ? d : [])).catch(() => {});
+    fetch(`/api/ai/fsr-drafts?claim_id=${id}`).then(r => r.json()).then(d => setFsrDrafts(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [id]);
 
   async function loadAll() {
     try {
@@ -308,12 +337,14 @@ export default function ClaimDetail() {
 
   const tabs = [
     { key: 'overview', label: 'Overview', icon: '📋' },
-    { key: 'chat', label: 'Chat', icon: '💬', badge: chatMessages.length || null },
-    { key: 'lifecycle', label: 'Lifecycle', icon: '🔄' },
+    { key: 'lifecycle', label: 'Pipeline & Lifecycle', icon: '🔄' },
+    { key: 'assignments', label: 'Team', icon: '👥' },
     { key: 'documents', label: 'Documents', icon: '📄' },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
-    { key: 'assignments', label: 'Assignments', icon: '👥' },
-    { key: 'activity', label: 'Activity Log', icon: '📝' },
+    { key: 'ai', label: 'AI Analyst', icon: '🤖' },
+    { key: 'fsr', label: 'FSR Draft', icon: '📑' },
+    { key: 'chat', label: 'Chat', icon: '💬', badge: chatMessages.length || null },
+    { key: 'activity', label: 'Activity', icon: '📝' },
   ];
 
   return (
@@ -1040,6 +1071,173 @@ export default function ClaimDetail() {
                   </table>
                 </div>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: AI Analyst */}
+        {activeTab === 'ai' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <h4 style={{ margin: 0, color: '#1e293b' }}>AI Document Analyst</h4>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={async () => {
+                    setAiLoading(true);
+                    try {
+                      const res = await fetch('/api/ai/analyze', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ claim_id: parseInt(id), user_email: user?.email }),
+                      });
+                      const data = await res.json();
+                      if (data.error) throw new Error(data.error);
+                      // Reload conversations
+                      const convRes = await fetch(`/api/ai/conversations?claim_id=${id}`);
+                      setAiConversations(await convRes.json());
+                    } catch (e) { alert('AI Error: ' + e.message); }
+                    finally { setAiLoading(false); }
+                  }}
+                  disabled={aiLoading}
+                  style={{ padding: '8px 16px', background: aiLoading ? '#94a3b8' : '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: aiLoading ? 'default' : 'pointer' }}
+                >
+                  {aiLoading ? 'Analysing...' : '🔍 Analyse Documents'}
+                </button>
+                <button
+                  onClick={async () => {
+                    const convRes = await fetch(`/api/ai/conversations?claim_id=${id}`);
+                    setAiConversations(await convRes.json());
+                  }}
+                  style={{ padding: '8px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Conversation History */}
+            <div style={{ background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', padding: 16, minHeight: 200, maxHeight: 500, overflowY: 'auto', marginBottom: 15 }}>
+              {aiConversations.length === 0 ? (
+                <p style={{ color: '#94a3b8', textAlign: 'center', padding: 40 }}>No AI analysis yet. Click "Analyse Documents" to start.</p>
+              ) : (
+                aiConversations.filter(c => c.role !== 'system').map(c => (
+                  <div key={c.id} style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', alignItems: c.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
+                      {c.role === 'assistant' ? '🤖 AI Analyst' : `👤 ${c.created_by || 'You'}`} · {c.created_at ? new Date(c.created_at).toLocaleString('en-IN') : ''}
+                    </div>
+                    <div style={{
+                      maxWidth: '85%', padding: '10px 14px', borderRadius: 10,
+                      background: c.role === 'user' ? '#1e40af' : '#fff',
+                      color: c.role === 'user' ? '#fff' : '#1e293b',
+                      border: c.role === 'assistant' ? '1px solid #e2e8f0' : 'none',
+                      fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                    }}>
+                      {c.message}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Chat Input */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                value={aiMessage}
+                onChange={e => setAiMessage(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && aiMessage.trim()) { e.preventDefault(); sendAiMessage(); } }}
+                placeholder="Ask the AI analyst about this claim..."
+                style={{ flex: 1, padding: '10px 14px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}
+              />
+              <button
+                onClick={sendAiMessage}
+                disabled={aiLoading || !aiMessage.trim()}
+                style={{ padding: '10px 20px', background: aiLoading ? '#94a3b8' : '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: aiLoading ? 'default' : 'pointer' }}
+              >
+                {aiLoading ? '...' : 'Send'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: FSR Draft */}
+        {activeTab === 'fsr' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <h4 style={{ margin: 0, color: '#1e293b' }}>AI-Generated FSR Draft</h4>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={async () => {
+                    setFsrGenerating(true);
+                    try {
+                      const res = await fetch('/api/ai/generate-fsr', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ claim_id: parseInt(id), user_email: user?.email }),
+                      });
+                      const data = await res.json();
+                      if (data.error) throw new Error(data.error);
+                      // Reload drafts
+                      const draftRes = await fetch(`/api/ai/fsr-drafts?claim_id=${id}`);
+                      setFsrDrafts(await draftRes.json());
+                    } catch (e) { alert('FSR Error: ' + e.message); }
+                    finally { setFsrGenerating(false); }
+                  }}
+                  disabled={fsrGenerating}
+                  style={{ padding: '8px 16px', background: fsrGenerating ? '#94a3b8' : '#059669', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: fsrGenerating ? 'default' : 'pointer' }}
+                >
+                  {fsrGenerating ? 'Generating...' : '📝 Generate FSR Draft'}
+                </button>
+                <button
+                  onClick={async () => {
+                    const draftRes = await fetch(`/api/ai/fsr-drafts?claim_id=${id}`);
+                    setFsrDrafts(await draftRes.json());
+                  }}
+                  style={{ padding: '8px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {fsrDrafts.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
+                <div style={{ fontSize: 40, marginBottom: 10 }}>📑</div>
+                <p>No FSR drafts yet. Click "Generate FSR Draft" to create one using AI.</p>
+                <p style={{ fontSize: 12 }}>Tip: Run "Analyse Documents" first in the AI Analyst tab for better results.</p>
+              </div>
+            ) : (
+              fsrDrafts.map(draft => (
+                <div key={draft.id} style={{ marginBottom: 20, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                    <div>
+                      <span style={{ fontWeight: 700, fontSize: 13 }}>Version {draft.version_number}</span>
+                      <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600,
+                        background: draft.status === 'approved' ? '#dcfce7' : draft.status === 'final' ? '#dbeafe' : '#fef3c7',
+                        color: draft.status === 'approved' ? '#166534' : draft.status === 'final' ? '#1e40af' : '#92400e'
+                      }}>{draft.status.toUpperCase()}</span>
+                      <span style={{ marginLeft: 10, fontSize: 11, color: '#94a3b8' }}>{draft.generated_at ? new Date(draft.generated_at).toLocaleString('en-IN') : ''}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {draft.status === 'draft' && (
+                        <button onClick={async () => {
+                          await fetch('/api/ai/fsr-drafts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: draft.id, status: 'approved', approved_by: user?.email }) });
+                          const draftRes = await fetch(`/api/ai/fsr-drafts?claim_id=${id}`);
+                          setFsrDrafts(await draftRes.json());
+                        }} style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                          ✓ Approve
+                        </button>
+                      )}
+                      <button onClick={() => {
+                        const win = window.open('', '_blank');
+                        win.document.write(`<html><head><title>FSR - ${claim.ref_number}</title><style>body{font-family:Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto;line-height:1.6} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px;text-align:left} .ai-field{background:#fef3c7;padding:2px 4px;border-radius:3px;font-size:11px;color:#92400e} @media print{body{padding:20px}}</style></head><body>${draft.draft_content}</body></html>`);
+                        win.document.close();
+                        win.print();
+                      }} style={{ padding: '4px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>
+                        🖨️ Print
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ padding: 20, fontSize: 13, lineHeight: 1.7 }} dangerouslySetInnerHTML={{ __html: draft.draft_content }} />
+                </div>
+              ))
             )}
           </div>
         )}

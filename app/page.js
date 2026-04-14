@@ -5,6 +5,7 @@ import PageLayout from '@/components/PageLayout';
 import { LOB_LIST, LOB_COLORS, LOB_ICONS } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
+import { PIPELINE_STAGES, getClaimTatDeadline, getTatBadge } from '@/lib/pipelineStages';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -14,6 +15,11 @@ export default function Dashboard() {
   const [myWorkflowItems, setMyWorkflowItems] = useState([]);
   const [expandedClaims, setExpandedClaims] = useState({});
   const [unreadMentions, setUnreadMentions] = useState([]);
+  const [allClaims, setAllClaims] = useState([]);
+  const [claimsLoading, setClaimsLoading] = useState(true);
+  const [dashFilterLob, setDashFilterLob] = useState('');
+  const [dashFilterStage, setDashFilterStage] = useState('');
+  const [dashFilterStatus, setDashFilterStatus] = useState('');
   const router = useRouter();
   const { company } = useCompany();
   const { user } = useAuth();
@@ -49,8 +55,31 @@ export default function Dashboard() {
   useEffect(() => {
     loadStats();
     loadTatBreaches();
+    loadAllClaims();
     if (user?.email) { loadMyAssignments(); loadUnreadMentions(); }
   }, [company, user]);
+
+  async function loadAllClaims() {
+    try {
+      setClaimsLoading(true);
+      const data = await fetch(`/api/claims?company=${encodeURIComponent(company)}`).then(r => r.json());
+      setAllClaims(Array.isArray(data) ? data : []);
+    } catch (e) { setAllClaims([]); }
+    finally { setClaimsLoading(false); }
+  }
+
+  async function updateClaimPipelineStage(claimId, stageNumber) {
+    const stage = PIPELINE_STAGES.find(s => s.number === stageNumber);
+    if (!stage) return;
+    try {
+      await fetch('/api/claim-stages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_id: claimId, stage: stage.name, stage_number: stage.number, updated_by: user?.email, company }),
+      });
+      loadAllClaims();
+    } catch (e) { console.error(e); }
+  }
 
   async function loadStats() {
     try {
@@ -388,6 +417,95 @@ export default function Dashboard() {
         ) : (
           <div className="alert error">Failed to load statistics</div>
         )}
+
+        {/* Master Claims Table */}
+        <div style={{ marginTop: 30, background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: 20 }}>
+          <h3 style={{ margin: '0 0 15px', color: '#1e293b' }}>All Claims</h3>
+
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 15, flexWrap: 'wrap' }}>
+            <select value={dashFilterLob} onChange={e => setDashFilterLob(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
+              <option value="">All LOBs</option>
+              {LOB_LIST.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <select value={dashFilterStage} onChange={e => setDashFilterStage(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
+              <option value="">All Pipeline Stages</option>
+              {PIPELINE_STAGES.map(s => <option key={s.number} value={s.name}>{s.name}</option>)}
+            </select>
+            <select value={dashFilterStatus} onChange={e => setDashFilterStatus(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
+              <option value="">All Status</option>
+              <option value="Open">Open</option>
+              <option value="In Process">In Process</option>
+              <option value="Submitted">Submitted</option>
+            </select>
+            {(dashFilterLob || dashFilterStage || dashFilterStatus) && (
+              <button onClick={() => { setDashFilterLob(''); setDashFilterStage(''); setDashFilterStatus(''); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#f1f5f9', fontSize: 12, cursor: 'pointer' }}>Clear</button>
+            )}
+            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8' }}>
+              {(() => {
+                let filtered = allClaims;
+                if (dashFilterLob) filtered = filtered.filter(c => c.lob === dashFilterLob);
+                if (dashFilterStage) filtered = filtered.filter(c => c.pipeline_stage === dashFilterStage);
+                if (dashFilterStatus) filtered = filtered.filter(c => c.status === dashFilterStatus);
+                return `${filtered.length} claims`;
+              })()}
+            </span>
+          </div>
+
+          {claimsLoading ? (
+            <p style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>Loading claims...</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+                    {['File No.', 'LOB', 'Insured', 'Insurer', 'Surveyor', 'Pipeline', 'TAT', 'Days Open', 'Status', 'Action'].map(h => (
+                      <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: 11 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    let filtered = allClaims;
+                    if (dashFilterLob) filtered = filtered.filter(c => c.lob === dashFilterLob);
+                    if (dashFilterStage) filtered = filtered.filter(c => c.pipeline_stage === dashFilterStage);
+                    if (dashFilterStatus) filtered = filtered.filter(c => c.status === dashFilterStatus);
+                    return filtered.slice(0, 50).map(c => {
+                      const daysOpen = c.created_at ? Math.floor((new Date() - new Date(c.created_at)) / 86400000) : '-';
+                      const tatInfo = getClaimTatDeadline(c.lob, c.date_of_intimation || c.date_intimation, c.pipeline_stage_number || 1);
+                      const tatBadge = tatInfo ? getTatBadge(tatInfo.deadline) : null;
+                      return (
+                        <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 600 }}>
+                            <a onClick={() => router.push(`/claim-detail/${c.id}`)} style={{ color: '#1e40af', cursor: 'pointer', textDecoration: 'underline' }}>{c.ref_number || '-'}</a>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{LOB_ICONS[c.lob] || ''} {c.lob}</span></td>
+                          <td style={{ padding: '8px 10px' }}>{c.insured_name || '-'}</td>
+                          <td style={{ padding: '8px 10px' }}>{c.insurer_name || '-'}</td>
+                          <td style={{ padding: '8px 10px' }}>{c.surveyor_name || '-'}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <select value={c.pipeline_stage_number || 1} onChange={e => updateClaimPipelineStage(c.id, parseInt(e.target.value))}
+                              style={{ padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid #d1d5db', maxWidth: 110 }}>
+                              {PIPELINE_STAGES.map(ps => <option key={ps.number} value={ps.number}>{ps.number}. {ps.short}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            {tatBadge ? <span style={{ padding: '2px 6px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: tatBadge.bg, color: tatBadge.color }}>{tatBadge.label}</span> : '-'}
+                          </td>
+                          <td style={{ padding: '8px 10px', fontWeight: 600, color: daysOpen > 30 ? '#dc2626' : daysOpen > 15 ? '#d97706' : '#16a34a' }}>{daysOpen}</td>
+                          <td style={{ padding: '8px 10px' }}><span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: c.status === 'Submitted' ? '#dcfce7' : c.status === 'In Process' ? '#fef3c7' : '#dbeafe', color: c.status === 'Submitted' ? '#166534' : c.status === 'In Process' ? '#92400e' : '#1e40af' }}>{c.status}</span></td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <button onClick={() => router.push(`/claim-detail/${c.id}`)} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 4, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer' }}>View</button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </PageLayout>
   );
