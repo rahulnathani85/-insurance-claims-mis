@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 
 // GET - List activity logs with optional filters
@@ -38,15 +39,20 @@ export async function GET(request) {
 export async function POST(request) {
   const body = await request.json();
 
-  const { data, error } = await supabase
+  // entity_id is bigint — only set if it's a valid number, skip for UUIDs
+  const entityId = body.entity_id && !isNaN(parseInt(body.entity_id)) ? parseInt(body.entity_id) : null;
+  // claim_id is bigint — only set if it's a valid number
+  const claimId = body.claim_id && !isNaN(parseInt(body.claim_id)) ? parseInt(body.claim_id) : null;
+
+  const { data, error } = await supabaseAdmin
     .from('activity_log')
     .insert([{
       user_email: body.user_email,
       user_name: body.user_name,
       action: body.action,
       entity_type: body.entity_type,
-      entity_id: body.entity_id,
-      claim_id: body.claim_id,
+      entity_id: entityId,
+      claim_id: claimId,
       ref_number: body.ref_number,
       details: body.details,
       company: body.company,

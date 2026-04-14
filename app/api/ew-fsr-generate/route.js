@@ -39,7 +39,51 @@ export async function POST(request) {
 
     const html = generateFSRHtml(claim, isNISLA, template);
 
-    return NextResponse.json({ html, claim });
+    // Save FSR as Word doc to the claim's file server folder
+    let savedToFolder = false;
+    try {
+      const FILE_SERVER_URL = process.env.NEXT_PUBLIC_FILE_SERVER_URL || 'http://localhost:4000';
+      const FILE_SERVER_KEY = process.env.NEXT_PUBLIC_FILE_SERVER_KEY || 'nisla-file-server-2026';
+
+      // Get folder_path from parent claim
+      let folderPath = '';
+      if (claim.claim_id) {
+        const { data: parentClaim } = await supabaseAdmin.from('claims').select('folder_path').eq('id', claim.claim_id).single();
+        folderPath = parentClaim?.folder_path || '';
+      }
+      if (!folderPath && claim.ref_number) {
+        const safeName = (claim.customer_name || claim.insured_name || 'Unknown').replace(/[<>:"/\\|?*]/g, '_').substring(0, 50);
+        const safeRef = (claim.ref_number || '').replace(/[<>:"/\\|?*]/g, '_');
+        folderPath = `D:\\2026-27\\${claim.company || 'NISLA'}\\Extended Warranty\\${safeRef} - ${safeName}`;
+      }
+
+      if (folderPath) {
+        const relativePath = folderPath.replace(/^D:\\\\2026-27\\\\?/, '').replace(/^D:\\2026-27\\?/, '');
+        const fsrFolder = `${relativePath}\\FSR`;
+        const fname = `FSR-${(claim.ref_number || 'report').replace(/[\/\\]/g, '-')}.doc`;
+
+        // Build Word-compatible HTML
+        const wordHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><style>@page Section1{size:21cm 29.7cm;margin:1.5cm}div.Section1{page:Section1}.page{page-break-after:always}table{border-collapse:collapse;width:100%}td,th{border:0.5pt solid #444;padding:5px 8px}</style></head>
+<body><div class="Section1">${html.replace(/<html[\s\S]*?<body[^>]*>/i, '').replace(/<\/body[\s\S]*<\/html>/i, '')}</div></body></html>`;
+
+        const blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
+        const formData = new FormData();
+        formData.append('files', blob, fname);
+
+        const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
+          method: 'POST',
+          headers: { 'X-API-Key': FILE_SERVER_KEY },
+          body: formData,
+        });
+        const uploadData = await uploadRes.json();
+        savedToFolder = uploadData?.success || false;
+      }
+    } catch (fsrSaveErr) {
+      console.warn('FSR save to folder failed (non-fatal):', fsrSaveErr.message);
+    }
+
+    return NextResponse.json({ html, claim, savedToFolder });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
