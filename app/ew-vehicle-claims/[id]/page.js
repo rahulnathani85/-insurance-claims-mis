@@ -473,7 +473,13 @@ export default function EWClaimDetailPage() {
         const parentClaim = await claimRes.json();
         folderPath = parentClaim?.folder_path || '';
       }
-      if (!folderPath) return; // No folder path, skip save
+      // If no parent folder_path, generate one from the EW claim data
+      if (!folderPath && claim?.ref_number) {
+        const safeName = (claim.customer_name || claim.insured_name || 'Unknown').replace(/[<>:"/\\|?*]/g, '_').substring(0, 50);
+        const safeRef = (claim.ref_number || '').replace(/[<>:"/\\|?*]/g, '_');
+        folderPath = `D:\\2026-27\\${claim.company || 'NISLA'}\\Extended Warranty\\${safeRef} - ${safeName}`;
+      }
+      if (!folderPath) return;
 
       const relativePath = folderPath.replace(/^D:\\\\2026-27\\\\?/, '').replace(/^D:\\2026-27\\?/, '');
       if (!relativePath) return;
