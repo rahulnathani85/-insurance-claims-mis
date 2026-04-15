@@ -9,13 +9,15 @@ import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
 import { FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
 import { logActivity, ACTIONS } from '@/lib/activityLogger';
 
-// Resolve file URL — handles both old relative URLs and new full URLs
+// Resolve file URL — handles old relative URLs, file server URLs, and Supabase URLs
 function resolveFileUrl(url) {
   if (!url) return '';
-  // If it's a relative file server URL, prepend FILE_SERVER_URL
+  // Old format: relative file server URL like /api/download?path=...
   if (url.startsWith('/api/download')) return `${FILE_SERVER_URL}${url}`;
-  // If it's already a full URL, use as-is
+  // Already a full URL (file server or Supabase)
   if (url.startsWith('http')) return url;
+  // Pending upload placeholder
+  if (url.startsWith('pending-upload/')) return '';
   return url;
 }
 
@@ -1083,7 +1085,11 @@ ${cleanCss}
                             src={resolveFileUrl(m.file_url)}
                             alt={m.file_name}
                             style={{ width: '100%', height: 120, objectFit: 'cover' }}
-                            onError={e => { e.target.src = ''; e.target.style.display = 'none'; }}
+                            onError={e => {
+                              e.target.onerror = null;
+                              e.target.style.display = 'none';
+                              e.target.parentElement.innerHTML = `<div style="width:100%;height:120px;display:flex;align-items:center;justify-content:center;background:#f1f5f9;font-size:11px;color:#94a3b8;text-align:center;padding:8px">📷 ${m.file_name}<br><span style="font-size:9px">Preview unavailable from this network</span></div>`;
+                            }}
                           />
                         )}
                         <div style={{ padding: '8px 10px' }}>

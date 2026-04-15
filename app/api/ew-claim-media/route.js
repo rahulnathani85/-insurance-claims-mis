@@ -19,9 +19,7 @@ export async function GET(request) {
       .eq('ew_claim_id', ew_claim_id)
       .order('created_at', { ascending: false });
 
-    if (stage_number) {
-      query = query.eq('stage_number', parseInt(stage_number));
-    }
+    if (stage_number) query = query.eq('stage_number', parseInt(stage_number));
 
     const { data, error } = await query;
     if (error) throw error;
@@ -31,7 +29,7 @@ export async function GET(request) {
   }
 }
 
-// POST - Upload media file to FILE SERVER (not Supabase Storage)
+// POST - Upload media file to FILE SERVER only
 export async function POST(request) {
   try {
     const formData = await request.formData();
@@ -47,7 +45,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'file and ew_claim_id required' }, { status: 400 });
     }
 
-    // Get EW claim details including linked parent claim
+    // Get EW claim details
     const { data: ewClaim } = await supabaseAdmin
       .from('ew_vehicle_claims')
       .select('ref_number, company, claim_id, customer_name, insured_name')
@@ -67,15 +65,15 @@ export async function POST(request) {
       folderPath = parentClaim?.folder_path || '';
     }
 
-    // If no folder_path from parent, generate one
+    // If no folder_path, generate one
     if (!folderPath) {
       const safeName = (ewClaim.customer_name || ewClaim.insured_name || 'Unknown').replace(/[<>:"/\\|?*]/g, '_').substring(0, 50);
       const safeRef = (ewClaim.ref_number || '').replace(/[<>:"/\\|?*]/g, '_');
       folderPath = `D:\\2026-27\\${ewClaim.company || 'NISLA'}\\Extended Warranty\\${safeRef} - ${safeName}`;
     }
 
-    // Get the subfolder name from document category
-    let subfolderName = document_category || 'General';
+    // Get subfolder name from document category
+    let subfolderName = 'General';
     if (document_category) {
       const { data: catData } = await supabaseAdmin
         .from('ew_document_categories')
@@ -90,58 +88,30 @@ export async function POST(request) {
     const uploadFolder = `${relativePath}\\${subfolderName}`;
 
     // Upload to file server
-    const uploadFormData = new FormData();
     const buffer = Buffer.from(await file.arrayBuffer());
+    const uploadFormData = new FormData();
     const blob = new Blob([buffer], { type: file.type });
     uploadFormData.append('files', blob, file.name);
 
     let fileUrl = '';
-    let uploadSuccess = false;
 
-    try {
-      const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(uploadFolder)}`, {
-        method: 'POST',
-        headers: { 'X-API-Key': FILE_SERVER_KEY },
-        body: uploadFormData,
-      });
-      const uploadData = await uploadRes.json();
-      if (uploadData.success && uploadData.files?.length > 0) {
-        // Build full download URL using file server base URL
-        const downloadPath = uploadData.files[0].downloadUrl || '';
-        fileUrl = downloadPath ? `${FILE_SERVER_URL}${downloadPath}` : (uploadData.files[0].path || '');
-        uploadSuccess = true;
-      } else {
-        console.warn('File server upload failed:', uploadData.error || 'Unknown error');
-      }
-    } catch (fsErr) {
-      console.warn('File server unreachable:', fsErr.message);
+    const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(uploadFolder)}`, {
+      method: 'POST',
+      headers: { 'X-API-Key': FILE_SERVER_KEY },
+      body: uploadFormData,
+    });
+
+    const uploadData = await uploadRes.json();
+
+    if (uploadData.success && uploadData.files?.length > 0) {
+      // Use the download URL from file server, with FULL public URL
+      const downloadPath = uploadData.files[0].downloadUrl || '';
+      fileUrl = downloadPath ? `${FILE_SERVER_URL}${downloadPath}` : '';
+    } else {
+      throw new Error(uploadData.error || 'File server upload failed');
     }
 
-    // Fallback: if file server failed, try Supabase Storage
-    if (!uploadSuccess) {
-      try {
-        const refSafe = (ewClaim.ref_number || 'unknown').replace(/[\/\\]/g, '-');
-        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const storagePath = `ew-claims/${refSafe}/${subfolderName}/${fileName}`;
-
-        const { error: uploadErr } = await supabaseAdmin
-          .storage
-          .from('documents')
-          .upload(storagePath, buffer, { contentType: file.type, upsert: false });
-
-        if (uploadErr) throw uploadErr;
-
-        const { data: urlData } = supabaseAdmin.storage.from('documents').getPublicUrl(storagePath);
-        fileUrl = urlData?.publicUrl || storagePath;
-        uploadSuccess = true;
-      } catch (sbErr) {
-        console.warn('Supabase Storage also failed:', sbErr.message);
-        // Still save the DB record even if storage fails
-        fileUrl = `pending-upload/${file.name}`;
-      }
-    }
-
-    // Insert media record in database
+    // Save record to database
     const { data: media, error: mediaErr } = await supabaseAdmin
       .from('ew_claim_media')
       .insert([{
@@ -160,11 +130,6 @@ export async function POST(request) {
       .single();
 
     if (mediaErr) throw mediaErr;
-
-    if (!uploadSuccess) {
-      return NextResponse.json({ ...media, warning: 'File record saved but file server upload failed. File may need to be re-uploaded.' }, { status: 201 });
-    }
-
     return NextResponse.json(media, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -178,7 +143,6 @@ export async function DELETE(request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-    // Delete record
     const { error } = await supabaseAdmin.from('ew_claim_media').delete().eq('id', id);
     if (error) throw error;
 
