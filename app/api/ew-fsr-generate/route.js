@@ -39,9 +39,10 @@ export async function POST(request) {
 
     const html = generateFSRHtml(claim, isNISLA, template);
 
-    // Save FSR as Word doc to the claim's file server folder
+    // FSR folder save is now handled by the client-side saveToCloudFolder function
+    // which produces better Word formatting. Server-side only returns the HTML.
     let savedToFolder = false;
-    try {
+    try { if (false) { // Disabled — client-side save is better
       const FILE_SERVER_URL = process.env.NEXT_PUBLIC_FILE_SERVER_URL || 'http://localhost:4000';
       const FILE_SERVER_KEY = process.env.NEXT_PUBLIC_FILE_SERVER_KEY || 'nisla-file-server-2026';
 

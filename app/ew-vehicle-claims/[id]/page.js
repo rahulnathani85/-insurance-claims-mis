@@ -465,22 +465,21 @@ export default function EWClaimDetailPage() {
       const fname = `FSR-${claim?.ref_number || 'report'}`;
       if (format === 'pdf') {
         await downloadAsPDF(html, `${fname}.pdf`);
-        // Save PDF to claim folder
-        saveToCloudFolder(html, fname, 'pdf');
         logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_DOWNLOADED_PDF, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: 'pdf', filename: `${fname}.pdf` }, company: claim?.company });
-        showAlert('FSR downloaded as PDF and saved to claim folder');
+        showAlert('FSR opened for PDF printing');
       } else if (format === 'word') {
         downloadAsWord(html, `${fname}.doc`);
-        // Save Word to claim folder
-        saveToCloudFolder(html, fname, 'word');
         logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_DOWNLOADED_WORD, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: 'word', filename: `${fname}.doc` }, company: claim?.company });
-        showAlert('FSR downloaded as Word and saved to claim folder');
+        showAlert('FSR downloaded as Word');
       } else {
         setShowFsrExport(true);
         showAlert('FSR generated! Choose your download format.');
       }
 
-      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'preview' }, company: claim?.company });
+      // Save BOTH Word and HTML to the claim folder
+      saveToCloudFolder(html, fname, 'word');
+      saveToCloudFolder(html, fname, 'html');
+      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'all', saved_to_folder: true }, company: claim?.company });
     } catch (e) {
       showAlert(e.message, 'error');
     } finally {
@@ -518,8 +517,12 @@ export default function EWClaimDetailPage() {
         const wordHtml = buildWordHtml(html);
         blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
         fileName = `${fname}.doc`;
+      } else if (format === 'html') {
+        // Save the complete FSR HTML (can be opened in browser → printed to PDF)
+        blob = new Blob([html], { type: 'text/html' });
+        fileName = `${fname}.html`;
       } else {
-        // For PDF, save the HTML as .html (user can print to PDF from there)
+        // Default: save as HTML
         blob = new Blob([html], { type: 'text/html' });
         fileName = `${fname}.html`;
       }
