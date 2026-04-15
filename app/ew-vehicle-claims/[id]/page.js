@@ -476,11 +476,23 @@ export default function EWClaimDetailPage() {
         showAlert('FSR generated! Choose your download format.');
       }
 
-      // Save Word, HTML, and PDF to the claim folder
-      saveToCloudFolder(html, fname, 'word');
-      saveToCloudFolder(html, fname, 'html');
-      savePdfToFolder(html, fname);
-      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'all', saved_to_folder: true }, company: claim?.company });
+      // Save all 3 formats (HTML, Word, PDF) to claim folder in ONE server call
+      try {
+        const saveRes = await fetch('/api/ew-fsr-save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ew_claim_id: id, html }),
+        });
+        const saveData = await saveRes.json();
+        if (saveData.success) {
+          const saved = [];
+          if (saveData.results.html) saved.push('HTML');
+          if (saveData.results.word) saved.push('Word');
+          if (saveData.results.pdf) saved.push('PDF');
+          showAlert(`FSR saved to folder: ${saved.join(', ')}`, 'success');
+        }
+      } catch (e) { console.warn('FSR folder save:', e.message); }
+      logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'all' }, company: claim?.company });
     } catch (e) {
       showAlert(e.message, 'error');
     } finally {
