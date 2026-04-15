@@ -1213,17 +1213,45 @@ ${cleanCss}
                   </div>
                 </div>
                 <div style={{ padding: 0, minHeight: 400 }}>
-                  {previewDoc.type === 'photo' || previewDoc.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
-                    <img src={previewDoc.url} alt={previewDoc.name} style={{ width: '100%', objectFit: 'contain', maxHeight: 600 }} />
-                  ) : previewDoc.name?.endsWith('.pdf') ? (
-                    <iframe src={previewDoc.url} style={{ width: '100%', height: 600, border: 'none' }} title={previewDoc.name} />
-                  ) : previewDoc.type === 'video' ? (
-                    <video src={previewDoc.url} controls style={{ width: '100%', maxHeight: 500 }} />
+                  {/* Images */}
+                  {previewDoc.name?.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i) ? (
+                    <img src={previewDoc.url} alt={previewDoc.name} style={{ width: '100%', objectFit: 'contain', maxHeight: 700 }} />
+                  ) : /* PDFs — embed with object tag (more compatible than iframe) */
+                  previewDoc.name?.match(/\.pdf$/i) ? (
+                    <div style={{ width: '100%', height: 700 }}>
+                      <object data={previewDoc.url} type="application/pdf" width="100%" height="100%">
+                        <div style={{ padding: 40, textAlign: 'center' }}>
+                          <p style={{ fontSize: 13, color: '#64748b' }}>PDF preview loading...</p>
+                          <p style={{ fontSize: 12 }}>If preview doesn't load, <a href={previewDoc.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af' }}>click here to open the PDF</a></p>
+                          <iframe src={previewDoc.url} style={{ width: '100%', height: 500, border: '1px solid #e2e8f0', marginTop: 10 }} title={previewDoc.name} />
+                        </div>
+                      </object>
+                    </div>
+                  ) : /* Videos */
+                  previewDoc.name?.match(/\.(mp4|webm|mov|avi)$/i) ? (
+                    <video src={previewDoc.url} controls style={{ width: '100%', maxHeight: 600 }} />
+                  ) : /* Word/Excel — use Google Docs Viewer for online preview */
+                  previewDoc.name?.match(/\.(doc|docx|xls|xlsx|ppt|pptx)$/i) ? (
+                    <div style={{ width: '100%', height: 700 }}>
+                      <iframe
+                        src={`https://docs.google.com/gview?url=${encodeURIComponent(window.location.origin + previewDoc.url)}&embedded=true`}
+                        style={{ width: '100%', height: '100%', border: 'none' }}
+                        title={previewDoc.name}
+                      />
+                    </div>
+                  ) : /* Text files */
+                  previewDoc.name?.match(/\.(txt|csv|log)$/i) ? (
+                    <iframe src={previewDoc.url} style={{ width: '100%', height: 600, border: 'none', fontFamily: 'monospace' }} title={previewDoc.name} />
                   ) : (
                     <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
                       <div style={{ fontSize: 48, marginBottom: 10 }}>📄</div>
-                      <p style={{ fontSize: 13 }}>Preview not available for this file type.</p>
-                      <a href={previewDoc.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', textDecoration: 'underline', fontSize: 13 }}>Open in new tab →</a>
+                      <p style={{ fontSize: 14, fontWeight: 600 }}>{previewDoc.name}</p>
+                      <p style={{ fontSize: 12, marginTop: 8 }}>
+                        <a href={previewDoc.url} target="_blank" rel="noopener noreferrer"
+                          style={{ padding: '8px 20px', background: '#1e40af', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
+                          ⬇ Download File
+                        </a>
+                      </p>
                     </div>
                   )}
                 </div>
