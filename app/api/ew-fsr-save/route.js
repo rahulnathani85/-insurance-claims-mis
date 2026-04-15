@@ -72,22 +72,33 @@ export async function POST(request) {
 
     // 3. Save PDF via Puppeteer server
     try {
+      console.log(`[FSR-SAVE] Calling Puppeteer at: ${PUPPETEER_URL}/api/html-to-pdf`);
+      console.log(`[FSR-SAVE] folder_path: ${fsrFolder}, filename: ${baseName}.pdf`);
       const pdfRes = await fetch(`${PUPPETEER_URL}/api/html-to-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': FILE_SERVER_KEY },
         body: JSON.stringify({ html, folder_path: fsrFolder, filename: `${baseName}.pdf` }),
       });
-      const pdfData = await pdfRes.json();
-      results.pdf = pdfData?.success || false;
-      if (!results.pdf) console.warn('PDF generation:', JSON.stringify(pdfData));
+      const pdfText = await pdfRes.text();
+      console.log(`[FSR-SAVE] Puppeteer response status: ${pdfRes.status}, body: ${pdfText.substring(0, 200)}`);
+      try {
+        const pdfData = JSON.parse(pdfText);
+        results.pdf = pdfData?.success || false;
+        results.pdfError = pdfData?.error || null;
+      } catch {
+        results.pdf = false;
+        results.pdfError = `Non-JSON response: ${pdfText.substring(0, 100)}`;
+      }
     } catch (pdfErr) {
       console.warn('Puppeteer PDF failed:', pdfErr.message);
+      results.pdfError = pdfErr.message;
     }
 
     return NextResponse.json({
       success: results.html || results.word || results.pdf,
       results,
       folder: fsrFolder,
+      puppeteerUrl: PUPPETEER_URL,
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

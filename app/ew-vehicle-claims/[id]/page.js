@@ -484,12 +484,15 @@ export default function EWClaimDetailPage() {
           body: JSON.stringify({ ew_claim_id: id, html }),
         });
         const saveData = await saveRes.json();
-        if (saveData.success) {
-          const saved = [];
-          if (saveData.results.html) saved.push('HTML');
-          if (saveData.results.word) saved.push('Word');
-          if (saveData.results.pdf) saved.push('PDF');
+        const saved = [];
+        if (saveData.results?.html) saved.push('HTML');
+        if (saveData.results?.word) saved.push('Word');
+        if (saveData.results?.pdf) saved.push('PDF');
+        if (saved.length > 0) {
           showAlert(`FSR saved to folder: ${saved.join(', ')}`, 'success');
+        }
+        if (saveData.results?.pdfError) {
+          console.warn('PDF error:', saveData.results.pdfError, 'Puppeteer URL:', saveData.puppeteerUrl);
         }
       } catch (e) { console.warn('FSR folder save:', e.message); }
       logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'all' }, company: claim?.company });
