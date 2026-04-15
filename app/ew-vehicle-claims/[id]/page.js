@@ -476,9 +476,10 @@ export default function EWClaimDetailPage() {
         showAlert('FSR generated! Choose your download format.');
       }
 
-      // Save BOTH Word and HTML to the claim folder
+      // Save Word, HTML, and PDF to the claim folder
       saveToCloudFolder(html, fname, 'word');
       saveToCloudFolder(html, fname, 'html');
+      savePdfToFolder(html, fname);
       logActivity({ userEmail: user?.email, userName: user?.name, action: ACTIONS.FSR_GENERATED, entityType: 'ew_vehicle_claims', entityId: id, refNumber: claim?.ref_number, details: { format: format || 'all', saved_to_folder: true }, company: claim?.company });
     } catch (e) {
       showAlert(e.message, 'error');
@@ -543,6 +544,44 @@ export default function EWClaimDetailPage() {
       }
     } catch (e) {
       console.warn('Cloud folder save failed (non-fatal):', e.message);
+    }
+  }
+
+  // Save PDF to claim folder using Puppeteer on the file server
+  async function savePdfToFolder(html, fname) {
+    try {
+      let folderPath = '';
+      if (claim?.claim_id) {
+        const claimRes = await fetch(`/api/claims/${claim.claim_id}`);
+        const parentClaim = await claimRes.json();
+        folderPath = parentClaim?.folder_path || '';
+      }
+      if (!folderPath && claim?.ref_number) {
+        const safeName = (claim.customer_name || claim.insured_name || 'Unknown').replace(/[<>:"/\\|?*]/g, '_').substring(0, 50);
+        const safeRef = (claim.ref_number || '').replace(/[<>:"/\\|?*]/g, '_');
+        folderPath = `D:\\2026-27\\${claim.company || 'NISLA'}\\Extended Warranty\\${safeRef} - ${safeName}`;
+      }
+      if (!folderPath) return;
+
+      const relativePath = folderPath.replace(/^D:\\\\2026-27\\\\?/, '').replace(/^D:\\2026-27\\?/, '');
+      const fsrFolder = `${relativePath}\\FSR`;
+
+      // Call Puppeteer PDF endpoint via Vercel proxy (avoids mixed content)
+      const res = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: html,
+          folder_path: fsrFolder,
+          filename: `${fname}.pdf`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showAlert('PDF saved to claim folder', 'success');
+      }
+    } catch (e) {
+      console.warn('PDF save failed (non-fatal):', e.message);
     }
   }
 

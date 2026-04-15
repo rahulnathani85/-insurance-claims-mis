@@ -480,6 +480,76 @@ app.get('/', (req, res) => {
   res.redirect('/browse');
 });
 
+// ========== HTML TO PDF CONVERSION (Puppeteer) ==========
+// POST /api/html-to-pdf - Convert HTML to PDF and optionally save to folder
+// Body: { html: "...", folder_path: "...", filename: "report.pdf" }
+app.post('/api/html-to-pdf', verifyApiKey, express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const { html, folder_path, filename } = req.body;
+    if (!html) return res.status(400).json({ error: 'html content required' });
+
+    // Lazy-load puppeteer
+    let puppeteer;
+    try {
+      puppeteer = require('puppeteer');
+    } catch (e) {
+      return res.status(500).json({
+        error: 'Puppeteer not installed. Run: npm install puppeteer',
+        installCmd: 'cd scripts/file-server && npm install puppeteer'
+      });
+    }
+
+    log('Generating PDF from HTML...');
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+    });
+
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      preferCSSPageSize: true,
+    });
+
+    await browser.close();
+    log(`PDF generated: ${pdfBuffer.length} bytes`);
+
+    // If folder_path provided, save the PDF to that folder
+    if (folder_path && filename) {
+      const fullPath = safePath(folder_path);
+      if (fullPath) {
+        if (!fs.existsSync(fullPath)) {
+          fs.mkdirSync(fullPath, { recursive: true });
+        }
+        const pdfPath = path.join(fullPath, filename.replace(/[<>:"/\\|?*]/g, '_'));
+        fs.writeFileSync(pdfPath, pdfBuffer);
+        log(`PDF saved to: ${pdfPath}`);
+
+        return res.json({
+          success: true,
+          message: 'PDF generated and saved',
+          path: pdfPath,
+          size: pdfBuffer.length,
+          downloadUrl: `/api/download?path=${encodeURIComponent(path.relative(CONFIG.BASE_PATH, pdfPath))}`,
+        });
+      }
+    }
+
+    // If no folder_path, return the PDF directly
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename || 'report.pdf'}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(Buffer.from(pdfBuffer));
+  } catch (err) {
+    log(`PDF generation error: ${err.message}`);
+    res.status(500).json({ error: 'PDF generation failed: ' + err.message });
+  }
+});
+
 // ========== BLOCKED OPERATIONS (Folder Protection) ==========
 // No delete endpoint
 // No rename endpoint
