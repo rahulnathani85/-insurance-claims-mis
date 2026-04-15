@@ -9,6 +9,16 @@ import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
 import { FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
 import { logActivity, ACTIONS } from '@/lib/activityLogger';
 
+// Resolve file URL — handles both old relative URLs and new full URLs
+function resolveFileUrl(url) {
+  if (!url) return '';
+  // If it's a relative file server URL, prepend FILE_SERVER_URL
+  if (url.startsWith('/api/download')) return `${FILE_SERVER_URL}${url}`;
+  // If it's already a full URL, use as-is
+  if (url.startsWith('http')) return url;
+  return url;
+}
+
 const STAGE_STATUS_COLORS = {
   'Pending': { bg: '#f1f5f9', color: '#64748b', ring: '#cbd5e1' },
   'In Progress': { bg: '#fef3c7', color: '#92400e', ring: '#f59e0b' },
@@ -1054,14 +1064,14 @@ ${cleanCss}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                     {filteredMedia.map(m => (
                       <div key={m.id} style={{
-                        border: previewDoc?.url === m.file_url ? '2px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
+                        border: previewDoc?.name === m.file_name ? '2px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
                         background: '#f8fafc', cursor: 'pointer',
                       }}
-                        onClick={() => setPreviewDoc({ url: m.file_url, name: m.file_name, type: m.media_type })}
+                        onClick={() => setPreviewDoc({ url: resolveFileUrl(m.file_url), name: m.file_name, type: m.media_type })}
                       >
                         {m.media_type === 'video' ? (
                           <video
-                            src={m.file_url}
+                            src={resolveFileUrl(m.file_url)}
                             style={{ width: '100%', height: 120, objectFit: 'cover', background: '#000' }}
                           />
                         ) : m.media_type === 'document' || m.file_name?.match(/\.(pdf|doc|docx|xls|xlsx)$/i) ? (
@@ -1070,7 +1080,7 @@ ${cleanCss}
                           </div>
                         ) : (
                           <img
-                            src={m.file_url}
+                            src={resolveFileUrl(m.file_url)}
                             alt={m.file_name}
                             style={{ width: '100%', height: 120, objectFit: 'cover' }}
                             onError={e => { e.target.src = ''; e.target.style.display = 'none'; }}
@@ -1085,7 +1095,7 @@ ${cleanCss}
                           </div>
                           <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setPreviewDoc({ url: m.file_url, name: m.file_name, type: m.media_type }); }}
+                              onClick={(e) => { e.stopPropagation(); setPreviewDoc({ url: resolveFileUrl(m.file_url), name: m.file_name, type: m.media_type }); }}
                               style={{ padding: '3px 8px', background: '#eff6ff', color: '#1e40af', border: '1px solid #93c5fd', borderRadius: 4, fontSize: 10, cursor: 'pointer' }}
                             >👁 View</button>
                           <button

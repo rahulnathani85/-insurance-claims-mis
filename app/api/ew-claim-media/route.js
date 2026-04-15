@@ -106,7 +106,9 @@ export async function POST(request) {
       });
       const uploadData = await uploadRes.json();
       if (uploadData.success && uploadData.files?.length > 0) {
-        fileUrl = uploadData.files[0].downloadUrl || uploadData.files[0].path || '';
+        // Build full download URL using file server base URL
+        const downloadPath = uploadData.files[0].downloadUrl || '';
+        fileUrl = downloadPath ? `${FILE_SERVER_URL}${downloadPath}` : (uploadData.files[0].path || '');
         uploadSuccess = true;
       } else {
         console.warn('File server upload failed:', uploadData.error || 'Unknown error');
