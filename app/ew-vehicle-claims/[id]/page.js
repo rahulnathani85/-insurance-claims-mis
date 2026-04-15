@@ -9,14 +9,26 @@ import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
 import { FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
 import { logActivity, ACTIONS } from '@/lib/activityLogger';
 
-// Resolve file URL — handles old relative URLs, file server URLs, and Supabase URLs
+// Resolve file URL — converts all formats to work from HTTPS portal
 function resolveFileUrl(url) {
   if (!url) return '';
-  // Old format: relative file server URL like /api/download?path=...
-  if (url.startsWith('/api/download')) return `${FILE_SERVER_URL}${url}`;
-  // Already a full URL (file server or Supabase)
-  if (url.startsWith('http')) return url;
-  // Pending upload placeholder
+  // New proxy format: /api/file-proxy?path=... (already correct, works on HTTPS)
+  if (url.startsWith('/api/file-proxy')) return url;
+  // Old format: /api/download?path=... → convert to proxy
+  if (url.startsWith('/api/download')) {
+    const pathMatch = url.match(/[?&]path=([^&]+)/);
+    if (pathMatch) return `/api/file-proxy?path=${pathMatch[1]}`;
+    return url;
+  }
+  // Direct file server URL (http://180...) → convert to proxy to avoid mixed content
+  if (url.startsWith('http') && url.includes('/api/download')) {
+    const pathMatch = url.match(/[?&]path=([^&]+)/);
+    if (pathMatch) return `/api/file-proxy?path=${pathMatch[1]}`;
+    return url;
+  }
+  // Full HTTPS URL (Supabase etc.) — use directly
+  if (url.startsWith('https://')) return url;
+  // Pending upload
   if (url.startsWith('pending-upload/')) return '';
   return url;
 }

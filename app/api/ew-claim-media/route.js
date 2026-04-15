@@ -104,9 +104,12 @@ export async function POST(request) {
     const uploadData = await uploadRes.json();
 
     if (uploadData.success && uploadData.files?.length > 0) {
-      // Use the download URL from file server, with FULL public URL
+      // Store as proxy URL — goes through Vercel HTTPS to avoid mixed-content blocking
+      // Extract the path parameter from the download URL
       const downloadPath = uploadData.files[0].downloadUrl || '';
-      fileUrl = downloadPath ? `${FILE_SERVER_URL}${downloadPath}` : '';
+      const pathMatch = downloadPath.match(/[?&]path=([^&]+)/);
+      const filePath = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
+      fileUrl = filePath ? `/api/file-proxy?path=${encodeURIComponent(filePath)}` : '';
     } else {
       throw new Error(uploadData.error || 'File server upload failed');
     }
