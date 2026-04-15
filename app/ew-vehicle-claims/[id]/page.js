@@ -512,18 +512,13 @@ export default function EWClaimDetailPage() {
       // Save to FSR subfolder
       const fsrFolder = `${relativePath}\\FSR`;
 
-      // Create file as Blob
+      // Create file as Blob — use FIXED filename (no timestamp)
       let blob, fileName;
       if (format === 'word') {
-        const wordHtml = buildWordHtml(html);
-        blob = new Blob(['\ufeff', wordHtml], { type: 'application/msword' });
+        const wordContent = buildWordHtml(html);
+        blob = new Blob([wordContent], { type: 'application/msword' });
         fileName = `${fname}.doc`;
-      } else if (format === 'html') {
-        // Save the complete FSR HTML (can be opened in browser → printed to PDF)
-        blob = new Blob([html], { type: 'text/html' });
-        fileName = `${fname}.html`;
       } else {
-        // Default: save as HTML
         blob = new Blob([html], { type: 'text/html' });
         fileName = `${fname}.html`;
       }
@@ -585,31 +580,24 @@ export default function EWClaimDetailPage() {
     }
   }
 
-  // Build Word-compatible HTML from FSR HTML
+  // Build Word-compatible HTML — preserve ALL original styles, just add MSO namespaces
   function buildWordHtml(htmlContent) {
-    const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    const bodyContent = bodyMatch ? bodyMatch[1] : htmlContent;
-    const styleMatch = [...htmlContent.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]).join('\n');
-    const cleanCss = styleMatch
-      .replace(/display:\s*flex[^;]*/gi, 'display: block')
-      .replace(/flex-direction:[^;]*/gi, '').replace(/flex:[^;]*/gi, '')
-      .replace(/justify-content:[^;]*/gi, '').replace(/align-items:[^;]*/gi, '')
-      .replace(/width:\s*794px/gi, 'width: 100%').replace(/min-height:\s*\d+px/gi, 'min-height: auto')
-      .replace(/position:\s*(relative|fixed|absolute)/gi, 'position: static');
-
-    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8">
+    // Add MSO Word namespaces and page setup, keeping ALL original CSS intact
+    let wordHtml = htmlContent
+      // Add Word namespaces to <html> tag
+      .replace(/<html(\s|>)/i, '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"$1')
+      // Inject MSO config into <head>
+      .replace(/<head[^>]*>/i, match => match + `
 <xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml>
-<style>
-@page Section1 { size: 21cm 29.7cm; margin: 1.5cm 1.5cm 1.8cm 1.5cm; }
-div.Section1 { page: Section1; }
-body { font-family: 'Times New Roman', serif; font-size: 11pt; line-height: 1.45; }
-.page { width: 100%; display: block; page-break-after: always; }
-.page:last-child { page-break-after: auto; }
-.ref-row { overflow: hidden; } .ref-row span:first-child { float: left; } .ref-row span:last-child { float: right; }
-table { border-collapse: collapse; width: 100%; } td, th { border: 0.5pt solid #444; padding: 5px 8px; vertical-align: top; }
-${cleanCss}
-</style></head><body><div class="Section1">${bodyContent}</div></body></html>`;
+<style>@page Section1{size:21cm 29.7cm;margin:1.5cm 1.5cm 1.8cm 1.5cm}div.Section1{page:Section1}</style>`)
+      // Wrap body content in Section1 div for pagination
+      .replace(/<body([^>]*)>([\s\S]*?)<\/body>/i, (_m, attrs, inner) => `<body${attrs}><div class="Section1">${inner}</div></body>`)
+      // Fix CSS that Word doesn't support
+      .replace(/display:\s*flex/gi, 'display: block')
+      .replace(/width:\s*794px/gi, 'width: 100%')
+      .replace(/min-height:\s*\d+px/gi, 'min-height: auto');
+
+    return wordHtml;
   }
 
   function printFSR() {
