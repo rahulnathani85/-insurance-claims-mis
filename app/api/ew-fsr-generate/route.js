@@ -60,42 +60,52 @@ export async function POST(request) {
       if (folderPath) {
         const relativePath = folderPath.replace(/^D:\\\\2026-27\\\\?/, '').replace(/^D:\\2026-27\\?/, '');
         const fsrFolder = `${relativePath}\\FSR`;
-        const fname = `FSR-${(claim.ref_number || 'report').replace(/[\/\\]/g, '-')}.doc`;
+        const safeRef = (claim.ref_number || 'report').replace(/[\/\\]/g, '-');
 
-        // Build Word-compatible HTML
-        const bodyContent = html.replace(/<html[\s\S]*?<body[^>]*>/i, '').replace(/<\/body[\s\S]*<\/html>/i, '');
-        const wordHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8"><style>@page Section1{size:21cm 29.7cm;margin:1.5cm}div.Section1{page:Section1}.page{page-break-after:always;width:100%}table{border-collapse:collapse;width:100%}td,th{border:0.5pt solid #444;padding:5px 8px}</style></head>
-<body><div class="Section1">${bodyContent}</div></body></html>`;
+        // Word file: inject MSO namespaces into the FULL HTML (preserving all CSS styles)
+        const msoBlock = `<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml>
+<style>@page Section1{size:21cm 29.7cm;margin:1.5cm 1.5cm 1.8cm 1.5cm}div.Section1{page:Section1}</style>`;
+        let wordHtml = html
+          .replace(/<html(\s|>)/i, `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"$1`)
+          .replace(/<head[^>]*>/i, match => `${match}${msoBlock}`)
+          .replace(/<body([^>]*)>([\s\S]*?)<\/body>/i, (_m, attrs, inner) => `<body${attrs}><div class="Section1">${inner}</div></body>`)
+          // Fix CSS that Word doesn't understand
+          .replace(/display:\s*flex[^;]*/gi, 'display: block')
+          .replace(/width:\s*794px/gi, 'width: 100%')
+          .replace(/min-height:\s*\d+px/gi, 'min-height: auto');
+
+        const fname = `FSR-${safeRef}.doc`;
 
         // Use multipart boundary approach for Node.js (no native FormData with files)
         const boundary = '----FormBoundary' + Date.now();
         const fileBuffer = Buffer.from('\ufeff' + wordHtml, 'utf-8');
-        const bodyParts = [
-          `--${boundary}\r\n`,
-          `Content-Disposition: form-data; name="files"; filename="${fname}"\r\n`,
-          `Content-Type: application/msword\r\n\r\n`,
-        ];
-        const bodyEnd = `\r\n--${boundary}--\r\n`;
+        // Helper to upload a file to the file server
+        async function uploadToFolder(content, filename, contentType) {
+          const bnd = '----Boundary' + Date.now() + Math.random().toString(36).slice(2);
+          const buf = Buffer.from(content, 'utf-8');
+          const parts = Buffer.from(
+            `--${bnd}\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
+          );
+          const end = Buffer.from(`\r\n--${bnd}--\r\n`);
+          const body = Buffer.concat([parts, buf, end]);
+          return fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
+            method: 'POST',
+            headers: { 'X-API-Key': FILE_SERVER_KEY, 'Content-Type': `multipart/form-data; boundary=${bnd}` },
+            body,
+          });
+        }
 
-        const bodyBuffers = [
-          Buffer.from(bodyParts.join('')),
-          fileBuffer,
-          Buffer.from(bodyEnd),
-        ];
-        const fullBody = Buffer.concat(bodyBuffers);
+        // Save Word version (.doc)
+        const wordRes = await uploadToFolder('\ufeff' + wordHtml, fname, 'application/msword');
 
-        const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
-          method: 'POST',
-          headers: {
-            'X-API-Key': FILE_SERVER_KEY,
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          },
-          body: fullBody,
-        });
-        const uploadData = await uploadRes.json();
-        savedToFolder = uploadData?.success || false;
-        if (!savedToFolder) console.warn('FSR upload response:', JSON.stringify(uploadData));
+        // Save HTML version (.html) for PDF printing
+        const htmlFname = `FSR-${safeRef}.html`;
+        const htmlRes = await uploadToFolder(html, htmlFname, 'text/html');
+
+        const wordData = await wordRes.json().catch(() => ({}));
+        const htmlData = await htmlRes.json().catch(() => ({}));
+        savedToFolder = wordData?.success || htmlData?.success;
+        if (!savedToFolder) console.warn('FSR upload:', JSON.stringify({ wordData, htmlData }));
       }
     } catch (fsrSaveErr) {
       console.warn('FSR save to folder failed (non-fatal):', fsrSaveErr.message);
