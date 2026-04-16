@@ -109,6 +109,19 @@ export async function POST(request) {
       results.pdfError = pdfErr.message;
     }
 
+    // Mark the claim as "FSR generated" so the Lot selector can pick it up.
+    // Only set when at least one output format was saved successfully.
+    if (results.html || results.word || results.pdf) {
+      try {
+        await supabaseAdmin
+          .from('ew_vehicle_claims')
+          .update({ fsr_generated_at: new Date().toISOString() })
+          .eq('id', ew_claim_id);
+      } catch (markErr) {
+        console.warn('Could not mark fsr_generated_at:', markErr.message);
+      }
+    }
+
     return NextResponse.json({
       success: results.html || results.word || results.pdf,
       results,

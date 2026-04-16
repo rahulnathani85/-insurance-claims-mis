@@ -16,6 +16,10 @@ export default function EWVehicleClaimsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [alert, setAlert] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  // Lot selection mode: when toggled on, checkboxes appear next to
+  // FSR-generated claims and the user can bulk-create a lot.
+  const [lotMode, setLotMode] = useState(false);
+  const [selectedForLot, setSelectedForLot] = useState(new Set());
 
   useEffect(() => { loadClaims(); }, [company, search, statusFilter]);
 
@@ -139,16 +143,58 @@ export default function EWVehicleClaimsPage() {
               Extended Warranty vehicle claim lifecycle management
             </p>
           </div>
-          <button
-            onClick={() => router.push('/ew-vehicle-claims/register')}
-            style={{
-              padding: '10px 20px', background: '#7c3aed', color: '#fff', border: 'none',
-              borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
-            }}
-          >
-            <span style={{ fontSize: 18 }}>+</span> New EW Claim
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {lotMode ? (
+              <>
+                <span style={{ fontSize: 12, color: '#475569' }}>
+                  <strong>{selectedForLot.size}</strong> selected
+                </span>
+                <button
+                  onClick={() => {
+                    if (selectedForLot.size === 0) {
+                      setAlert({ msg: 'Select at least one FSR-generated claim', type: 'error' });
+                      return;
+                    }
+                    const ids = Array.from(selectedForLot).join(',');
+                    router.push(`/ew-lots/new?ids=${ids}`);
+                  }}
+                  style={{
+                    padding: '10px 18px', background: '#22c55e', color: '#fff', border: 'none',
+                    borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  Create Lot ({selectedForLot.size})
+                </button>
+                <button
+                  onClick={() => { setLotMode(false); setSelectedForLot(new Set()); }}
+                  style={{ padding: '10px 14px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setLotMode(true)}
+                title="Bulk-select FSR-completed claims to create a Lot"
+                style={{
+                  padding: '10px 16px', background: '#fff', color: '#7c3aed', border: '1px solid #7c3aed',
+                  borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                &#x1F4E6; Create Lot
+              </button>
+            )}
+            <button
+              onClick={() => router.push('/ew-vehicle-claims/register')}
+              style={{
+                padding: '10px 20px', background: '#7c3aed', color: '#fff', border: 'none',
+                borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+              }}
+            >
+              <span style={{ fontSize: 18 }}>+</span> New EW Claim
+            </button>
+          </div>
         </div>
 
         {/* Status Summary Cards */}
@@ -222,6 +268,21 @@ export default function EWVehicleClaimsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                  {lotMode && (
+                    <th style={{ padding: '10px 12px', textAlign: 'left', width: 30 }}>
+                      <input
+                        type="checkbox"
+                        checked={(() => {
+                          const eligible = claims.filter(c => !c._needs_ew_setup && c.fsr_generated_at);
+                          return eligible.length > 0 && eligible.every(c => selectedForLot.has(c.id));
+                        })()}
+                        onChange={e => {
+                          const eligible = claims.filter(c => !c._needs_ew_setup && c.fsr_generated_at).map(c => c.id);
+                          setSelectedForLot(e.target.checked ? new Set(eligible) : new Set());
+                        }}
+                      />
+                    </th>
+                  )}
                   {['Ref No.', 'Customer', 'Vehicle', 'Reg No.', 'Surveyor', 'Current Stage', 'Status', 'SLA Due', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
                   ))}
@@ -230,17 +291,39 @@ export default function EWVehicleClaimsPage() {
               <tbody>
                 {claims.map(c => {
                   const sc = statusColors[c.status] || statusColors['Open'];
+                  const isSelected = selectedForLot.has(c.id);
+                  const canSelect = !c._needs_ew_setup && c.fsr_generated_at;
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => handleClaimClick(c)}
-                      style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      onClick={e => {
+                        if (lotMode && canSelect) {
+                          setSelectedForLot(prev => {
+                            const next = new Set(prev);
+                            next.has(c.id) ? next.delete(c.id) : next.add(c.id);
+                            return next;
+                          });
+                          return;
+                        }
+                        handleClaimClick(c);
+                      }}
+                      style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s', background: lotMode && isSelected ? '#faf5ff' : 'transparent' }}
+                      onMouseEnter={e => { if (!(lotMode && isSelected)) e.currentTarget.style.background = '#f8fafc'; }}
+                      onMouseLeave={e => { if (!(lotMode && isSelected)) e.currentTarget.style.background = 'transparent'; }}
                     >
+                      {lotMode && (
+                        <td style={{ padding: '10px 12px' }}>
+                          {canSelect ? (
+                            <input type="checkbox" checked={isSelected} onChange={() => { /* handled by row onClick */ }} onClick={e => e.stopPropagation()} />
+                          ) : (
+                            <span title={c._needs_ew_setup ? 'Not an EW claim yet' : 'FSR not generated'} style={{ fontSize: 14, color: '#cbd5e1' }}>&#x2013;</span>
+                          )}
+                        </td>
+                      )}
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: '#7c3aed' }}>
                         {c.ref_number || '-'}
                         {c._needs_ew_setup && <span style={{ marginLeft: 6, fontSize: 9, padding: '2px 6px', borderRadius: 8, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>NEW</span>}
+                        {c.fsr_generated_at && <span title={`FSR generated on ${new Date(c.fsr_generated_at).toLocaleDateString('en-IN')}`} style={{ marginLeft: 6, fontSize: 9, padding: '2px 6px', borderRadius: 8, background: '#dcfce7', color: '#166534', fontWeight: 600 }}>FSR</span>}
                       </td>
                       <td style={{ padding: '10px 12px' }}>{c.customer_name || '-'}</td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>{c.vehicle_make} {c.model_fuel_type || ''}</td>

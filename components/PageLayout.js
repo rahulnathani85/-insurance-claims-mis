@@ -152,6 +152,9 @@ export default function PageLayout({ children }) {
                 <Link href="/ew-vehicle-claims/mis" className={`nav-item ${pathname === '/ew-vehicle-claims/mis' ? 'active' : ''}`}>
                   <SideIcon letter="EM" bg="#e0e7ff" color="#4338ca" /><span>Extended Warranty MIS</span>
                 </Link>
+                <Link href="/ew-lots" className={`nav-item ${pathname === '/ew-lots' || pathname.startsWith('/ew-lots/') ? 'active' : ''}`}>
+                  <SideIcon letter="EL" bg="#fce7f3" color="#9d174d" /><span>EW Lots</span>
+                </Link>
               </div>
             )}
             {!isAllMode && (
