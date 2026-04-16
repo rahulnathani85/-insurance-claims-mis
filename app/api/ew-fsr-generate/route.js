@@ -72,6 +72,18 @@ function safe(v) {
 function generateFSRHtml(c, isNISLA, template) {
   // Use template from DB if available, otherwise use hardcoded defaults
   const t = template || {};
+
+  // Resolve cover-letter placeholders against the claim data
+  const fillPlaceholders = (txt) => safe(txt || '')
+    .replace(/\{\{appointing_office\}\}/g, safe(c.appointing_office_name) || safe(c.insurer_name) || 'Claims Hub')
+    .replace(/\{\{date_of_intimation\}\}/g, formatDate(c.date_of_intimation))
+    .replace(/\{\{insured_name\}\}/g, safe(c.insured_name) || '')
+    .replace(/\{\{insurer_name\}\}/g, safe(c.insurer_name) || '')
+    .replace(/\{\{vehicle_reg_no\}\}/g, safe(c.vehicle_reg_no) || '')
+    .replace(/\{\{chassis_number\}\}/g, safe(c.chassis_number) || '')
+    .replace(/\{\{policy_number\}\}/g, safe(c.policy_number) || '')
+    .replace(/\{\{claim_file_no\}\}/g, safe(c.claim_file_no) || '');
+
   const brand = {
     name: safe(t.company_full_name) || (isNISLA ? 'NATHANI INSURANCE SURVEYORS &amp; LOSS ASSESSORS PVT. LTD.' : 'ACUERE SURVEYORS'),
     shortName: safe(t.company_short_name) || (isNISLA ? 'NATHANI INSURANCE SURVEYORS AND LOSS ASSESSORS PVT. LTD.' : 'ACUERE SURVEYORS'),
@@ -81,18 +93,23 @@ function generateFSRHtml(c, isNISLA, template) {
     tagline: safe(t.tagline) || (isNISLA ? 'LOP &#10070; Fire &#10070; Engineering &#10070; Misc. &#10070; Marine Cargo &#10070; Motor' : 'Fire &#10070; Misc. &#10070; Engineering &#10070; Marine Cargo &#10070; Motor'),
     addrLine: safe(t.address_line) || (isNISLA ? 'Head Office: 507, Garnet Palladium, Behind Express Zone Bldg., Off WE Highway, Goregaon-E, Mumbai &#8211; 400063' : '507, Garnet Palladium, Panch-Bawadi, Goregaon (E), Mumbai - 400063'),
     contactLine: safe(t.contact_line) || (isNISLA ? 'Mobile: 9892171640, 9890084540&nbsp;&nbsp;|&nbsp;&nbsp;E-mail: pranav.kumar554@gmail.com, nathani.surveyors@gmail.com' : 'Contact: 9892976754&nbsp;&nbsp;|&nbsp;&nbsp;Email: niteennathani@gmail.com, acueresurveyors@gmail.com'),
+    logoBase64: t.logo_base64 || '',
+    fontFamily: t.font_family || 'Times New Roman, Times, serif',
+    fontSize: t.font_size || '11pt',
     // Section titles from template
     s1Title: safe(t.section1_title) || '1. CLAIM DETAILS:',
     s2Title: safe(t.section2_title) || '2. CERTIFICATE / VEHICLE PARTICULARS:',
     s3Title: safe(t.section3_title) || '3. OUR SURVEY / INSPECTION / FINDINGS:',
     s4Title: safe(t.section4_title) || '4. ASSESSMENT OF LOSS:',
     s5Title: safe(t.section5_title) || '5. CONCLUSION:',
-    // Boilerplate from template
-    conclusionText: t.conclusion_text || 'In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued.',
-    note1: t.note1_text || 'Kindly check annexure for proof of payment for the amount of repair and photos of defective parts and installed parts.',
-    note2: t.note2_text || 'This report is furnished without prejudice to the rights, liabilities, terms and conditions of the policy issued by the insurer.',
-    note3: t.note3_text || 'This report is based on the facts and information made available and known to us at the time of survey and preparation of the report.',
-    signatureText: t.signature_text || 'Authorised Signatory',
+    // Boilerplate from template (with placeholder resolution)
+    coverOpening: fillPlaceholders(t.cover_letter_opening) || `Pursuant to valued instruction received from ${safe(c.appointing_office_name) || safe(c.insurer_name) || 'Claims Hub'} on ${formatDate(c.date_of_intimation)} for survey and loss assessment of the below-mentioned claim, we made immediate contact with the insured&rsquo;s representative and conducted the survey as per the details below.`,
+    coverClosing: fillPlaceholders(t.cover_letter_closing) || 'Now we are submitting our final survey and loss assessment report which is based on the following observations and the documents provided.',
+    conclusionText: safe(t.conclusion_text) || safe(c.conclusion_text) || 'In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued.',
+    note1: safe(t.note1_text) || 'Kindly check annexure for proof of payment for the amount of repair and photos of defective parts and installed parts.',
+    note2: safe(t.note2_text) || 'This report is furnished without prejudice to the rights, liabilities, terms and conditions of the policy issued by the insurer.',
+    note3: safe(t.note3_text) || 'This report is based on the facts and information made available and known to us at the time of survey and preparation of the report. If any new facts or information come to our notice, the same shall be incorporated in subsequent/supplementary report.',
+    signatureText: safe(t.signature_text) || 'Authorised Signatory',
     // Assessment labels from template
     aGross: safe(t.assessment_label_gross) || 'Gross Assessed Loss',
     aGst: safe(t.assessment_label_gst) || 'Less: GST @ 18% (As the insured is eligible for GST credit)',
@@ -142,11 +159,17 @@ function generateFSRHtml(c, isNISLA, template) {
   @page { size: A4; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body {
-    font-family: 'Times New Roman', Times, serif;
-    font-size: 11pt;
+    font-family: ${brand.fontFamily};
+    font-size: ${brand.fontSize};
     line-height: 1.45;
     color: #000;
   }
+  .brand-logo {
+    max-height: 70px;
+    max-width: 160px;
+    object-fit: contain;
+  }
+  .cover-logo-wrap { text-align: center; margin-bottom: 12px; }
   .page {
     width: 794px;
     min-height: 1110px;
@@ -360,11 +383,12 @@ function generateFSRHtml(c, isNISLA, template) {
 <!-- PAGE 1: COVER -->
 <div class="page">
   <div class="page-content">
+    ${brand.logoBase64 ? `<div class="cover-logo-wrap"><img class="brand-logo" src="${brand.logoBase64}" alt="logo"/></div>` : ''}
     <div class="cover-brand">
       <div class="cover-name">${brand.shortName}</div>
       <div class="cover-sla">${brand.slaCover}</div>
     </div>
-    <div class="cover-title">EXTENDED WARRANTY REPORT</div>
+    <div class="cover-title">${brand.coverTitle}</div>
     <div class="cover-refbox">
       <div><b>Ref. No:</b> ${refNo}</div>
       <div><b>Date:</b> ${dateStr}</div>
@@ -385,7 +409,7 @@ function generateFSRHtml(c, isNISLA, template) {
 <div class="page">
   <div class="page-content">
     ${innerHead}
-    <div class="report-title">EXTENDED WARRANTY REPORT</div>
+    <div class="report-title">${brand.coverTitle}</div>
     <div class="report-sub">(WITHOUT PREJUDICE)</div>
     <div class="address-block">
       To,<br>
@@ -399,7 +423,7 @@ function generateFSRHtml(c, isNISLA, template) {
       Policy No. ${safe(c.policy_number) || ''}&nbsp;&nbsp;||&nbsp;&nbsp;Claim File No. ${safe(c.claim_file_no) || ''}</span>
     </div>
     <p>Dear Sir,</p>
-    <p class="indent">Pursuant to valued instruction received from ${safe(c.appointing_office_name) || safe(c.insurer_name) || 'Claims Hub'} on ${formatDate(c.date_of_intimation)} for survey and loss assessment of the below-mentioned claim, we made immediate contact with the insured&rsquo;s representative and conducted the survey as per the details below.</p>
+    <p class="indent">${brand.coverOpening}</p>
     <div class="section-title">${brand.s1Title}</div>
     <table class="data-table">
       <tr><td class="label">Insured</td><td>${safe(c.insured_name) || ''}${c.insured_address ? `<br>${safe(c.insured_address)}` : ''}</td></tr>
@@ -410,7 +434,7 @@ function generateFSRHtml(c, isNISLA, template) {
       <tr><td class="label">Estimated loss Amount</td><td>Rs. ${formatAmount(c.estimated_loss_amount)}</td></tr>
       <tr><td class="label">Claim Type</td><td>Claim under Extended Warranty of VIN No. ${safe(c.chassis_number) || ''}</td></tr>
     </table>
-    <p>Now we are submitting our final survey and loss assessment report which is based on the following observations and the documents provided.</p>
+    <p>${brand.coverClosing}</p>
   </div>
   ${innerFoot(2)}
 </div>
@@ -472,11 +496,11 @@ function generateFSRHtml(c, isNISLA, template) {
     </ul>
     <table class="amount-table">
       <tr><th>Description</th><th>Amount</th></tr>
-      <tr><td>Gross Assessed Loss Amount</td><td>${formatAmount(c.gross_assessed_amount)}</td></tr>
-      <tr><td>Less GST Amount</td><td>${formatAmount(c.gst_amount)}</td></tr>
-      <tr class="total-row"><td>Total</td><td>${formatAmount(c.total_after_gst)}</td></tr>
-      <tr><td>Less: Not Covered</td><td>${c.not_covered_amount ? formatAmount(c.not_covered_amount) : '-'}</td></tr>
-      <tr class="total-row"><td>Net Adjusted Loss Amount</td><td>${formatAmount(c.net_adjusted_amount)}</td></tr>
+      <tr><td>${brand.aGross}</td><td>${formatAmount(c.gross_assessed_amount)}</td></tr>
+      <tr><td>${brand.aGst}</td><td>${formatAmount(c.gst_amount)}</td></tr>
+      <tr class="total-row"><td>${brand.aTotal}</td><td>${formatAmount(c.total_after_gst)}</td></tr>
+      <tr><td>${brand.aNotCovered}</td><td>${c.not_covered_amount ? formatAmount(c.not_covered_amount) : '-'}</td></tr>
+      <tr class="total-row"><td>${brand.aNet}</td><td>${formatAmount(c.net_adjusted_amount)}</td></tr>
     </table>
     ${c.amount_in_words ? `<p style="text-align:center;"><b>(${safe(c.amount_in_words)})</b> subject to policy terms and conditions and final approval by the insurer.</p>` : `<p style="text-align:center;">Subject to policy terms and conditions and final approval by the insurer.</p>`}
   </div>
@@ -487,21 +511,21 @@ function generateFSRHtml(c, isNISLA, template) {
 <div class="page">
   <div class="page-content">
     ${innerHead}
-    <div class="section-title">5. CONCLUSION:</div>
-    <p class="indent">${safe(c.conclusion_text) || 'In view of the above, as per the Manufacturer Guidelines / Manual, the defective / part has been replaced with new one, same be considered under extended warranty, subject to coverage of the vehicle in the policy and as per the terms and conditions of the policy issued.'}</p>
+    <div class="section-title">${brand.s5Title}</div>
+    <p class="indent">${brand.conclusionText}</p>
     <div class="note-block">
       <div class="note-title">Note:</div>
       <ul>
-        <li>Insurers are advised to check the Annexure of the policy and verify if the particular vehicle was declared to the insurer at the time of taking the policy or agreed in the policy.</li>
-        <li>Insurers are advised to check the proof of payment (made by the insured to the dealer) before indemnifying the claimed loss.</li>
+        <li>${brand.note1}</li>
       </ul>
     </div>
-    <p class="disclaimer">This report is issued without prejudice and is subject to the terms &amp; conditions of the policy of Insurance issued to and held by the Insured, reserving our rights to alter / amend any unintended error, if any.</p>
+    <p class="disclaimer">${brand.note2}</p>
+    <p class="disclaimer">${brand.note3}</p>
     <p>This concludes my Extended Warranty report, which has been issued for perusal of the Insurance Co.</p>
     <p class="discretion">(For Discretion of Insurer &amp; their Legal Advisers only)</p>
     <div class="signature-block">
       <div class="sig-for">For <b>${brand.shortName}</b></div>
-      <div class="signature-line">Authorized Signatory<br>(Surveyor)</div>
+      <div class="signature-line">${brand.signatureText}<br>(Surveyor)</div>
     </div>
   </div>
   ${innerFoot(5)}

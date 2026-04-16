@@ -37,6 +37,7 @@ export default function EWMISPortal() {
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [filterCompany, setFilterCompany] = useState('');
+  const [filterLot, setFilterLot] = useState('');
 
   useEffect(() => { loadClaims(); }, [company]);
 
@@ -63,8 +64,17 @@ export default function EWMISPortal() {
   function clearFilters() {
     setFilterRef(''); setFilterCustomer(''); setFilterInsurer(''); setFilterRegNo('');
     setFilterChassis(''); setFilterDealer(''); setFilterStatus(''); setFilterStage('');
-    setFilterDateFrom(''); setFilterDateTo(''); setFilterCompany('');
+    setFilterDateFrom(''); setFilterDateTo(''); setFilterCompany(''); setFilterLot('');
   }
+
+  // Unique list of lots present in the current dataset, for the dropdown.
+  const lotOptions = Array.from(new Set(
+    claims.map(c => c.lot_number).filter(Boolean)
+  )).sort((a, b) => {
+    const na = Number(a), nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return String(a).localeCompare(String(b));
+  });
 
   const filtered = claims.filter(c => {
     if (filterRef && !c.ref_number?.toLowerCase().includes(filterRef.toLowerCase())) return false;
@@ -76,6 +86,16 @@ export default function EWMISPortal() {
     if (filterStatus && c.status !== filterStatus) return false;
     if (filterStage && String(c.current_stage) !== String(filterStage)) return false;
     if (filterCompany && c.company !== filterCompany) return false;
+    if (filterLot) {
+      const lf = filterLot.toLowerCase();
+      if (lf === '__any__') {
+        if (!c.lot_number) return false;
+      } else if (lf === '__none__') {
+        if (c.lot_number) return false;
+      } else {
+        if (!c.lot_number || !String(c.lot_number).toLowerCase().includes(lf)) return false;
+      }
+    }
     if (filterDateFrom || filterDateTo) {
       const d = c.created_at ? c.created_at.split('T')[0] : '';
       if (filterDateFrom && d < filterDateFrom) return false;
@@ -86,11 +106,12 @@ export default function EWMISPortal() {
 
   function exportToExcel() {
     try {
-      const headers = ['Ref Number', 'Customer', 'Insured Name', 'Insurer', 'Vehicle Make', 'Model/Fuel', 'Reg No', 'Chassis No', 'Dealer', 'Claim File No', 'Current Stage', 'Stage Name', 'Status', 'Created Date'];
+      const headers = ['Ref Number', 'Lot No', 'Customer', 'Insured Name', 'Insurer', 'Vehicle Make', 'Model/Fuel', 'Reg No', 'Chassis No', 'Dealer', 'Claim File No', 'Current Stage', 'Stage Name', 'Status', 'Created Date'];
       if (isAllMode) headers.splice(1, 0, 'Company');
       const rows = filtered.map(c => {
         const row = [
-          c.ref_number || '', c.customer_name || '', c.insured_name || '', c.insurer_name || '',
+          c.ref_number || '', c.lot_number ? `Lot #${c.lot_number}` : '',
+          c.customer_name || '', c.insured_name || '', c.insurer_name || '',
           c.vehicle_make || '', c.model_fuel_type || '', c.vehicle_reg_no || '', c.chassis_number || '',
           c.dealer_name || '', c.claim_file_no || '', c.current_stage || '', c.current_stage_name || '',
           c.status || '', c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '',
@@ -110,7 +131,9 @@ export default function EWMISPortal() {
     }
   }
 
-  const activeFilterCount = [filterRef, filterCustomer, filterInsurer, filterRegNo, filterChassis, filterDealer, filterStatus, filterStage, filterDateFrom, filterDateTo, filterCompany].filter(Boolean).length;
+  const activeFilterCount = [filterRef, filterCustomer, filterInsurer, filterRegNo, filterChassis, filterDealer, filterStatus, filterStage, filterDateFrom, filterDateTo, filterCompany, filterLot].filter(Boolean).length;
+
+  const lotsInLotCount = claims.filter(c => c.lot_number).length;
 
   return (
     <PageLayout>
@@ -159,6 +182,21 @@ export default function EWMISPortal() {
                 ))}
               </select>
             </div>
+            <div className="filter-row">
+              <input
+                placeholder="Lot Number (e.g. 1, 2...)"
+                value={filterLot === '__any__' || filterLot === '__none__' ? '' : filterLot}
+                onChange={e => setFilterLot(e.target.value)}
+              />
+              <select value={filterLot} onChange={e => setFilterLot(e.target.value)}>
+                <option value="">All Lots</option>
+                <option value="__any__">In any Lot ({lotsInLotCount})</option>
+                <option value="__none__">Not in a Lot ({claims.length - lotsInLotCount})</option>
+                {lotOptions.map(l => (
+                  <option key={l} value={l}>Lot #{l}</option>
+                ))}
+              </select>
+            </div>
             {isAllMode && (
               <div className="filter-row">
                 <select value={filterCompany} onChange={e => setFilterCompany(e.target.value)}>
@@ -189,6 +227,7 @@ export default function EWMISPortal() {
               <thead>
                 <tr>
                   <th>Ref Number</th>
+                  <th>Lot No</th>
                   {isAllMode && <th>Company</th>}
                   <th>Customer</th>
                   <th>Insured Name</th>
@@ -207,8 +246,10 @@ export default function EWMISPortal() {
               <tbody>
                 {filtered.map(c => {
                   const sc = STATUS_COLORS[c.status] || STATUS_COLORS['Open'];
+                  const inLot = Boolean(c.lot_number);
+                  const rowStyle = inLot ? { background: '#f0fdf4' } : undefined;
                   return (
-                    <tr key={c.id}>
+                    <tr key={c.id} style={rowStyle} title={inLot ? `In Lot #${c.lot_number}` : undefined}>
                       <td style={{ fontWeight: 600, color: '#7c3aed', whiteSpace: 'nowrap' }}>
                         {!c._needs_ew_setup ? (
                           <a onClick={() => router.push(`/ew-vehicle-claims/${c.id}`)} style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline' }}>
@@ -216,6 +257,25 @@ export default function EWMISPortal() {
                           </a>
                         ) : (
                           <span>{c.ref_number || '-'} <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 8, background: '#fef3c7', color: '#92400e', marginLeft: 4 }}>NEW</span></span>
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {inLot ? (
+                          <a
+                            onClick={() => router.push(`/ew-lots`)}
+                            title={`Open Lots list`}
+                            style={{
+                              display: 'inline-block', padding: '2px 8px', borderRadius: 10,
+                              fontSize: 11, fontWeight: 700,
+                              background: '#dcfce7', color: '#166534',
+                              border: '1px solid #86efac', cursor: 'pointer',
+                              textDecoration: 'none',
+                            }}
+                          >
+                            Lot #{c.lot_number}
+                          </a>
+                        ) : (
+                          <span style={{ color: '#cbd5e1', fontSize: 11 }}>&mdash;</span>
                         )}
                       </td>
                       {isAllMode && <td><span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: c.company === 'NISLA' ? '#dbeafe' : '#dcfce7', color: c.company === 'NISLA' ? '#1e40af' : '#15803d' }}>{c.company}</span></td>}

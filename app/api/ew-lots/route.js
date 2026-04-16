@@ -220,6 +220,20 @@ export async function POST(request) {
       throw itemErr;
     }
 
+    // Stamp the lot_number + lot_id back onto each participating claim so the
+    // MIS page can show the lot badge and colour the row green without joins.
+    const realClaimIds = claimIds.filter(cid => cid && !String(cid).startsWith('claim-'));
+    if (realClaimIds.length > 0) {
+      const { error: stampErr } = await supabaseAdmin
+        .from('ew_vehicle_claims')
+        .update({ lot_id: lot.id, lot_number: lotNumber, updated_at: new Date().toISOString() })
+        .in('id', realClaimIds);
+      if (stampErr) {
+        // Non-fatal — lot itself is valid. Log but still return the lot.
+        console.warn('Failed to stamp lot_number on claims:', stampErr.message);
+      }
+    }
+
     await supabaseAdmin.from('activity_log').insert([{
       user_email: body.created_by || null,
       action: 'create_ew_lot',
@@ -277,12 +291,20 @@ export async function PUT(request) {
   }
 }
 
-// DELETE — cascades to ew_lot_claims via FK
+// DELETE — cascades to ew_lot_claims via FK. Also clears lot_number / lot_id
+// stamps on ew_vehicle_claims so the MIS loses the green highlight.
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+    // Defensive pre-clean: even without the DB trigger, null the claim stamps
+    // before the lot itself disappears.
+    await supabaseAdmin
+      .from('ew_vehicle_claims')
+      .update({ lot_id: null, lot_number: null, updated_at: new Date().toISOString() })
+      .eq('lot_id', id);
 
     const { error } = await supabaseAdmin
       .from('ew_lots')
