@@ -92,16 +92,25 @@ const storage = multer.diskStorage({
     // Keep original filename, but sanitize it
     const safeName = file.originalname.replace(/[<>:"/\\|?*]/g, '_');
 
-    // If file already exists, add timestamp to avoid overwrite
     const fullPath = req.body.folder_path || req.query.folder_path;
     const resolvedPath = safePath(fullPath);
     const filePath = path.join(resolvedPath, safeName);
 
+    // overwrite=true → delete existing file and reuse the name (used for
+    // regenerated documents like FSR reports that should always be the latest).
+    // overwrite not set → add timestamp to avoid clobbering user uploads.
+    const overwrite = (req.body.overwrite === 'true' || req.query.overwrite === 'true');
+
     if (fs.existsSync(filePath)) {
-      const ext = path.extname(safeName);
-      const base = path.basename(safeName, ext);
-      const timestamp = Date.now();
-      cb(null, `${base}_${timestamp}${ext}`);
+      if (overwrite) {
+        try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+        cb(null, safeName);
+      } else {
+        const ext = path.extname(safeName);
+        const base = path.basename(safeName, ext);
+        const timestamp = Date.now();
+        cb(null, `${base}_${timestamp}${ext}`);
+      }
     } else {
       cb(null, safeName);
     }

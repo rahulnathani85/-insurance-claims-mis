@@ -44,7 +44,7 @@ export async function POST(request) {
         const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
         const body = Buffer.concat([header, buf, footer]);
 
-        const res = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
+        const res = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}&overwrite=true`, {
           method: 'POST',
           headers: { 'X-API-Key': FILE_SERVER_KEY, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
           body,
@@ -60,14 +60,8 @@ export async function POST(request) {
     // 1. Save HTML
     results.html = await uploadFile(html, `${baseName}.html`, 'text/html');
 
-    // 2. Save Word (inject MSO namespaces into the full HTML)
-    const wordHtml = html
-      .replace(/<html(\s|>)/i, '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"$1')
-      .replace(/<head[^>]*>/i, m => m + '<xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><style>@page S1{size:21cm 29.7cm;margin:1.5cm}div.S1{page:S1}</style>')
-      .replace(/<body([^>]*)>([\s\S]*?)<\/body>/i, (_m, a, inner) => `<body${a}><div class="S1">${inner}</div></body>`)
-      .replace(/display:\s*flex/gi, 'display: block')
-      .replace(/width:\s*794px/gi, 'width: 100%')
-      .replace(/min-height:\s*\d+px/gi, 'min-height: auto');
+    // 2. Save Word (.doc) — apply Word-specific CSS transformations for proper rendering
+    const wordHtml = buildWordHtml(html);
     results.word = await uploadFile('\ufeff' + wordHtml, `${baseName}.doc`, 'application/msword');
 
     // 3. Save PDF via Puppeteer server
@@ -103,4 +97,92 @@ export async function POST(request) {
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
+}
+
+// Transform the FSR HTML into a Word-friendly .doc document.
+// Keeps all original styles/content but overrides known-broken CSS and adds
+// MSO namespaces + Word @page Section so it renders as A4 pages in MS Word.
+function buildWordHtml(fullHtml) {
+  const msoHead = `
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="NISLA MIS">
+<xml>
+  <w:WordDocument>
+    <w:View>Print</w:View>
+    <w:Zoom>100</w:Zoom>
+    <w:DoNotOptimizeForBrowser/>
+  </w:WordDocument>
+</xml>
+<style>
+/* ========= Word-specific overrides (loaded AFTER original styles) ========= */
+@page Section1 {
+  size: 21cm 29.7cm;
+  margin: 1.2cm 1.2cm 1.2cm 1.2cm;
+  mso-header-margin: 0.6cm;
+  mso-footer-margin: 0.6cm;
+  mso-paper-source: 0;
+}
+div.Section1 { page: Section1; }
+
+/* Ensure body/page don't have fixed width that overflows A4 in Word */
+body { font-family: 'Times New Roman', Times, serif !important; font-size: 11pt !important; }
+.page {
+  width: 100% !important;
+  min-height: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  page-break-after: always;
+  mso-page-break-after: always;
+  position: static !important;
+  box-sizing: border-box !important;
+}
+.page:last-child { page-break-after: auto; mso-page-break-after: auto; }
+.page-content { display: block !important; }
+
+/* Convert float-based ref-row to table-like structure (Word has poor float support) */
+.ref-row {
+  width: 100% !important;
+  display: block !important;
+  overflow: hidden;
+  margin-top: 14px;
+  font-size: 10.5pt;
+}
+.ref-row span { display: inline-block; }
+.ref-row span:first-child { float: left; }
+.ref-row span:last-child { float: right; }
+
+/* Tables — make sure they render with borders */
+table { border-collapse: collapse; mso-table-lspace: 0; mso-table-rspace: 0; }
+table.data-table td, table.amount-table td, table.amount-table th {
+  mso-border-alt: solid #444 0.5pt;
+}
+
+/* Remove any remaining flex — Word 2007+ doesn't support flex */
+.page-foot, .cover-foot, .inner-head { display: block !important; }
+
+/* Word ignores background on <body>, but keep foot colors minimal */
+.foot-line, .foot-brand, .foot-pgnum, .hd-name, .hd-sla, .hd-tagline { display: block; margin: 2px 0; }
+</style>`;
+
+  let out = fullHtml
+    // Add MSO namespaces to <html>
+    .replace(/<html(\s|>)/i, '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"$1')
+    // Inject MSO head block after <head>
+    .replace(/<head[^>]*>/i, m => m + msoHead)
+    // Wrap body content in Section1 div for @page rule
+    .replace(/<body([^>]*)>([\s\S]*?)<\/body>/i, (_m, attrs, inner) => `<body${attrs}><div class="Section1">${inner}</div></body>`);
+
+  // Remove flex declarations from original <style> blocks (inline replacement within existing styles)
+  out = out
+    .replace(/display:\s*flex[^;}]*/gi, 'display: block')
+    .replace(/flex-direction:[^;}]*/gi, '')
+    .replace(/justify-content:[^;}]*/gi, '')
+    .replace(/align-items:[^;}]*/gi, '')
+    .replace(/align-self:[^;}]*/gi, '')
+    .replace(/flex:\s*[^;}]*/gi, '')
+    // Convert fixed 794px page width (which overflows A4 in Word)
+    .replace(/width:\s*794px/gi, 'width: 100%');
+
+  return out;
 }
