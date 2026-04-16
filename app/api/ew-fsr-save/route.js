@@ -60,21 +60,42 @@ export async function POST(request) {
     // 1. Save HTML
     results.html = await uploadFile(html, `${baseName}.html`, 'text/html');
 
-    // 2. Save Word (.doc) — apply Word-specific CSS transformations for proper rendering
-    const wordHtml = buildWordHtml(html);
-    results.word = await uploadFile('\ufeff' + wordHtml, `${baseName}.doc`, 'application/msword');
+    // 2. Save Word DOCX via Puppeteer server (html-to-docx, real Word format)
+    try {
+      const docxRes = await fetch(`${PUPPETEER_URL}/api/html-to-docx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': FILE_SERVER_KEY },
+        body: JSON.stringify({ html, folder_path: fsrFolder, filename: `${baseName}.docx` }),
+      });
+      const docxText = await docxRes.text();
+      try {
+        const docxData = JSON.parse(docxText);
+        results.word = docxData?.success || false;
+        results.wordError = docxData?.error || null;
+      } catch {
+        results.word = false;
+        results.wordError = `Non-JSON response: ${docxText.substring(0, 100)}`;
+      }
+    } catch (docxErr) {
+      console.warn('DOCX generation failed:', docxErr.message);
+      results.wordError = docxErr.message;
+    }
+
+    // 2b. Fallback — if DOCX failed, save legacy HTML-as-.doc so user has something
+    if (!results.word) {
+      const wordHtml = buildWordHtml(html);
+      results.word = await uploadFile('\ufeff' + wordHtml, `${baseName}.doc`, 'application/msword');
+      if (results.word) results.wordFallback = true;
+    }
 
     // 3. Save PDF via Puppeteer server
     try {
-      console.log(`[FSR-SAVE] Calling Puppeteer at: ${PUPPETEER_URL}/api/html-to-pdf`);
-      console.log(`[FSR-SAVE] folder_path: ${fsrFolder}, filename: ${baseName}.pdf`);
       const pdfRes = await fetch(`${PUPPETEER_URL}/api/html-to-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-Key': FILE_SERVER_KEY },
         body: JSON.stringify({ html, folder_path: fsrFolder, filename: `${baseName}.pdf` }),
       });
       const pdfText = await pdfRes.text();
-      console.log(`[FSR-SAVE] Puppeteer response status: ${pdfRes.status}, body: ${pdfText.substring(0, 200)}`);
       try {
         const pdfData = JSON.parse(pdfText);
         results.pdf = pdfData?.success || false;
