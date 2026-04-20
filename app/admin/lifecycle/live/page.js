@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/AuthContext';
 import LifecycleAdminShell, {
   Card, Note, Badge, Tag, Btn, Stat,
 } from '@/components/LifecycleAdminShell';
@@ -24,25 +25,55 @@ const STATES = ['active', 'breach', 'on-pause', 'closed', 'reopened'];
 
 export default function LiveClaimPickerPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [jumpRef, setJumpRef] = useState('');
+  const [detachingId, setDetachingId] = useState(null);
   const [filter, setFilter] = useState({
     q: '', lob: '', phase: '', status: '', template: '', owner: '',
   });
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch('/api/lifecycle/live')
-          .then(r => r.ok ? r.json() : { rows: [] })
-          .catch(() => ({ rows: [] }));
-        setRows(r.rows || []);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  async function loadRows() {
+    try {
+      setLoading(true);
+      const r = await fetch('/api/lifecycle/live?t=' + Date.now(), { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : { rows: [] })
+        .catch(() => ({ rows: [] }));
+      setRows(r.rows || []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadRows(); }, []);
+
+  async function detachLifecycle(row) {
+    const ref = row.claim_ref || row.claim_id || row.id;
+    if (!window.confirm(
+      `Detach the lifecycle from ${ref}?\n\n` +
+      `This will WIPE all phase / stage / item / subtask rows for the claim and ` +
+      `return it to legacy mode. The claim file itself is kept — you can re-attach a ` +
+      `different template from the bulk-attach page or from the claim detail view.`
+    )) return;
+
+    setDetachingId(row.lifecycle_id || row.id);
+    try {
+      const res = await fetch(`/api/lifecycle/${row.lifecycle_id || row.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_email: user?.email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Detach failed');
+      await loadRows();
+    } catch (e) {
+      alert(`Detach failed: ${e.message}`);
+    } finally {
+      setDetachingId(null);
+    }
+  }
 
   const filtered = useMemo(() => rows.filter(r => {
     if (filter.lob && r.lob !== filter.lob) return false;
@@ -237,10 +268,20 @@ export default function LiveClaimPickerPage() {
                       {!r.status && <Badge tone="neutral">—</Badge>}
                     </td>
                     <td style={td}>
-                      <Btn size="xs"
-                        onClick={() => router.push(`/claim-detail/${r.claim_id}/lifecycle`)}>
-                        Open
-                      </Btn>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <Btn size="xs"
+                          onClick={() => router.push(`/claim-detail/${r.claim_id}/lifecycle`)}>
+                          Open
+                        </Btn>
+                        {isAdmin && (
+                          <Btn size="xs" variant="danger"
+                            disabled={detachingId === (r.lifecycle_id || r.id)}
+                            title="Detach the lifecycle from this claim (wipe phase/stage/item/subtask rows, return claim to legacy mode). Use when the wrong template was attached."
+                            onClick={() => detachLifecycle(r)}>
+                            {detachingId === (r.lifecycle_id || r.id) ? '…' : 'Detach'}
+                          </Btn>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
@@ -27,9 +27,12 @@ export default function LifecycleBulkAttach() {
   const [templateId, setTemplateId] = useState('');
   const [clearLegacy, setClearLegacy] = useState(false);
   const [selected, setSelected] = useState({}); // { id: true }
-  const [progress, setProgress] = useState(null); // { total, done, errors }
+  const [progress, setProgress] = useState(null); // { total, done, errors, stopped? }
   const [log, setLog] = useState([]);
   const [alert, setAlert] = useState(null);
+
+  // Stop flag — useRef so the change is visible mid-loop without waiting for React re-render.
+  const stopRef = useRef(false);
 
   useEffect(() => {
     fetch('/api/lifecycle/templates?is_active=true')
@@ -91,6 +94,10 @@ export default function LifecycleBulkAttach() {
     setTimeout(() => setAlert(null), 5000);
   }
 
+  function stopBulk() {
+    stopRef.current = true;
+  }
+
   async function runBulk() {
     if (!templateId) { showAlertMsg('Pick a lifecycle template first', 'error'); return; }
     if (selectedCount === 0) { showAlertMsg('Select at least one claim', 'error'); return; }
@@ -98,7 +105,8 @@ export default function LifecycleBulkAttach() {
     const confirmText = `Attach template to ${selectedCount} ${source === 'ew' ? 'EW ' : ''}claim(s)?${clearLegacy ? '\n\nThis WILL remove legacy stage data for each of those files.' : ''}`;
     if (!confirm(confirmText)) return;
 
-    setProgress({ total: selectedCount, done: 0, errors: 0 });
+    stopRef.current = false;
+    setProgress({ total: selectedCount, done: 0, errors: 0, stopped: false });
     setLog([]);
 
     // Body builder.
@@ -125,9 +133,15 @@ export default function LifecycleBulkAttach() {
         : { claim_id: parseInt(claimId, 10), template_id: parseInt(templateId, 10), clear_legacy: clearLegacy, user_email: user?.email };
     };
 
-    let done = 0, errors = 0;
+    let done = 0, errors = 0, stoppedEarly = false;
     const logRows = [];
     for (const id of selectedIds) {
+      // Check stop flag at the START of each iteration so a click during a
+      // network wait aborts BEFORE firing the next attach.
+      if (stopRef.current) {
+        stoppedEarly = true;
+        break;
+      }
       try {
         const res = await fetch('/api/lifecycle/attach', {
           method: 'POST',
@@ -144,10 +158,16 @@ export default function LifecycleBulkAttach() {
         const claim = claims.find(c => String(c.id) === String(id));
         logRows.push({ id, ref: claim?.ref_number || id, ok: false, detail: e.message });
       }
-      setProgress({ total: selectedCount, done: done + errors, errors });
+      setProgress({ total: selectedCount, done: done + errors, errors, stopped: false });
       setLog([...logRows]);
     }
-    showAlertMsg(`Bulk attach complete: ${done} ok, ${errors} failed`, errors > 0 ? 'error' : 'success');
+    setProgress({ total: selectedCount, done: done + errors, errors, stopped: stoppedEarly });
+    if (stoppedEarly) {
+      const remaining = selectedCount - (done + errors);
+      showAlertMsg(`Bulk attach stopped at ${done + errors}/${selectedCount}. ${done} ok, ${errors} failed, ${remaining} skipped.`, 'warning');
+    } else {
+      showAlertMsg(`Bulk attach complete: ${done} ok, ${errors} failed`, errors > 0 ? 'error' : 'success');
+    }
     // Refresh claims so uses_lifecycle_engine reflects
     loadClaims();
   }
@@ -227,19 +247,41 @@ export default function LifecycleBulkAttach() {
           <button className="secondary" onClick={() => toggleAll(true)}>Select all visible</button>
           <button className="secondary" onClick={() => toggleAll(false)}>Clear selection</button>
           <span style={{ flex: 1 }} />
-          <button className="success" onClick={runBulk} disabled={!templateId || selectedCount === 0 || !!progress}>
-            {progress ? `Working ${progress.done}/${progress.total}...` : `Attach to ${selectedCount} file(s)`}
+          {progress && !progress.stopped && progress.done < progress.total && (
+            <button
+              onClick={stopBulk}
+              style={{ background: '#dc2626', color: '#fff', padding: '8px 14px', borderRadius: 6, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              ■ Stop after current
+            </button>
+          )}
+          <button className="success" onClick={runBulk} disabled={!templateId || selectedCount === 0 || (!!progress && !progress.stopped && progress.done < progress.total)}>
+            {progress && !progress.stopped && progress.done < progress.total
+              ? `Working ${progress.done}/${progress.total}...`
+              : `Attach to ${selectedCount} file(s)`}
           </button>
         </div>
 
         {/* Progress */}
         {progress && (
-          <div style={{ marginTop: 10, padding: 10, background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe', fontSize: 12 }}>
+          <div style={{
+            marginTop: 10, padding: 10, borderRadius: 8, fontSize: 12,
+            background: progress.stopped ? '#fefce8' : '#eff6ff',
+            border: `1px solid ${progress.stopped ? '#fde047' : '#bfdbfe'}`,
+          }}>
             <div style={{ fontWeight: 600 }}>
-              Progress: {progress.done}/{progress.total}  {progress.errors > 0 && <span style={{ color: '#dc2626' }}>· {progress.errors} error(s)</span>}
+              {progress.stopped ? 'Stopped' : 'Progress'}: {progress.done}/{progress.total}
+              {progress.errors > 0 && <span style={{ color: '#dc2626' }}> · {progress.errors} error(s)</span>}
+              {progress.stopped && (progress.total - progress.done) > 0 &&
+                <span style={{ color: '#92400e' }}> · {progress.total - progress.done} skipped</span>}
             </div>
             <div style={{ height: 6, background: '#dbeafe', borderRadius: 3, marginTop: 6, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${(progress.done / progress.total) * 100}%`, background: progress.errors > 0 ? '#dc2626' : '#2563eb', transition: 'width 0.2s' }} />
+              <div style={{
+                height: '100%',
+                width: `${(progress.done / progress.total) * 100}%`,
+                background: progress.stopped ? '#ca8a04' : progress.errors > 0 ? '#dc2626' : '#2563eb',
+                transition: 'width 0.2s',
+              }} />
             </div>
           </div>
         )}

@@ -62,6 +62,7 @@ export default function LiveClaimPage() {
   const [advanceStage, setAdvanceStage] = useState(null);   // stage object
   const [reopenStage, setReopenStage] = useState(null);     // stage object
   const [addSubtaskFor, setAddSubtaskFor] = useState(null); // stage object
+  const [reassignOpen, setReassignOpen] = useState(false);  // reassign/detach modal
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -572,10 +573,19 @@ export default function LiveClaimPage() {
             <Meta label="Portfolio"  value={template.portfolio} />
             <Meta label="Client"     value={template.client_code} />
             <Meta label="Delta op"   value={template.delta_operation} />
-            {isAdmin && <Btn size="xs" style={{ marginTop: 8 }}
-              onClick={() => router.push(`/admin/lifecycle/templates?id=${template.id}`)}>
-              Open in Template Library →
-            </Btn>}
+            {isAdmin && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Btn size="xs"
+                  onClick={() => router.push(`/admin/lifecycle/templates?id=${template.id}`)}>
+                  Open in Template Library →
+                </Btn>
+                <Btn size="xs" variant="danger"
+                  title="Detach this lifecycle and pick a different template. Keeps the claim; wipes phase/stage/item/subtask rows so a fresh template can be materialised."
+                  onClick={() => setReassignOpen(true)}>
+                  ↻ Reassign / Detach
+                </Btn>
+              </div>
+            )}
           </Card>
 
           <Card title="Clocks">
@@ -677,6 +687,28 @@ export default function LiveClaimPage() {
             stage_code: addSubtaskFor.stage_code, ...body,
           }, 'Sub-task added');
           setAddSubtaskFor(null);
+        }}
+      />
+
+      <ReassignModal
+        open={reassignOpen}
+        currentTemplate={template}
+        claimId={lifecycle?.claim_id}
+        ewClaimId={lifecycle?.ew_claim_id}
+        lifecycleId={lifecycle?.id}
+        userEmail={user?.email}
+        onClose={() => setReassignOpen(false)}
+        onDone={async (msg) => {
+          setReassignOpen(false);
+          setMessage({ type: 'success', text: msg });
+          // Give the DB a beat, then reload. If the user picked "detach only",
+          // the GET will 404 and the page will redirect to the list.
+          await new Promise(r => setTimeout(r, 300));
+          await reload();
+        }}
+        onDetachOnly={async () => {
+          setReassignOpen(false);
+          router.push('/admin/lifecycle/live');
         }}
       />
     </LifecycleAdminShell>
@@ -1022,6 +1054,182 @@ function AddSubtaskModal({ open, stage, onClose, onSave }) {
         <FG label="Notes"><textarea style={{ ...inp, fontFamily: 'inherit' }} rows={2}
           value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></FG>
       </FormGrid>
+    </Modal>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// ReassignModal — lets an admin detach the current lifecycle and optionally
+// re-attach a different template in the same flow.
+//
+// Two exit paths:
+//   (a) "Detach only" — wipes the lifecycle and returns the claim to legacy
+//       mode. Use when the template was attached to the wrong claim entirely.
+//   (b) "Detach + attach new template" — wipes the current lifecycle, then
+//       fires POST /api/lifecycle/attach with the new template_id.
+//
+// No DB transaction spans the two calls. If the re-attach fails after the
+// detach has already run, the claim is left in legacy mode and the user is
+// shown the error so they can retry — safer than rolling back a partial
+// attach with stale phase/stage rows.
+// -----------------------------------------------------------------------------
+function ReassignModal({
+  open, currentTemplate, claimId, ewClaimId, lifecycleId, userEmail,
+  onClose, onDone, onDetachOnly,
+}) {
+  const [templates, setTemplates] = useState([]);
+  const [newTemplateId, setNewTemplateId] = useState('');
+  const [mode, setMode] = useState('reassign'); // 'reassign' | 'detach'
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setErr(null);
+    setConfirmText('');
+    setNewTemplateId('');
+    setMode('reassign');
+    fetch('/api/lifecycle/templates?is_active=true')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const list = Array.isArray(data?.templates) ? data.templates : Array.isArray(data) ? data : [];
+        setTemplates(list.filter(t => t.is_active && t.id !== currentTemplate?.id));
+      })
+      .catch(() => setTemplates([]));
+  }, [open, currentTemplate?.id]);
+
+  if (!open) return null;
+
+  const canSubmit =
+    confirmText.trim().toUpperCase() === 'REASSIGN' &&
+    (mode === 'detach' || (mode === 'reassign' && newTemplateId));
+
+  async function submit() {
+    setBusy(true);
+    setErr(null);
+    try {
+      // 1. Detach the current lifecycle
+      const delRes = await fetch(`/api/lifecycle/${lifecycleId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_email: userEmail }),
+      });
+      const delData = await delRes.json().catch(() => ({}));
+      if (!delRes.ok) throw new Error(delData.error || 'Detach failed');
+
+      if (mode === 'detach') {
+        onDetachOnly && onDetachOnly();
+        return;
+      }
+
+      // 2. Re-attach with the new template
+      const payload = {
+        template_id: parseInt(newTemplateId, 10),
+        clear_legacy: false,
+        user_email: userEmail,
+      };
+      if (claimId) payload.claim_id = claimId;
+      else if (ewClaimId) payload.ew_claim_id = ewClaimId;
+
+      const attachRes = await fetch('/api/lifecycle/attach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const attachData = await attachRes.json().catch(() => ({}));
+      if (!attachRes.ok) {
+        throw new Error(
+          `Lifecycle was detached successfully, but re-attach failed: ${attachData.error || 'attach failed'}. The claim is now in legacy mode — retry from the live list.`
+        );
+      }
+
+      const newTpl = templates.find(t => String(t.id) === String(newTemplateId));
+      onDone(`Template reassigned to ${newTpl?.template_code || 'new template'}`);
+    } catch (e) {
+      setErr(String(e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open} onClose={busy ? undefined : onClose}
+      title="Reassign / Detach Lifecycle"
+      footer={<>
+        <Btn onClick={onClose} disabled={busy}>Cancel</Btn>
+        <Btn variant="danger" onClick={submit} disabled={!canSubmit || busy}>
+          {busy
+            ? 'Working…'
+            : mode === 'detach'
+              ? 'Confirm Detach'
+              : 'Confirm Reassign'}
+        </Btn>
+      </>}
+    >
+      <Note tone="warn">
+        This will <strong>wipe all phase / stage / item / subtask rows</strong> for
+        this claim's current lifecycle and emit a <code>lifecycle_detached</code>
+        audit event. Any in-flight work (open items, completed stages, clock
+        history on this lifecycle) will be lost. Clocks on the new lifecycle
+        start fresh.
+      </Note>
+
+      <div style={{ marginTop: 12, padding: 10, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12 }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Current template</div>
+        <div style={{ fontFamily: 'monospace' }}>
+          {currentTemplate?.template_code} — {currentTemplate?.template_name}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14, display: 'flex', gap: 16 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <input type="radio" name="reassign-mode" value="reassign"
+            checked={mode === 'reassign'} onChange={() => setMode('reassign')} />
+          Reassign to a different template
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <input type="radio" name="reassign-mode" value="detach"
+            checked={mode === 'detach'} onChange={() => setMode('detach')} />
+          Detach only (return to legacy mode)
+        </label>
+      </div>
+
+      {mode === 'reassign' && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12, color: '#475569', fontWeight: 600, marginBottom: 4 }}>
+            New template *
+          </div>
+          <select style={inp} value={newTemplateId}
+            onChange={e => setNewTemplateId(e.target.value)}>
+            <option value="">— pick a template —</option>
+            {templates.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.template_code} — {t.template_name}
+                {t.match_portfolio ? ` (${t.match_portfolio})` : ''}
+                {t.match_client ? ` [${t.match_client}]` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 12, color: '#475569', fontWeight: 600, marginBottom: 4 }}>
+          Type <code style={{ background: '#fef2f2', padding: '1px 6px', borderRadius: 3, color: '#991b1b' }}>REASSIGN</code> to confirm
+        </div>
+        <input style={inp} value={confirmText}
+          onChange={e => setConfirmText(e.target.value)}
+          placeholder="REASSIGN"
+          autoFocus />
+      </div>
+
+      {err && (
+        <div style={{ marginTop: 12 }}>
+          <Note tone="danger">{err}</Note>
+        </div>
+      )}
     </Modal>
   );
 }
