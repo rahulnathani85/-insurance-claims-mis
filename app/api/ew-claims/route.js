@@ -103,6 +103,7 @@ export async function GET(request) {
         company: c.company,
         insured_name: c.insured_name,
         customer_name: c.insured_name,
+        insurer_name: c.insurer_name || null,
         vehicle_reg_no: null,
         vehicle_make: c.model_spec || null,
         chassis_number: c.chassis_number || null,
@@ -111,6 +112,9 @@ export async function GET(request) {
         current_stage_name: 'Not Started',
         status: c.status || 'Open',
         created_at: c.created_at,
+        // Propagate the classic claim's lifecycle state so bulk-attach filters work
+        uses_lifecycle_engine: c.uses_lifecycle_engine || false,
+        lob: c.lob || null,
         _source: 'claims',
         _needs_ew_setup: true,
       }));

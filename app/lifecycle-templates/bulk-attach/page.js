@@ -101,9 +101,29 @@ export default function LifecycleBulkAttach() {
     setProgress({ total: selectedCount, done: 0, errors: 0 });
     setLog([]);
 
-    const body = (claimId) => source === 'ew'
-      ? { ew_claim_id: claimId, template_id: parseInt(templateId, 10), clear_legacy: clearLegacy, user_email: user?.email }
-      : { claim_id: parseInt(claimId, 10), template_id: parseInt(templateId, 10), clear_legacy: clearLegacy, user_email: user?.email };
+    // Body builder.
+    // /api/ew-claims returns two shapes intermixed:
+    //   (a) real ew_vehicle_claims rows  →  c.id is a UUID, no _source flag
+    //   (b) unlinked classic claims with LOB=Extended Warranty wrapped as
+    //       { id: `claim-${c.id}`, claim_id: c.id, _source: 'claims' }
+    // Shape (b) cannot go down the ew_claim_id path because that column is UUID.
+    // Route shape (b) through the classic claim_id path using the real integer.
+    const body = (claimId) => {
+      const claim = claims.find(c => String(c.id) === String(claimId));
+
+      if (source === 'ew' && claim && claim._source === 'claims' && claim.claim_id != null) {
+        return {
+          claim_id: parseInt(claim.claim_id, 10),
+          template_id: parseInt(templateId, 10),
+          clear_legacy: clearLegacy,
+          user_email: user?.email,
+        };
+      }
+
+      return source === 'ew'
+        ? { ew_claim_id: claimId, template_id: parseInt(templateId, 10), clear_legacy: clearLegacy, user_email: user?.email }
+        : { claim_id: parseInt(claimId, 10), template_id: parseInt(templateId, 10), clear_legacy: clearLegacy, user_email: user?.email };
+    };
 
     let done = 0, errors = 0;
     const logRows = [];
@@ -263,7 +283,15 @@ export default function LifecycleBulkAttach() {
                             onChange={e => setSelected({ ...selected, [c.id]: e.target.checked })}
                           />
                         </td>
-                        <td style={{ fontWeight: 600, color: alreadyOnEngine ? '#94a3b8' : '#7c3aed' }}>{c.ref_number || `#${c.id}`}</td>
+                        <td style={{ fontWeight: 600, color: alreadyOnEngine ? '#94a3b8' : '#7c3aed' }}>
+                          {c.ref_number || `#${c.id}`}
+                          {source === 'ew' && c._source === 'claims' && (
+                            <span title="This claim has LOB=Extended Warranty but no ew_vehicle_claims row yet. It will be attached via the classic claim_id path."
+                              style={{ marginLeft: 6, padding: '1px 5px', fontSize: 9, background: '#e0e7ff', color: '#3730a3', borderRadius: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                              classic
+                            </span>
+                          )}
+                        </td>
                         {source === 'claims' && <td>{c.lob || '-'}</td>}
                         <td>{c.insured_name || c.customer_name || '-'}</td>
                         <td>{c.insurer_name || '-'}</td>
