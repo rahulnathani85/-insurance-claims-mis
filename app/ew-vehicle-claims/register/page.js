@@ -55,6 +55,10 @@ export default function EWRegisterPage() {
   const [policies, setPolicies] = useState([]);
   const [insurers, setInsurers] = useState([]);
 
+  // Lifecycle engine — optional picker at registration
+  const [lifecycleTemplates, setLifecycleTemplates] = useState([]);
+  const [lifecycleTemplateId, setLifecycleTemplateId] = useState('');
+
   const [form, setForm] = useState({
     // Claim Details
     insured_name: '', insured_address: '',
@@ -84,6 +88,18 @@ export default function EWRegisterPage() {
         .then(r => r.json()).then(d => setInsurers(Array.isArray(d) ? d : [])).catch(() => {});
     }
   }, [company]);
+
+  // Load available lifecycle templates for Extended Warranty
+  useEffect(() => {
+    fetch('/api/lifecycle/templates?is_active=true')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) { setLifecycleTemplates([]); return; }
+        const list = Array.isArray(data?.templates) ? data.templates : Array.isArray(data) ? data : [];
+        setLifecycleTemplates(list.filter(t => t.is_active && (!t.match_lob || t.match_lob === 'Extended Warranty')));
+      })
+      .catch(() => setLifecycleTemplates([]));
+  }, []);
 
   function updateField(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -164,6 +180,22 @@ export default function EWRegisterPage() {
       }
 
       const claim = await res.json();
+
+      // Attach selected lifecycle template (if any) to the new EW claim
+      if (lifecycleTemplateId && claim?.id) {
+        try {
+          await fetch('/api/lifecycle/attach', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ew_claim_id: claim.id,
+              template_id: parseInt(lifecycleTemplateId, 10),
+              user_email: user?.email,
+            }),
+          });
+        } catch (e) { /* non-fatal — claim created, lifecycle can be attached later */ }
+      }
+
       router.push(`/ew-vehicle-claims/${claim.id}`);
     } catch (e) {
       setAlert({ msg: e.message, type: 'error' });
@@ -352,6 +384,32 @@ export default function EWRegisterPage() {
             </div>
           )}
         </div>
+
+        {/* Lifecycle Engine picker (optional — attach at registration time) */}
+        {lifecycleTemplates.length > 0 && (
+          <div style={{ marginTop: 20, padding: 14, background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 10 }}>
+            <h4 style={{ margin: '0 0 4px', fontSize: 14, color: '#5b21b6' }}>
+              Lifecycle Template <span style={{ fontSize: 10, fontWeight: 400, color: '#6b21a8' }}>(optional — attach a lifecycle engine at registration)</span>
+            </h4>
+            <p style={{ fontSize: 11, color: '#6b21a8', margin: '0 0 8px' }}>
+              Pick a template and the engine will auto-create phases, stages and Phase-4 items on save. Leave blank to register as a plain EW claim; admin can attach a lifecycle later.
+            </p>
+            <select
+              value={lifecycleTemplateId}
+              onChange={e => setLifecycleTemplateId(e.target.value)}
+              style={{ width: '100%', padding: 9, border: '1px solid #c4b5fd', borderRadius: 8, fontSize: 13 }}
+            >
+              <option value="">-- No lifecycle template --</option>
+              {lifecycleTemplates.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.template_code} — {t.template_name}
+                  {t.match_portfolio ? ` (${t.match_portfolio})` : ''}
+                  {t.match_client ? ` [${t.match_client}]` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Submit */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>

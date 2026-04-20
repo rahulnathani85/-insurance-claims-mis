@@ -52,6 +52,10 @@ function ClaimsLobContent() {
   const [intimationFile, setIntimationFile] = useState(null);
   const [uploadingIntimation, setUploadingIntimation] = useState(false);
 
+  // Lifecycle engine pickers (attach a lifecycle template at registration time)
+  const [lifecycleTemplateId, setLifecycleTemplateId] = useState('');
+  const [lifecycleTemplates, setLifecycleTemplates] = useState([]);
+
   // Draggable modal state
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
@@ -115,6 +119,19 @@ function ClaimsLobContent() {
       loadClaims();
     }
   }, [filterRef, filterStatus, filterInsurer]);
+
+  // Fetch available lifecycle templates for this LOB (used at registration time)
+  useEffect(() => {
+    if (!lob) return;
+    fetch('/api/lifecycle/templates?is_active=true')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) { setLifecycleTemplates([]); return; }
+        const list = Array.isArray(data?.templates) ? data.templates : Array.isArray(data) ? data : [];
+        setLifecycleTemplates(list.filter(t => t.is_active && (!t.match_lob || t.match_lob === lob)));
+      })
+      .catch(() => setLifecycleTemplates([]));
+  }, [lob]);
 
   // Fetch claim categories hierarchy for this LOB
   useEffect(() => {
@@ -457,6 +474,22 @@ function ClaimsLobContent() {
         // Upload intimation sheet for new claim if file selected
         if (intimationFile) {
           await uploadIntimationSheet(result.id, result.ref_number);
+        }
+
+        // Attach lifecycle template if one was picked at registration time
+        if (lifecycleTemplateId && result?.id) {
+          try {
+            await fetch('/api/lifecycle/attach', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                claim_id: result.id,
+                template_id: parseInt(lifecycleTemplateId, 10),
+                user_email: user?.email,
+              }),
+            });
+          } catch (e) { /* non-fatal — claim still created */ }
+          setLifecycleTemplateId('');
         }
 
         showAlertMsg(`Claim created! Ref: ${result.ref_number}`, 'success');
@@ -1193,6 +1226,32 @@ function ClaimsLobContent() {
             </div>
 
             {/* Upload Intimation Sheet (PDF) */}
+            {/* Lifecycle engine picker — only shown on new-claim creation */}
+            {!editId && lifecycleTemplates.length > 0 && (
+              <div className="form-section" style={{ background: '#ede9fe', padding: 15, borderRadius: 8, border: '1px solid #c4b5fd' }}>
+                <h4 style={{ margin: '0 0 6px', fontSize: 14, color: '#5b21b6' }}>
+                  Lifecycle Template <span style={{ fontSize: 10, fontWeight: 400, color: '#6b21a8' }}>(optional — attach a lifecycle engine at registration)</span>
+                </h4>
+                <p style={{ fontSize: 11, color: '#6b21a8', margin: '0 0 8px' }}>
+                  Pick a template and the engine will auto-create phases, stages, and Phase-4 items as soon as this claim is saved. Leave blank to register without a lifecycle (can be attached later).
+                </p>
+                <select
+                  value={lifecycleTemplateId}
+                  onChange={e => setLifecycleTemplateId(e.target.value)}
+                  style={{ width: '100%', padding: 8, border: '1px solid #c4b5fd', borderRadius: 6 }}
+                >
+                  <option value="">-- No lifecycle template (register only) --</option>
+                  {lifecycleTemplates.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.template_code} — {t.template_name}
+                      {t.match_portfolio ? ` (${t.match_portfolio})` : ''}
+                      {t.match_client ? ` [${t.match_client}]` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="form-section" style={{ background: '#fef3c7', padding: 15, borderRadius: 8, border: '1px solid #fde68a' }}>
               <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#92400e' }}>Upload Intimation Sheet (PDF)</h4>
               <p style={{ fontSize: 11, color: '#78716c', margin: '0 0 10px' }}>

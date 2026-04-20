@@ -203,6 +203,20 @@ export default function PageLayout({ children }) {
                 </div>
                 {user?.role === 'Admin' && (
                   <div className="nav-section">
+                    <div className="nav-section-title">Lifecycle Generator <span style={{ fontSize: 9, background: '#7c3aed', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>ADMIN</span></div>
+                    <Link href="/lifecycle-templates" className={`nav-item ${pathname === '/lifecycle-templates' ? 'active' : ''}`}>
+                      <SideIcon letter="LT" bg="#ede9fe" color="#5b21b6" /><span>Templates</span>
+                    </Link>
+                    <Link href="/lifecycle-templates/items-catalog" className={`nav-item ${pathname === '/lifecycle-templates/items-catalog' ? 'active' : ''}`}>
+                      <SideIcon letter="IC" bg="#fce7f3" color="#9d174d" /><span>Item Catalog</span>
+                    </Link>
+                    <Link href="/lifecycle-templates/bulk-attach" className={`nav-item ${pathname === '/lifecycle-templates/bulk-attach' ? 'active' : ''}`}>
+                      <SideIcon letter="BA" bg="#fef3c7" color="#92400e" /><span>Bulk Attach</span>
+                    </Link>
+                  </div>
+                )}
+                {user?.role === 'Admin' && (
+                  <div className="nav-section">
                     <div className="nav-section-title">Admin</div>
                     <Link href="/user-management" className={`nav-item ${pathname === '/user-management' ? 'active' : ''}`}>
                       <SideIcon letter="UM" bg="#e0e7ff" color="#3730a3" /><span>User Management</span>
