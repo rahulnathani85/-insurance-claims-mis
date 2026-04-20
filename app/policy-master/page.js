@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import PageLayout from '@/components/PageLayout';
 import { useCompany } from '@/lib/CompanyContext';
-import { LOB_LIST, FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
+import { LOB_LIST, FILE_SERVER_URL } from '@/lib/constants';
 
 export default function PolicyMaster() {
   const { company } = useCompany();

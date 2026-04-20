@@ -6,8 +6,10 @@
  *
  * Setup:
  *   1. npm init -y
- *   2. npm install express cors puppeteer html-to-docx
- *   3. node server.js
+ *   2. npm install express cors puppeteer html-to-docx dotenv
+ *   3. Create a .env file next to this file with:
+ *        FILE_SERVER_KEY=<same 64-char key as the file-server>
+ *   4. node server.js
  *
  * Endpoints:
  *   POST /api/html-to-pdf   — Convert HTML to PDF (Puppeteer)
@@ -15,16 +17,34 @@
  *     Body: { html: "...", folder_path: "..." (optional), filename: "report.ext" (optional) }
  *     If folder_path provided: saves to D:\2026-27\{folder_path}\{filename} and returns JSON
  *     If no folder_path: returns file binary directly
+ *
+ * Auth: X-API-Key header must match FILE_SERVER_KEY from .env. The puppeteer
+ * server shares the same key as the file-server — the Next.js portal forwards
+ * a single key to both services. The previous hardcoded fallback
+ * 'nisla-file-server-2026' is in git history and must be treated as LEAKED.
  */
+
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
+// Fail-closed if the key env var is missing — no hardcoded fallback.
+if (!process.env.FILE_SERVER_KEY) {
+  console.error('==========================================');
+  console.error('FATAL: FILE_SERVER_KEY env var is not set.');
+  console.error('Create a .env file in this folder with:');
+  console.error('  FILE_SERVER_KEY=<your-new-64-char-key>');
+  console.error('Then restart the service. Aborting.');
+  console.error('==========================================');
+  process.exit(1);
+}
+
 const PORT = 4001;
 const BASE_PATH = 'D:\\2026-27';
-const API_KEY = 'nisla-file-server-2026';
+const API_KEY = process.env.FILE_SERVER_KEY;
 
 const app = express();
 

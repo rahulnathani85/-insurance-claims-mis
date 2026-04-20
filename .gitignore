@@ -6,3 +6,9 @@ node_modules/
 
 .vercel
 .env*.local
+
+# File server + Puppeteer server secrets — both .env files hold
+# FILE_SERVER_KEY. Must never be committed. .env.example in each folder IS
+# committed and shows the expected keys with dummy values.
+scripts/file-server/.env
+scripts/puppeteer-server/.env

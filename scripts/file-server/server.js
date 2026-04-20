@@ -22,15 +22,35 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
+// Load .env from the file-server folder (not the app root). This keeps the
+// API key out of source control — create a plain `.env` file next to this
+// server.js with the line `FILE_SERVER_KEY=<64-char-key>`.
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 // ========== CONFIGURATION ==========
+// Fail-closed: refuse to start if the API key env var is missing. The old
+// hardcoded fallback 'nisla-file-server-2026' is in git history and must be
+// treated as compromised — if the .env file isn't there, DO NOT silently fall
+// back to something, because an attacker with the leaked string would still
+// authenticate successfully.
+if (!process.env.FILE_SERVER_KEY) {
+  console.error('========================================================');
+  console.error('FATAL: FILE_SERVER_KEY env var is not set.');
+  console.error('Create a .env file next to server.js with:');
+  console.error('  FILE_SERVER_KEY=<your-new-64-char-key>');
+  console.error('Then restart this service.');
+  console.error('========================================================');
+  process.exit(1);
+}
+
 const CONFIG = {
   PORT: 4000,
   BASE_PATH: 'D:\\2026-27',
-  // IMPORTANT: Set this to your server's public IP or domain
-  // Example: 'http://your-server-ip:4000' or 'https://files.yourdomain.com'
+  // Public URL the server is reachable on (informational — used in responses,
+  // not in security decisions). Set via env var when deploying behind a tunnel.
   SERVER_URL: process.env.FILE_SERVER_URL || 'http://localhost:4000',
-  // Secret key to prevent unauthorized uploads (change this!)
-  API_KEY: process.env.FILE_SERVER_KEY || 'nisla-file-server-2026',
+  // Secret key — required. Rotate every 90 days.
+  API_KEY: process.env.FILE_SERVER_KEY,
   // Max file size: 50MB
   MAX_FILE_SIZE: 50 * 1024 * 1024,
 };

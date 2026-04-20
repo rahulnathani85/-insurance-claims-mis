@@ -2,7 +2,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
-import { LOB_LIST, FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
+import { LOB_LIST, FILE_SERVER_URL } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
 import { PIPELINE_STAGE_NAMES } from '@/lib/pipelineStages';
 

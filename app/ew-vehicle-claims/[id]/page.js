@@ -6,7 +6,9 @@ import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 import { EW_STAGES, STAGE_COUNT } from '@/lib/ewStages';
-import { FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
+// File-server constants no longer needed here — uploads go through the
+// server-side proxy /api/files/upload which attaches the API key on the
+// server. Public deep-links to the VPS are not built from this component.
 import { logActivity, ACTIONS } from '@/lib/activityLogger';
 
 // Resolve file URL — converts all formats to work from HTTPS portal
@@ -543,9 +545,9 @@ export default function EWClaimDetailPage() {
       fd.append('files', file);
       fd.append('folder_path', fsrFolder);
 
-      const uploadRes = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
+      // Route through the server-side proxy so the API key never leaves the server.
+      const uploadRes = await fetch(`/api/files/upload?folder_path=${encodeURIComponent(fsrFolder)}`, {
         method: 'POST',
-        headers: { 'X-API-Key': FILE_SERVER_KEY },
         body: fd,
       });
       const uploadData = await uploadRes.json();

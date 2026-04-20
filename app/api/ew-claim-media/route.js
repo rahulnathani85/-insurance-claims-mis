@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-const FILE_SERVER_URL = process.env.NEXT_PUBLIC_FILE_SERVER_URL || 'http://localhost:4000';
-const FILE_SERVER_KEY = process.env.NEXT_PUBLIC_FILE_SERVER_KEY || 'nisla-file-server-2026';
+// URL is safe to ship either side; prefer server-only var, fall back to the
+// legacy NEXT_PUBLIC_ var so older Vercel configs keep working.
+const FILE_SERVER_URL =
+  process.env.FILE_SERVER_URL ||
+  process.env.NEXT_PUBLIC_FILE_SERVER_URL ||
+  'http://localhost:4000';
+// Key is server-only. No fallback — fail-closed if the env var is missing.
+const FILE_SERVER_KEY = process.env.FILE_SERVER_KEY;
 
 // GET - List media for an EW claim
 export async function GET(request) {

@@ -2,7 +2,10 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
-import { LOB_COLORS, LOB_ICONS, LOB_LIST, FILE_SERVER_URL, FILE_SERVER_KEY } from '@/lib/constants';
+// FILE_SERVER_URL is still used to build public browse deep-links.
+// FILE_SERVER_KEY is intentionally NOT imported — uploads go through
+// the server-side proxy /api/files/upload.
+import { LOB_COLORS, LOB_ICONS, LOB_LIST, FILE_SERVER_URL } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
 import { PIPELINE_STAGES } from '@/lib/pipelineStages';
@@ -1296,9 +1299,9 @@ function ClaimsLobContent() {
                     for (let i = 0; i < files.length; i++) fd.append('files', files[i]);
                     try {
                       showAlertMsg('Uploading...', 'info');
-                      const res = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(relativePath)}`, {
+                      // Route through the server-side proxy so the API key never leaves the server.
+                      const res = await fetch(`/api/files/upload?folder_path=${encodeURIComponent(relativePath)}`, {
                         method: 'POST',
-                        headers: { 'X-API-Key': FILE_SERVER_KEY },
                         body: fd
                       });
                       const data = await res.json();
