@@ -46,16 +46,35 @@ export default function LifecycleTemplateEditor() {
   async function load() {
     try {
       setLoading(true);
-      const [tRes, sRes, cRes, diRes] = await Promise.all([
-        fetch(`/api/lifecycle/templates?id=${tplId}`).then(r => r.json()),
-        fetch(`/api/lifecycle/templates/${tplId}/stages`).then(r => r.json()),
-        fetch('/api/lifecycle/items/catalog').then(r => r.json()),
-        fetch(`/api/lifecycle/templates/${tplId}/stages?defaults=true`).then(r => r.json()).catch(() => ({ items: [] })),
+      // NOTE: /api/lifecycle/templates returns a LIST ({ templates: [...] }) even
+      // when an ?id= is given. Filter client-side to grab the single row we need.
+      const [tRes, sRes, cRes] = await Promise.all([
+        fetch('/api/lifecycle/templates').then(r => r.ok ? r.json() : null),
+        fetch(`/api/lifecycle/templates/${tplId}/stages`).then(r => r.ok ? r.json() : null),
+        fetch('/api/lifecycle/items/catalog').then(r => r.ok ? r.json() : null),
       ]);
-      setTpl(tRes?.template || tRes || null);
+
+      const allTemplates = Array.isArray(tRes?.templates) ? tRes.templates
+                         : Array.isArray(tRes) ? tRes
+                         : [];
+      const matched = allTemplates.find(t => String(t.id) === String(tplId));
+      setTpl(matched || null);
+
       setStages(Array.isArray(sRes?.stages) ? sRes.stages : Array.isArray(sRes) ? sRes : []);
-      setCatalog(Array.isArray(cRes?.items) ? cRes.items : Array.isArray(cRes) ? cRes : []);
-      setDefaultItems(Array.isArray(diRes?.items) ? diRes.items : Array.isArray(diRes?.default_items) ? diRes.default_items : []);
+      setCatalog(Array.isArray(cRes?.items)  ? cRes.items  : Array.isArray(cRes)  ? cRes  : []);
+
+      // Default items for Phase 4 — try a dedicated endpoint; if backend doesn't
+      // expose one, just show an empty list (not critical for editing).
+      try {
+        const diRes = await fetch(`/api/lifecycle/templates/${tplId}/default-items`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null);
+        const list = Array.isArray(diRes?.items) ? diRes.items
+                   : Array.isArray(diRes?.default_items) ? diRes.default_items
+                   : Array.isArray(diRes) ? diRes
+                   : [];
+        setDefaultItems(list);
+      } catch (e) { setDefaultItems([]); }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }
@@ -67,10 +86,15 @@ export default function LifecycleTemplateEditor() {
 
   async function saveMeta() {
     if (!tpl) return;
+    const numericTplId = tpl.id || parseInt(tplId, 10);
+    if (!numericTplId) {
+      showAlertMsg('Template id missing — reload the page and try again', 'error');
+      return;
+    }
     try {
       setSaving(true);
       const payload = {
-        id: tpl.id,
+        id: numericTplId,
         template_name: tpl.template_name,
         description: tpl.description,
         match_lob: tpl.match_lob,
@@ -104,11 +128,18 @@ export default function LifecycleTemplateEditor() {
       showAlertMsg('stage_code and stage_name are required', 'error');
       return;
     }
+    // Always take template_id from the URL param — don't depend on tpl.id
+    // which can be undefined if the template fetch hasn't finished yet.
+    const numericTplId = parseInt(tplId, 10);
+    if (!numericTplId) {
+      showAlertMsg('Template id missing from URL — reload and try again', 'error');
+      return;
+    }
     try {
-      const body = { ...ns, template_id: tpl.id };
-      if (body.firm_tat_hours === '') body.firm_tat_hours = null; else body.firm_tat_hours = parseInt(body.firm_tat_hours, 10);
-      if (body.insurer_tat_hours === '') body.insurer_tat_hours = null; else body.insurer_tat_hours = parseInt(body.insurer_tat_hours, 10);
-      const res = await fetch(`/api/lifecycle/templates/${tpl.id}/stages`, {
+      const body = { ...ns, template_id: numericTplId };
+      if (body.firm_tat_hours === '')     body.firm_tat_hours    = null; else body.firm_tat_hours    = parseInt(body.firm_tat_hours, 10);
+      if (body.insurer_tat_hours === '')  body.insurer_tat_hours = null; else body.insurer_tat_hours = parseInt(body.insurer_tat_hours, 10);
+      const res = await fetch(`/api/lifecycle/templates/${numericTplId}/stages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -128,8 +159,9 @@ export default function LifecycleTemplateEditor() {
 
   async function deleteStage(s) {
     if (!confirm(`Remove stage ${s.stage_code}?`)) return;
+    const numericTplId = (tpl && tpl.id) || parseInt(tplId, 10);
     try {
-      const res = await fetch(`/api/lifecycle/templates/${tpl.id}/stages?stage_id=${s.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/lifecycle/templates/${numericTplId}/stages?stage_id=${s.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Delete failed');
       showAlertMsg('Stage removed');
       load();
@@ -146,11 +178,24 @@ export default function LifecycleTemplateEditor() {
     );
   }
 
-  if (loading || !tpl) {
+  if (loading) {
     return (
       <PageLayout>
         <div className="main-content">
           <p style={{ padding: 40, textAlign: 'center' }}>Loading template...</p>
+        </div>
+      </PageLayout>
+    );
+  }
+  if (!tpl) {
+    return (
+      <PageLayout>
+        <div className="main-content">
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <p style={{ fontSize: 18, color: '#991b1b', marginBottom: 10 }}>Template #{tplId} not found</p>
+            <p style={{ color: '#64748b', marginBottom: 20 }}>It may have been deleted, or the URL id is invalid.</p>
+            <button className="secondary" onClick={() => router.push('/lifecycle-templates')}>&larr; Back to Templates</button>
+          </div>
         </div>
       </PageLayout>
     );
