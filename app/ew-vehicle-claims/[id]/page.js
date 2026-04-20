@@ -752,126 +752,63 @@ export default function EWClaimDetailPage() {
         <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: (showPreview || previewDoc) ? '0 0 55%' : '1 1 100%', minWidth: 0, transition: 'flex 0.3s' }}>
 
-        {/* Progress Bar */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
-              Stage {claim.current_stage}/{STAGE_COUNT}: {claim.current_stage_name}
-            </span>
-            <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 700 }}>{progressPct}%</span>
-          </div>
-          <div style={{ height: 8, background: '#e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${progressPct}%`, background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', borderRadius: 8, transition: 'width 0.5s' }} />
-          </div>
-        </div>
-
-        {/* 12-Stage Lifecycle Timeline */}
+        {/* Lifecycle Engine reference banner — 8-stage model has been retired.
+            Lifecycle tracking for EW claims now runs on templates (e.g. ew_base,
+            ew_toyota_tw). Assign one via Admin → Lifecycle Templates → Bulk Attach,
+            or at registration time via the Lifecycle Template dropdown on the
+            EW registration form. */}
         <div style={{
-          background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: '16px 20px', marginBottom: 16,
+          background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+          padding: '14px 18px', marginBottom: 16,
         }}>
-          <h3 style={{ margin: '0 0 14px', fontSize: 14, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>&#x1F504;</span> Claim Lifecycle
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${STAGE_COUNT}, 1fr)`, gap: 6 }}>
-            {EW_STAGES.map(es => {
-              const stageData = stages.find(s => s.stage_number === es.number);
-              const status = stageData?.status || 'Pending';
-              const isCurrent = claim.current_stage === es.number;
-              return (
-                <div key={es.number} style={{ textAlign: 'center' }}>
-                  <div
-                    style={{
-                      width: 36, height: 36, borderRadius: '50%', margin: '0 auto 4px',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: status === 'Completed' ? '#22c55e' : status === 'In Progress' ? '#f59e0b' : '#e2e8f0',
-                      color: status === 'Completed' || status === 'In Progress' ? '#fff' : '#94a3b8',
-                      fontSize: 12, fontWeight: 700,
-                      border: isCurrent ? '3px solid #7c3aed' : '2px solid transparent',
-                      boxShadow: isCurrent ? '0 0 0 3px rgba(124,58,237,0.2)' : 'none',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    {status === 'Completed' ? '\u2713' : es.number}
-                  </div>
-                  <div style={{ fontSize: 9, color: isCurrent ? '#7c3aed' : '#64748b', fontWeight: isCurrent ? 700 : 500, lineHeight: 1.2 }}>
-                    {es.short}
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#7c3aed', padding: '3px 10px', borderRadius: 12 }}>
+              LIFECYCLE ENGINE
+            </div>
+            <div style={{ fontSize: 12, color: '#475569' }}>
+              Progress tracking for this EW claim runs on the Lifecycle Engine (template-driven, 7 universal phases).
+              The legacy 8-stage EW model has been retired.
+            </div>
+            {user?.role === 'Admin' && (
+              <button
+                className="secondary"
+                style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }}
+                onClick={() => router.push('/lifecycle-templates/bulk-attach')}
+              >
+                Attach / manage lifecycle &rarr;
+              </button>
+            )}
           </div>
 
-          {/* Quick-Action Panel: Current Stage + Surveyor + SLA */}
+          {/* Keep useful per-claim operational fields: Surveyor + SLA */}
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #f1f5f9', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            {/* Left: Current Stage Actions */}
             <div>
-              {currentStageData ? (
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>
-                    Stage {currentStageData.stage_number}: {currentStageData.stage_name}
-                  </div>
-                  <textarea
-                    placeholder="Stage notes..."
-                    value={stageNotes[currentStageData.stage_number] || ''}
-                    onChange={e => setStageNotes(prev => ({ ...prev, [currentStageData.stage_number]: e.target.value }))}
-                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, minHeight: 40, resize: 'vertical', boxSizing: 'border-box', marginBottom: 8 }}
-                  />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={async () => { await saveStageNotes(currentStageData.stage_number); updateStageStatus(currentStageData.stage_number, 'Completed'); }}
-                      style={{ flex: 1, padding: '8px 14px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      &#x2713; Complete &amp; Advance
-                    </button>
-                    <button
-                      onClick={() => saveStageNotes(currentStageData.stage_number)}
-                      style={{ padding: '8px 12px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
-                    >
-                      Save Notes
-                    </button>
-                    <button
-                      onClick={() => updateStageStatus(currentStageData.stage_number, 'Skipped')}
-                      style={{ padding: '8px 12px', background: '#94a3b8', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}
-                    >
-                      Skip
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>All stages completed or no active stage</div>
-              )}
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>Assigned Surveyor</label>
+              <select
+                value={editForm.assigned_surveyor || ''}
+                onChange={e => {
+                  const sv = surveyorList.find(s => s.name === e.target.value);
+                  updateEditForm({ assigned_surveyor: e.target.value, assigned_surveyor_name: sv?.name || e.target.value });
+                }}
+                style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
+              >
+                <option value="">-- Select Surveyor --</option>
+                {surveyorList.map(s => <option key={s.id} value={s.name}>{s.name}{s.designation ? ` (${s.designation})` : ''}</option>)}
+              </select>
             </div>
-
-            {/* Right: Surveyor + SLA */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>Assigned Surveyor</label>
-                <select
-                  value={editForm.assigned_surveyor || ''}
-                  onChange={e => {
-                    const sv = surveyorList.find(s => s.name === e.target.value);
-                    updateEditForm({ assigned_surveyor: e.target.value, assigned_surveyor_name: sv?.name || e.target.value });
-                  }}
-                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
-                >
-                  <option value="">-- Select Surveyor --</option>
-                  {surveyorList.map(s => <option key={s.id} value={s.name}>{s.name}{s.designation ? ` (${s.designation})` : ''}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>SLA Due Date</label>
-                <input
-                  type="date"
-                  value={editForm.sla_due_date || ''}
-                  onChange={e => updateEditForm({ sla_due_date: e.target.value })}
-                  style={{
-                    width: '100%', padding: '7px 10px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box',
-                    border: isOverdue ? '2px solid #ef4444' : '1px solid #d1d5db',
-                    background: isOverdue ? '#fef2f2' : '#fff',
-                  }}
-                />
-                {isOverdue && <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>Past due!</span>}
-              </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 3 }}>SLA Due Date</label>
+              <input
+                type="date"
+                value={editForm.sla_due_date || ''}
+                onChange={e => updateEditForm({ sla_due_date: e.target.value })}
+                style={{
+                  width: '100%', padding: '7px 10px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box',
+                  border: isOverdue ? '2px solid #ef4444' : '1px solid #d1d5db',
+                  background: isOverdue ? '#fef2f2' : '#fff',
+                }}
+              />
+              {isOverdue && <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>Past due!</span>}
             </div>
           </div>
         </div>

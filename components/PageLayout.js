@@ -80,7 +80,6 @@ export default function PageLayout({ children }) {
               <Link href="/">Dashboard</Link>
               {!isAllMode && <Link href="/claim-registration">Claim Registration</Link>}
               <Link href="/mis-portal">MIS Portal</Link>
-              {!isAllMode && <Link href="/workflow-overview">Workflow</Link>}
               {!isAllMode && <Link href="/file-assignments">Assignments</Link>}
               {!isAllMode && user?.role === 'Admin' && <Link href="/user-management">Users</Link>}
             </nav>
@@ -183,19 +182,11 @@ export default function PageLayout({ children }) {
                     <SideIcon letter="R#" bg="#f3e8ff" color="#7e22ce" /><span>Ref Number Portal</span>
                   </Link>
                 </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">Workflow</div>
-                  <Link href="/workflow-overview" className={`nav-item ${pathname === '/workflow-overview' ? 'active' : ''}`}>
-                    <SideIcon letter="WF" bg="#dbeafe" color="#1e40af" /><span>Workflow Overview</span>
-                  </Link>
-                </div>
+                {/* Workflow Overview + File Tracking retired — use Lifecycle Generator */}
                 <div className="nav-section">
                   <div className="nav-section-title">Documents</div>
                   <Link href="/lor-ila-generator" className={`nav-item ${pathname === '/lor-ila-generator' ? 'active' : ''}`}>
                     <SideIcon letter="LI" bg="#fef9c3" color="#a16207" /><span>LOR / ILA Generator</span>
-                  </Link>
-                  <Link href="/file-tracking" className={`nav-item ${pathname === '/file-tracking' ? 'active' : ''}`}>
-                    <SideIcon letter="FT" bg="#d1fae5" color="#047857" /><span>File Tracking</span>
                   </Link>
                   <Link href="/file-assignments" className={`nav-item ${pathname === '/file-assignments' ? 'active' : ''}`}>
                     <SideIcon letter="FA" bg="#ffe4e6" color="#be123c" /><span>File Assignments</span>

@@ -5,7 +5,7 @@ import PageLayout from '@/components/PageLayout';
 import { LOB_LIST, LOB_COLORS, LOB_ICONS } from '@/lib/constants';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
-import { PIPELINE_STAGES, getClaimTatDeadline, getTatBadge } from '@/lib/pipelineStages';
+import { getClaimTatDeadline, getTatBadge } from '@/lib/pipelineStages';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
@@ -18,7 +18,7 @@ export default function Dashboard() {
   const [allClaims, setAllClaims] = useState([]);
   const [claimsLoading, setClaimsLoading] = useState(true);
   const [dashFilterLob, setDashFilterLob] = useState('');
-  const [dashFilterStage, setDashFilterStage] = useState('');
+  // dashFilterStage removed — 9-stage pipeline retired (see Lifecycle Engine)
   const [dashFilterStatus, setDashFilterStatus] = useState('');
   const router = useRouter();
   const { company } = useCompany();
@@ -68,18 +68,9 @@ export default function Dashboard() {
     finally { setClaimsLoading(false); }
   }
 
-  async function updateClaimPipelineStage(claimId, stageNumber) {
-    const stage = PIPELINE_STAGES.find(s => s.number === stageNumber);
-    if (!stage) return;
-    try {
-      await fetch('/api/claim-stages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claim_id: claimId, stage: stage.name, stage_number: stage.number, updated_by: user?.email, company }),
-      });
-      loadAllClaims();
-    } catch (e) { console.error(e); }
-  }
+  // updateClaimPipelineStage removed — the 9-stage pipeline has been retired.
+  // Claim progress is now tracked via the Lifecycle Engine. Writes to the old
+  // claim_stages table are blocked by DB triggers (see migration 001).
 
   async function loadStats() {
     try {
@@ -428,24 +419,19 @@ export default function Dashboard() {
               <option value="">All LOBs</option>
               {LOB_LIST.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
-            <select value={dashFilterStage} onChange={e => setDashFilterStage(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
-              <option value="">All Pipeline Stages</option>
-              {PIPELINE_STAGES.map(s => <option key={s.number} value={s.name}>{s.name}</option>)}
-            </select>
             <select value={dashFilterStatus} onChange={e => setDashFilterStatus(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
               <option value="">All Status</option>
               <option value="Open">Open</option>
               <option value="In Process">In Process</option>
               <option value="Submitted">Submitted</option>
             </select>
-            {(dashFilterLob || dashFilterStage || dashFilterStatus) && (
-              <button onClick={() => { setDashFilterLob(''); setDashFilterStage(''); setDashFilterStatus(''); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#f1f5f9', fontSize: 12, cursor: 'pointer' }}>Clear</button>
+            {(dashFilterLob || dashFilterStatus) && (
+              <button onClick={() => { setDashFilterLob(''); setDashFilterStatus(''); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#f1f5f9', fontSize: 12, cursor: 'pointer' }}>Clear</button>
             )}
             <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8' }}>
               {(() => {
                 let filtered = allClaims;
                 if (dashFilterLob) filtered = filtered.filter(c => c.lob === dashFilterLob);
-                if (dashFilterStage) filtered = filtered.filter(c => c.pipeline_stage === dashFilterStage);
                 if (dashFilterStatus) filtered = filtered.filter(c => c.status === dashFilterStatus);
                 return `${filtered.length} claims`;
               })()}
@@ -459,7 +445,7 @@ export default function Dashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                    {['File No.', 'LOB', 'Insured', 'Insurer', 'Surveyor', 'Pipeline', 'TAT', 'Days Open', 'Status', 'Action'].map(h => (
+                    {['File No.', 'LOB', 'Insured', 'Insurer', 'Surveyor', 'TAT', 'Days Open', 'Status', 'Action'].map(h => (
                       <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: 11 }}>{h}</th>
                     ))}
                   </tr>
@@ -468,7 +454,6 @@ export default function Dashboard() {
                   {(() => {
                     let filtered = allClaims;
                     if (dashFilterLob) filtered = filtered.filter(c => c.lob === dashFilterLob);
-                    if (dashFilterStage) filtered = filtered.filter(c => c.pipeline_stage === dashFilterStage);
                     if (dashFilterStatus) filtered = filtered.filter(c => c.status === dashFilterStatus);
                     return filtered.slice(0, 50).map(c => {
                       const daysOpen = c.created_at ? Math.floor((new Date() - new Date(c.created_at)) / 86400000) : '-';
@@ -483,12 +468,6 @@ export default function Dashboard() {
                           <td style={{ padding: '8px 10px' }}>{c.insured_name || '-'}</td>
                           <td style={{ padding: '8px 10px' }}>{c.insurer_name || '-'}</td>
                           <td style={{ padding: '8px 10px' }}>{c.surveyor_name || '-'}</td>
-                          <td style={{ padding: '8px 10px' }}>
-                            <select value={c.pipeline_stage_number || 1} onChange={e => updateClaimPipelineStage(c.id, parseInt(e.target.value))}
-                              style={{ padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid #d1d5db', maxWidth: 110 }}>
-                              {PIPELINE_STAGES.map(ps => <option key={ps.number} value={ps.number}>{ps.number}. {ps.short}</option>)}
-                            </select>
-                          </td>
                           <td style={{ padding: '8px 10px' }}>
                             {tatBadge ? <span style={{ padding: '2px 6px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: tatBadge.bg, color: tatBadge.color }}>{tatBadge.label}</span> : '-'}
                           </td>

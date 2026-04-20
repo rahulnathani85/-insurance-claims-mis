@@ -121,14 +121,16 @@ export default function LifecycleTemplatesList() {
   }
 
   async function deleteTemplate(t) {
-    const typed = window.prompt(
-      `Type the template code EXACTLY to confirm deletion:\n\n  ${t.template_code}\n\nThis will remove the template, its stages and default-item links. Any existing claims attached to this template will keep their snapshot, but no new claims can use it.`,
-      ''
+    const ok = window.confirm(
+      `Permanently delete this template?\n\n` +
+      `  Code:  ${t.template_code}\n` +
+      `  Name:  ${t.template_name}\n\n` +
+      `• Stages and default-item links are removed.\n` +
+      `• Claims already attached to this template are NOT deleted — they keep their snapshot, but the template won't show in future pickers.\n` +
+      `• Blocked automatically if any claim is currently using it — use Deactivate in that case.\n\n` +
+      `Click OK to proceed, or Cancel to abort.`
     );
-    if (typed !== t.template_code) {
-      if (typed !== null) showAlertMsg('Template code did not match — delete cancelled.', 'error');
-      return;
-    }
+    if (!ok) return;
     try {
       let res = await fetch(`/api/lifecycle/templates?id=${t.id}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -143,7 +145,7 @@ export default function LifecycleTemplatesList() {
         const errBody = await res.json().catch(() => ({}));
         const msg = errBody.error || errBody.message || `HTTP ${res.status} — ${res.statusText || 'Delete failed'}`;
         if (res.status === 404 || res.status === 405) {
-          throw new Error(`Delete endpoint not available on the backend yet. You can still Deactivate the template. (${msg})`);
+          throw new Error(`Delete endpoint not available on this deployment yet (HTTP ${res.status}). Push the latest backend code to enable it — meanwhile, Deactivate still works.`);
         }
         throw new Error(msg);
       }
