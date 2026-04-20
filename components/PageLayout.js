@@ -204,6 +204,9 @@ export default function PageLayout({ children }) {
                 {user?.role === 'Admin' && (
                   <div className="nav-section">
                     <div className="nav-section-title">Lifecycle Generator <span style={{ fontSize: 9, background: '#7c3aed', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>ADMIN</span></div>
+                    <Link href="/lifecycle-templates/features" className={`nav-item ${pathname === '/lifecycle-templates/features' ? 'active' : ''}`}>
+                      <SideIcon letter="RM" bg="#fef9c3" color="#a16207" /><span>Features / ReadMe</span>
+                    </Link>
                     <Link href="/lifecycle-templates" className={`nav-item ${pathname === '/lifecycle-templates' ? 'active' : ''}`}>
                       <SideIcon letter="LT" bg="#ede9fe" color="#5b21b6" /><span>Templates</span>
                     </Link>

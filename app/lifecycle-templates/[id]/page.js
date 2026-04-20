@@ -247,53 +247,39 @@ export default function LifecycleTemplateEditor() {
           </div>
         </div>
 
-        {/* Stages */}
-        <h4 style={{ marginTop: 24, marginBottom: 10 }}>Stages ({stages.length})</h4>
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+        {/* Stages — expandable tree grouped by phase */}
+        <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h4 style={{ margin: 0 }}>Stages ({stages.length})</h4>
+          <span style={{ fontSize: 11, color: '#64748b' }}>Click phase headers to collapse/expand. Use "+ Add stage" in any phase to drop a new stage directly into that phase.</span>
+        </div>
+        <div style={{ marginTop: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
           {stagesByPhase.map(p => (
-            <div key={p.n} style={{ borderTop: p.n === 1 ? 'none' : '1px solid #e2e8f0' }}>
-              <div style={{ padding: '8px 14px', background: '#f1f5f9', fontWeight: 600, fontSize: 12, color: '#334155' }}>
-                Phase {p.n} — {p.label} <span style={{ fontWeight: 400, color: '#64748b' }}>({p.items.length} stages)</span>
-              </div>
-              {p.items.length === 0 ? (
-                <div style={{ padding: 10, fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>(auto-complete — no detail stages)</div>
-              ) : (
-                <table className="mis-table" style={{ width: '100%', fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      <th>Seq</th>
-                      <th>Code</th>
-                      <th>Name</th>
-                      <th>TAT (firm / insurer hrs)</th>
-                      <th>Owner</th>
-                      <th>Completion trigger</th>
-                      <th>Delta</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {p.items.map(s => (
-                      <tr key={s.id}>
-                        <td>{s.sequence_number}</td>
-                        <td style={{ fontFamily: 'monospace', color: '#7c3aed' }}>{s.stage_code}</td>
-                        <td>{s.stage_name}</td>
-                        <td>{s.firm_tat_hours ?? '-'} / {s.insurer_tat_hours ?? '-'}</td>
-                        <td>{s.owner_role || '-'}</td>
-                        <td style={{ fontSize: 11, color: '#475569' }}>{s.completion_trigger || '-'}</td>
-                        <td style={{ fontSize: 11 }}>{s.delta_operation || 'add'}</td>
-                        <td><button className="secondary" style={{ fontSize: 11, padding: '2px 6px', color: '#dc2626' }} onClick={() => deleteStage(s)}>Remove</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            <PhaseSection
+              key={p.n}
+              phase={p}
+              onDeleteStage={deleteStage}
+              onAddHere={() => {
+                setNs({
+                  ...ns,
+                  universal_phase: p.n,
+                  sequence_within_phase: (p.items.length || 0) + 1,
+                  sequence_number: p.items.length > 0
+                    ? Math.max(...p.items.map(i => i.sequence_number || 0)) + 10
+                    : (p.n * 10),
+                });
+                // Scroll to the add-stage form
+                setTimeout(() => {
+                  const el = document.getElementById('add-stage-form');
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 50);
+              }}
+            />
           ))}
         </div>
 
         {/* Add stage form */}
-        <div style={{ marginTop: 14, padding: 14, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 8 }}>
-          <h4 style={{ marginBottom: 10 }}>Add new stage</h4>
+        <div id="add-stage-form" style={{ marginTop: 14, padding: 14, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 8 }}>
+          <h4 style={{ marginBottom: 10 }}>Add new stage — Phase {ns.universal_phase}</h4>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
             <Field label="Stage code *"><input value={ns.stage_code} onChange={e => setNs({ ...ns, stage_code: e.target.value.trim() })} /></Field>
             <Field label="Stage name *"><input value={ns.stage_name} onChange={e => setNs({ ...ns, stage_name: e.target.value })} /></Field>
@@ -357,5 +343,88 @@ function Field({ label, children }) {
       <div style={{ fontSize: 11, color: '#475569', fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {children}
     </label>
+  );
+}
+
+// Collapsible section for a single universal phase — shows its detail stages,
+// provides a "+ Add stage in this phase" button that pre-fills the add-form.
+function PhaseSection({ phase, onDeleteStage, onAddHere }) {
+  const [open, setOpen] = useState(true);
+  const p = phase;
+  return (
+    <div style={{ borderTop: p.n === 1 ? 'none' : '1px solid #e2e8f0' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          padding: '10px 14px',
+          background: '#f1f5f9',
+          fontWeight: 600,
+          fontSize: 12,
+          color: '#334155',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span style={{ fontSize: 10, color: '#7c3aed', width: 14 }}>{open ? '▼' : '▶'}</span>
+        <span>Phase {p.n} — {p.label}</span>
+        <span style={{ fontWeight: 400, color: '#64748b' }}>({p.items.length} stage{p.items.length === 1 ? '' : 's'})</span>
+        <button
+          className="success"
+          style={{ marginLeft: 'auto', fontSize: 10, padding: '3px 8px' }}
+          onClick={e => { e.stopPropagation(); onAddHere && onAddHere(); }}
+          title={`Add a new stage inside Phase ${p.n}`}
+        >
+          + Add stage in this phase
+        </button>
+      </div>
+      {open && (
+        p.items.length === 0 ? (
+          <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>No detail stages. This phase auto-completes when its neighbours do. Add a stage if you need explicit tracking.</span>
+          </div>
+        ) : (
+          <table className="mis-table" style={{ width: '100%', fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>Seq</th>
+                <th>Code</th>
+                <th>Name</th>
+                <th>TAT (firm / insurer hrs)</th>
+                <th>Owner</th>
+                <th>Completion trigger</th>
+                <th>Delta</th>
+                <th style={{ width: 80 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.items.map(s => (
+                <tr key={s.id}>
+                  <td>{s.sequence_number}</td>
+                  <td style={{ fontFamily: 'monospace', color: '#7c3aed' }}>{s.stage_code}</td>
+                  <td>{s.stage_name}</td>
+                  <td>{s.firm_tat_hours ?? '-'} / {s.insurer_tat_hours ?? '-'}</td>
+                  <td>{s.owner_role || '-'}</td>
+                  <td style={{ fontSize: 11, color: '#475569' }}>{s.completion_trigger || '-'}</td>
+                  <td style={{ fontSize: 11 }}>{s.delta_operation || 'add'}</td>
+                  <td>
+                    <button
+                      className="secondary"
+                      style={{ fontSize: 11, padding: '2px 6px', color: '#dc2626', background: '#fee2e2', border: '1px solid #fca5a5' }}
+                      onClick={() => onDeleteStage(s)}
+                      title={`Remove ${s.stage_code}`}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+    </div>
   );
 }

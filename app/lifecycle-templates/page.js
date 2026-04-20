@@ -92,15 +92,66 @@ export default function LifecycleTemplatesList() {
 
   async function toggleActive(t) {
     try {
-      const res = await fetch('/api/lifecycle/templates', {
+      // Try the shape the existing backend exposes; if the API rejects body.id
+      // (some handlers expect ?id=X in query), we fall through to the query
+      // variant in the catch.
+      let res = await fetch('/api/lifecycle/templates', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: t.id, is_active: !t.is_active }),
       });
-      if (!res.ok) throw new Error('Update failed');
+      if (!res.ok) {
+        // Fallback: try the per-id path + PATCH shape
+        res = await fetch(`/api/lifecycle/templates?id=${t.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: !t.is_active }),
+        });
+      }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const msg = errBody.error || errBody.message || `HTTP ${res.status} — ${res.statusText || 'Update failed'}`;
+        throw new Error(msg);
+      }
       showAlertMsg(`${t.template_code} ${t.is_active ? 'deactivated' : 'activated'}`);
       load();
-    } catch (e) { showAlertMsg(e.message, 'error'); }
+    } catch (e) {
+      showAlertMsg(`Could not toggle: ${e.message}`, 'error');
+    }
+  }
+
+  async function deleteTemplate(t) {
+    const typed = window.prompt(
+      `Type the template code EXACTLY to confirm deletion:\n\n  ${t.template_code}\n\nThis will remove the template, its stages and default-item links. Any existing claims attached to this template will keep their snapshot, but no new claims can use it.`,
+      ''
+    );
+    if (typed !== t.template_code) {
+      if (typed !== null) showAlertMsg('Template code did not match — delete cancelled.', 'error');
+      return;
+    }
+    try {
+      let res = await fetch(`/api/lifecycle/templates?id=${t.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        // Fallback: some routes expect body.id on DELETE
+        res = await fetch('/api/lifecycle/templates', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: t.id }),
+        });
+      }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const msg = errBody.error || errBody.message || `HTTP ${res.status} — ${res.statusText || 'Delete failed'}`;
+        if (res.status === 404 || res.status === 405) {
+          throw new Error(`Delete endpoint not available on the backend yet. You can still Deactivate the template. (${msg})`);
+        }
+        throw new Error(msg);
+      }
+      showAlertMsg(`Template ${t.template_code} deleted`);
+      load();
+    } catch (e) {
+      showAlertMsg(`Could not delete: ${e.message}`, 'error');
+    }
   }
 
   const filtered = templates.filter(t => {
@@ -271,13 +322,20 @@ export default function LifecycleTemplatesList() {
                         <td style={{ fontSize: 12 }}>{t.priority}</td>
                         <td style={{ fontSize: 11, color: '#64748b' }}>v{t.version}</td>
                         <td>
-                          <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: t.is_active ? '#dcfce7' : '#f1f5f9', color: t.is_active ? '#166534' : '#475569' }}>
-                            {t.is_active ? 'Active' : 'Inactive'}
+                          <span
+                            title={t.is_active
+                              ? 'Published — the engine will consider this template when assigning lifecycles to new claims. Non-admin users see this template.'
+                              : 'Unpublished — hidden from all pickers. Cannot be attached to new or existing claims. Claims already using it are unaffected.'
+                            }
+                            style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: t.is_active ? '#dcfce7' : '#f1f5f9', color: t.is_active ? '#166534' : '#475569', cursor: 'help' }}
+                          >
+                            {t.is_active ? 'Active (Published)' : 'Inactive'}
                           </span>
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
                           <button className="secondary" style={{ fontSize: 11, padding: '4px 8px', marginRight: 4 }} onClick={() => router.push(`/lifecycle-templates/${t.id}`)}>Edit</button>
-                          <button className="secondary" style={{ fontSize: 11, padding: '4px 8px', color: t.is_active ? '#dc2626' : '#15803d' }} onClick={() => toggleActive(t)}>{t.is_active ? 'Deactivate' : 'Activate'}</button>
+                          <button className="secondary" style={{ fontSize: 11, padding: '4px 8px', marginRight: 4, color: t.is_active ? '#dc2626' : '#15803d' }} onClick={() => toggleActive(t)}>{t.is_active ? 'Deactivate' : 'Activate'}</button>
+                          <button className="secondary" style={{ fontSize: 11, padding: '4px 8px', color: '#dc2626', background: '#fee2e2', border: '1px solid #fca5a5' }} onClick={() => deleteTemplate(t)}>Delete</button>
                         </td>
                       </tr>
                     );
@@ -288,8 +346,16 @@ export default function LifecycleTemplatesList() {
           )}
         </div>
 
-        <div style={{ marginTop: 30, padding: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12 }}>
-          <b>How this affects other users:</b> Only <b>Active</b> templates are candidates when the engine resolves a claim's lifecycle. Feature flags (Branching / Subtasks / Time rules) are inherited by every claim using the template — this is how you control which capabilities downstream users see.
+        <div style={{ marginTop: 30, padding: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12, lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 6 }}>
+            <b>Active (Published) vs Inactive:</b> "Active" means the template is <b>published</b> to the engine — it shows up in the registration picker, in bulk-attach, and can be resolved automatically. "Inactive" hides it everywhere; existing claims already attached stay on it, but no new claims can use it.
+          </div>
+          <div style={{ marginBottom: 6 }}>
+            <b>Deactivate vs Delete:</b> <b>Deactivate</b> is reversible — you can flip it back on any time. <b>Delete</b> permanently removes the template definition (not the claims that used it). Use Delete only for mistakes like accidentally-created test rows.
+          </div>
+          <div>
+            <b>Features passed to other users</b> come from the feature-toggles at each template (Branching / Sub-tasks / Time rules). Non-admins see whatever the admin turns on here.
+          </div>
         </div>
       </div>
     </PageLayout>
