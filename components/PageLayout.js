@@ -194,6 +194,32 @@ export default function PageLayout({ children }) {
                 </div>
                 {user?.role === 'Admin' && (
                   <div className="nav-section">
+                    <div className="nav-section-title">Lifecycle Engine <span style={{ fontSize: 9, background: '#4B0082', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>NEW</span></div>
+                    <Link href="/admin/lifecycle" className={`nav-item ${pathname === '/admin/lifecycle' ? 'active' : ''}`}>
+                      <SideIcon letter="LE" bg="#ede9fe" color="#4B0082" /><span>Engine Dashboard</span>
+                    </Link>
+                    <Link href="/admin/lifecycle/live" className={`nav-item ${pathname === '/admin/lifecycle/live' ? 'active' : ''}`}>
+                      <SideIcon letter="LC" bg="#dcfce7" color="#15803d" /><span>Live Claims</span>
+                    </Link>
+                    <Link href="/admin/lifecycle/breaches" className={`nav-item ${pathname === '/admin/lifecycle/breaches' ? 'active' : ''}`}>
+                      <SideIcon letter="TB" bg="#fee2e2" color="#b91c1c" /><span>TAT Breaches</span>
+                    </Link>
+                    <Link href="/admin/lifecycle/templates" className={`nav-item ${pathname === '/admin/lifecycle/templates' ? 'active' : ''}`}>
+                      <SideIcon letter="TL" bg="#ede9fe" color="#5b21b6" /><span>Template Library</span>
+                    </Link>
+                    <Link href="/admin/lifecycle/items" className={`nav-item ${pathname === '/admin/lifecycle/items' ? 'active' : ''}`}>
+                      <SideIcon letter="IC" bg="#fce7f3" color="#9d174d" /><span>Item Catalog</span>
+                    </Link>
+                    <Link href="/admin/lifecycle/resolver" className={`nav-item ${pathname === '/admin/lifecycle/resolver' ? 'active' : ''}`}>
+                      <SideIcon letter="RD" bg="#fef3c7" color="#92400e" /><span>Resolution Debugger</span>
+                    </Link>
+                    <Link href="/admin/lifecycle/audit" className={`nav-item ${pathname === '/admin/lifecycle/audit' ? 'active' : ''}`}>
+                      <SideIcon letter="AU" bg="#f3f4f6" color="#374151" /><span>History & Audit</span>
+                    </Link>
+                  </div>
+                )}
+                {user?.role === 'Admin' && (
+                  <div className="nav-section">
                     <div className="nav-section-title">Lifecycle Generator <span style={{ fontSize: 9, background: '#7c3aed', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>ADMIN</span></div>
                     <Link href="/lifecycle-templates/features" className={`nav-item ${pathname === '/lifecycle-templates/features' ? 'active' : ''}`}>
                       <SideIcon letter="RM" bg="#fef9c3" color="#a16207" /><span>Features / ReadMe</span>
