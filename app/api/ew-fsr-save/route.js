@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-
-// URL is safe to ship either side; prefer server-only var, fall back to the
-// legacy NEXT_PUBLIC_ var so older Vercel configs keep working.
-const FILE_SERVER_URL =
-  process.env.FILE_SERVER_URL ||
-  process.env.NEXT_PUBLIC_FILE_SERVER_URL ||
-  'http://localhost:4000';
-const PUPPETEER_URL = FILE_SERVER_URL.replace(':4000', ':4001');
-// Key is server-only. No fallback — fail-closed if the env var is missing.
-const FILE_SERVER_KEY = process.env.FILE_SERVER_KEY;
+import { FILE_SERVER_URL, PUPPETEER_URL, buildHeaders } from '@/lib/apiGateway';
 
 // POST - Save FSR to claim folder in all formats (HTML, Word, PDF)
 // Called once after FSR is generated. Saves all 3 files server-side.
@@ -52,7 +43,7 @@ export async function POST(request) {
 
         const res = await fetch(`${FILE_SERVER_URL}/api/upload?folder_path=${encodeURIComponent(fsrFolder)}&overwrite=true`, {
           method: 'POST',
-          headers: { 'X-API-Key': FILE_SERVER_KEY, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+          headers: buildHeaders({ 'Content-Type': `multipart/form-data; boundary=${boundary}` }),
           body,
         });
         const data = await res.json();
@@ -70,7 +61,7 @@ export async function POST(request) {
     try {
       const docxRes = await fetch(`${PUPPETEER_URL}/api/html-to-docx`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': FILE_SERVER_KEY },
+        headers: buildHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ html, folder_path: fsrFolder, filename: `${baseName}.docx` }),
       });
       const docxText = await docxRes.text();
@@ -98,7 +89,7 @@ export async function POST(request) {
     try {
       const pdfRes = await fetch(`${PUPPETEER_URL}/api/html-to-pdf`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': FILE_SERVER_KEY },
+        headers: buildHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ html, folder_path: fsrFolder, filename: `${baseName}.pdf` }),
       });
       const pdfText = await pdfRes.text();

@@ -1,13 +1,5 @@
 import { NextResponse } from 'next/server';
-
-// URL is safe to ship either side; prefer server-only var, fall back to the
-// legacy NEXT_PUBLIC_ var so older Vercel configs keep working.
-const FILE_SERVER_URL =
-  process.env.FILE_SERVER_URL ||
-  process.env.NEXT_PUBLIC_FILE_SERVER_URL ||
-  'http://localhost:4000';
-// Key is server-only. No fallback — fail-closed if the env var is missing.
-const FILE_SERVER_KEY = process.env.FILE_SERVER_KEY;
+import { FILE_SERVER_URL, buildHeaders } from '@/lib/apiGateway';
 
 // Content type map for common file extensions
 const MIME_TYPES = {
@@ -46,9 +38,9 @@ export async function GET(request) {
 
     if (!path) return NextResponse.json({ error: 'path required' }, { status: 400 });
 
-    // Fetch from file server
+    // Fetch from file server (via HTTPS gateway in prod, direct :4000 in dev)
     const fileRes = await fetch(`${FILE_SERVER_URL}/api/download?path=${encodeURIComponent(path)}`, {
-      headers: { 'X-API-Key': FILE_SERVER_KEY },
+      headers: buildHeaders(),
     });
 
     if (!fileRes.ok) {
