@@ -1,3 +1,13 @@
 {
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/comms-cron/gmail",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/comms-cron/classify-pending",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

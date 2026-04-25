@@ -192,6 +192,12 @@ export default function PageLayout({ children }) {
                     <SideIcon letter="FA" bg="#ffe4e6" color="#be123c" /><span>File Assignments</span>
                   </Link>
                 </div>
+                <div className="nav-section">
+                  <div className="nav-section-title">Communications</div>
+                  <Link href="/communications" className={`nav-item ${pathname === '/communications' || pathname.startsWith('/communications/') ? 'active' : ''}`}>
+                    <SideIcon letter="CM" bg="#e0f2fe" color="#0369a1" /><span>Communications</span>
+                  </Link>
+                </div>
                 {user?.role === 'Admin' && (
                   <div className="nav-section">
                     <div className="nav-section-title">Lifecycle Engine <span style={{ fontSize: 9, background: '#4B0082', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>NEW</span></div>
