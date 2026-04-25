@@ -175,10 +175,65 @@ export default function CommsHealthAdminPage() {
             { key: 'details', label: 'Details' },
           ]}
         />
+
+        <SectionTitle>Recent cron activity (last 30)</SectionTitle>
+        <p style={{ margin: '0 0 8px', fontSize: 12, color: '#64748b' }}>
+          Each row is one cron tick or one kill-switch toggle. The <strong>Result</strong>
+          {' '}column comes from <code style={codeChip}>details.result</code> &mdash;
+          {' '}<code style={codeChip}>ok</code> means the cron ran the full path,
+          {' '}<code style={codeChip}>paused</code> means the kill switch short-circuited it,
+          {' '}<code style={codeChip}>error</code> means it threw.
+        </p>
+        <RunsTable
+          rows={(data?.cron_activity || []).map(parseCronActivityRow)}
+          columns={[
+            { key: 'created_at', label: 'When' },
+            { key: 'action', label: 'Action' },
+            { key: 'result', label: 'Result' },
+            { key: 'mailboxes', label: 'Mailboxes' },
+            { key: 'attempted', label: 'Attempted' },
+            { key: 'successful', label: 'OK' },
+            { key: 'error', label: 'Error' },
+          ]}
+        />
       </div>
     </PageLayout>
   );
 }
+
+// Parse the JSON-as-text `details` column on activity_log into
+// flat fields the table can render. Tolerant of malformed/null details.
+function parseCronActivityRow(row) {
+  let parsed = {};
+  try {
+    if (typeof row.details === 'string' && row.details.length > 0) {
+      parsed = JSON.parse(row.details);
+    } else if (row.details && typeof row.details === 'object') {
+      parsed = row.details;
+    }
+  } catch {
+    parsed = {};
+  }
+  return {
+    id: row.id,
+    created_at: row.created_at,
+    action: row.action,
+    result: parsed.result ?? '',
+    mailboxes: parsed.mailboxes ?? '',
+    attempted: parsed.attempted ?? '',
+    successful: parsed.successful ?? '',
+    error: parsed.error ?? '',
+  };
+}
+
+const codeChip = {
+  background: '#f1f5f9',
+  padding: '1px 5px',
+  borderRadius: 4,
+  fontSize: 11,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: '#0f172a',
+};
 
 // ------------------------------------------------------------
 // Sub-components

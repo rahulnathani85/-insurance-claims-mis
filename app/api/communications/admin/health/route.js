@@ -38,6 +38,7 @@ export async function GET(request) {
     { data: ingestRuns },
     { data: classifyRuns },
     { data: audit },
+    { data: cronActivity },
   ] = await Promise.all([
     supabaseAdmin.from('comms_config').select('*').eq('id', 1).single(),
     supabaseAdmin
@@ -59,6 +60,15 @@ export async function GET(request) {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(30),
+    // Stage 2 enhancement: surface cron + kill-switch activity from
+    // activity_log so operators can see paused/ok/error transitions
+    // without leaving the page or running SQL.
+    supabaseAdmin
+      .from('activity_log')
+      .select('id, created_at, action, details, user_email')
+      .or('action.like.comms_cron_%,action.like.comms_%paused,action.like.comms_%resumed')
+      .order('created_at', { ascending: false })
+      .limit(30),
   ]);
 
   return NextResponse.json({
@@ -66,6 +76,7 @@ export async function GET(request) {
     ingestion_runs: ingestRuns || [],
     classification_runs: classifyRuns || [],
     audit: audit || [],
+    cron_activity: cronActivity || [],
   });
 }
 

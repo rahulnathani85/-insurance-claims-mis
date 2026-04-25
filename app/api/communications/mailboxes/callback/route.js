@@ -54,8 +54,10 @@ export async function GET(request) {
     return redirectWith('error=state_expired');
   }
 
-  const clientId = process.env.COMMS_GMAIL_CLIENT_ID;
-  const clientSecret = process.env.COMMS_GMAIL_CLIENT_SECRET;
+  // Stage 2 (Delta C): single Google OAuth client across both flows.
+  // The redirect URI is what disambiguates shared vs per-user.
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
   const redirectUri = process.env.COMMS_GMAIL_REDIRECT_URI;
   if (!clientId || !clientSecret || !redirectUri) {
     return redirectWith('error=server_misconfigured');

@@ -69,11 +69,14 @@ export async function POST(request) {
     return NextResponse.json({ error: 'company is required' }, { status: 400 });
   }
 
-  const clientId = process.env.COMMS_GMAIL_CLIENT_ID;
+  // Stage 2 (Delta C): reuse the existing Gmail OAuth client. Each
+  // flow distinguishes itself by its own redirect URI, registered
+  // alongside the legacy /api/gmail/callback URI on the same client.
+  const clientId = process.env.GMAIL_CLIENT_ID;
   const redirectUri = process.env.COMMS_GMAIL_REDIRECT_URI;
   if (!clientId || !redirectUri) {
     return NextResponse.json(
-      { error: 'COMMS_GMAIL_CLIENT_ID / COMMS_GMAIL_REDIRECT_URI not configured' },
+      { error: 'GMAIL_CLIENT_ID / COMMS_GMAIL_REDIRECT_URI not configured' },
       { status: 500 }
     );
   }
