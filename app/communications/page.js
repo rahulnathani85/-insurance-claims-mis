@@ -12,7 +12,7 @@
 //     yet classifying (classifier lands in Week 2).
 // ============================================================
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
@@ -21,10 +21,35 @@ import { useAuth } from '@/lib/AuthContext';
 export default function CommunicationsHomePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const [queueCount, setQueueCount] = useState(null);
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
   }, [loading, user, router]);
+
+  // Live count of messages awaiting triage. Refresh every 60s.
+  useEffect(() => {
+    if (!user?.email) return;
+    let cancelled = false;
+    const fetchCount = async () => {
+      try {
+        const res = await fetch(
+          '/api/communications/messages?status=received&limit=1&offset=0',
+          {
+            headers: { 'x-app-user-email': user.email },
+            cache: 'no-store',
+          }
+        );
+        const json = await res.json();
+        if (!cancelled && res.ok) setQueueCount(json.total || 0);
+      } catch {
+        // Non-fatal — leave queueCount null.
+      }
+    };
+    fetchCount();
+    const t = setInterval(fetchCount, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user?.email]);
 
   const isAdmin = user?.role === 'Admin';
 
@@ -36,24 +61,33 @@ export default function CommunicationsHomePage() {
             Communications Intelligence
           </h2>
           <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', maxWidth: 720 }}>
-            Centralised triage for claim-related emails (and soon WhatsApp).
+            Human-first triage of claim-related emails (and soon WhatsApp).
             Shared company mailboxes and opted-in user inboxes are polled
-            every 5 minutes; matching messages and their attachments are
-            pulled in and &mdash; from Week 2 &mdash; automatically
-            classified against 8 workflow tags.
+            every 5 minutes; messages land in the triage queue for human
+            categorisation. AI extraction (OCR + LLM) runs only on
+            categorised messages.
           </p>
         </div>
 
-        <Banner kind="warn">
-          The inbox browsing UI arrives in Week 3. Right now you can only
-          connect mailboxes &mdash; ingested messages live in the database
-          and can be inspected via SQL.
-        </Banner>
-
         <div style={{
-          display: 'grid', gap: 14, marginTop: 18,
+          display: 'grid', gap: 14, marginTop: 4,
           gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
         }}>
+          <HubCard
+            title="Triage queue"
+            description="Read each new message and pick a workflow tag (or dismiss if not relevant). Only categorised messages move on to AI extraction."
+            href="/communications/triage"
+            ctaLabel="Open triage queue"
+            badge={
+              queueCount === null
+                ? null
+                : queueCount === 0
+                ? '0 to triage'
+                : `${queueCount} awaiting`
+            }
+            badgeKind={queueCount > 0 ? 'urgent' : 'ok'}
+          />
+
           <HubCard
             title="Scan my Gmail"
             description="Opt your own work Gmail in as a secondary source. Only messages matching a claim-reference pattern are read."
@@ -81,14 +115,14 @@ export default function CommunicationsHomePage() {
 
         <div style={{ ...infoBoxStyle, marginTop: 18 }}>
           <strong style={{ display: 'block', marginBottom: 6, color: '#0f172a' }}>
-            What happens to messages once ingested
+            How a message moves through the system
           </strong>
           <ol style={{ margin: 0, padding: '0 0 0 18px', color: '#334155', fontSize: 13, lineHeight: 1.6 }}>
-            <li>Message + attachments stored in Supabase (bucket <code style={codeStyle}>comms-attachments</code>).</li>
-            <li><em>Week 2:</em> Claude classifies each message against 8 workflow tags.</li>
-            <li><em>Week 3:</em> Browse, filter, and re-classify from this page.</li>
-            <li><em>Week 4:</em> WhatsApp messages flow in via webhook alongside email.</li>
-            <li><em>Week 5:</em> High-confidence classifications auto-route to the right claim; others queue for review.</li>
+            <li>Email arrives at a connected mailbox &rarr; ingested into <code style={codeStyle}>inbox_messages</code> with status <code style={codeStyle}>received</code>.</li>
+            <li>Human opens triage queue &rarr; picks a workflow tag <em>or</em> dismisses as not relevant.</li>
+            <li>If categorised: AI runs OCR on attachments &rarr; LLM extracts structured fields per the chosen tag&apos;s schema.</li>
+            <li>High-confidence extractions auto-route into the relevant claim; uncertain ones queue for review.</li>
+            <li>Dismissed messages are terminal &mdash; AI never runs on them.</li>
           </ol>
         </div>
       </div>
@@ -99,22 +133,37 @@ export default function CommunicationsHomePage() {
 // ------------------------------------------------------------
 // sub-components
 // ------------------------------------------------------------
-function HubCard({ title, description, href, ctaLabel, disabled, adminBadge }) {
+function HubCard({ title, description, href, ctaLabel, disabled, adminBadge, badge, badgeKind }) {
+  const badgeColors = {
+    ok:     { bg: '#ecfdf5', fg: '#065f46' },
+    urgent: { bg: '#fef3c7', fg: '#92400e' },
+    err:    { bg: '#fef2f2', fg: '#991b1b' },
+  };
+  const c = badgeColors[badgeKind] || badgeColors.ok;
   const inner = (
     <div style={{
       ...cardStyle,
       opacity: disabled ? 0.6 : 1,
       cursor: disabled ? 'not-allowed' : 'default',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{title}</div>
-        {adminBadge && (
-          <span style={{
-            fontSize: 10, fontWeight: 700,
-            color: '#5b21b6', background: '#ede9fe',
-            padding: '2px 7px', borderRadius: 999, letterSpacing: 0.5,
-          }}>ADMIN</span>
-        )}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {badge && (
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              color: c.fg, background: c.bg,
+              padding: '2px 8px', borderRadius: 999, letterSpacing: 0.4,
+            }}>{badge}</span>
+          )}
+          {adminBadge && (
+            <span style={{
+              fontSize: 10, fontWeight: 700,
+              color: '#5b21b6', background: '#ede9fe',
+              padding: '2px 7px', borderRadius: 999, letterSpacing: 0.5,
+            }}>ADMIN</span>
+          )}
+        </div>
       </div>
       <p style={{ margin: '8px 0 14px', fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
         {description}
