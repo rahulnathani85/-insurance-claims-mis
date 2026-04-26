@@ -40,13 +40,21 @@ ALTER TABLE inbox_messages
   ADD COLUMN IF NOT EXISTS dismissed_at    timestamptz,
   ADD COLUMN IF NOT EXISTS dismiss_reason  text;
 
+-- Triage-queue partial index — keys off 'received' which is an existing
+-- ENUM value, so Postgres lets us use it in a partial predicate here.
 CREATE INDEX IF NOT EXISTS inbox_messages_triage_queue_idx
   ON inbox_messages (company, status, received_at DESC)
   WHERE status = 'received';
 
+-- Dismissed-messages index. NOTE: we deliberately do NOT use a
+-- `WHERE status = 'dismissed'` partial predicate here because Postgres
+-- 55P04 forbids using a new ENUM value in the same transaction that
+-- created it. A non-partial index on dismissed_at covers our query
+-- patterns (WHERE dismissed_at IS NOT NULL ORDER BY dismissed_at DESC)
+-- because dismissed_at is NULL for non-dismissed rows, so the index
+-- only carries meaningful entries anyway.
 CREATE INDEX IF NOT EXISTS inbox_messages_dismissed_idx
-  ON inbox_messages (company, dismissed_at DESC)
-  WHERE status = 'dismissed';
+  ON inbox_messages (company, dismissed_at DESC);
 
 -- ------------------------------------------------------------
 -- 3. ai_call_log — one row per OCR / LLM call
