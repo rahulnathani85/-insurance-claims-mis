@@ -121,16 +121,28 @@ export async function POST(request) {
   }
 
   // 4. Look up the mailbox (by gmail_address; only Comms-flagged rows).
-  const { data: tokenRow, error: tokErr } = await supabaseAdmin
+  // It's possible to have BOTH a shared-mailbox row AND a per-user opt-in
+  // row for the same gmail_address (e.g. the admin opted in their own
+  // Gmail which happens to be the shared mailbox). We prefer the shared
+  // row when both exist — it's the canonical owner.
+  const { data: tokenRows, error: tokErr } = await supabaseAdmin
     .from('gmail_tokens')
     .select('*')
     .eq('gmail_address', emailAddress)
     .or('is_comms_mailbox.eq.true,is_comms_opted_in.eq.true')
-    .maybeSingle();
+    .order('is_comms_mailbox', { ascending: false }); // shared first
 
   if (tokErr) {
     console.error('[gmail-webhook] token lookup failed:', tokErr);
     return NextResponse.json({ error: tokErr.message }, { status: 500 });
+  }
+  const tokenRow = (tokenRows || [])[0] || null;
+  if ((tokenRows || []).length > 1) {
+    console.warn(
+      '[gmail-webhook] multiple gmail_tokens rows for',
+      emailAddress,
+      '- using shared mailbox row; per-user opt-in row is redundant'
+    );
   }
   if (!tokenRow) {
     // Unknown / disconnected mailbox — ACK without processing.
