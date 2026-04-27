@@ -100,6 +100,8 @@ export default function CommsDashboardPage() {
     ? Math.round((totals.auto_routed / totals.total) * 1000) / 10
     : 0;
 
+  const intimationCount = (byTag.find((t) => t.tag === 'intimation') || {}).count || 0;
+
   return (
     <PageLayout>
       <div style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto' }}>
@@ -143,17 +145,18 @@ export default function CommsDashboardPage() {
         {error && <Banner kind="err">{error}</Banner>}
         {busy && !data && <div style={{ padding: 24, color: '#94a3b8' }}>Loading metrics…</div>}
 
-        {/* KPI cards */}
+        {/* KPI cards — every card links into the triage queue, pre-filtered. */}
         <div style={{
           display: 'grid', gap: 12, marginBottom: 20,
           gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
         }}>
-          <KpiCard label="Total received"     value={totals.total || 0}            color="#0f172a" />
-          <KpiCard label="Unattended"         value={totals.received || 0}         color="#92400e" sub={totals.received > 0 ? 'Action needed' : 'All clear'} />
-          <KpiCard label="Auto-routed"        value={totals.auto_routed || 0}      color="#065f46" sub={`${autoRouteRate}% of total`} />
-          <KpiCard label="Pending review"     value={totals.pending_review || 0}   color="#5b21b6" />
-          <KpiCard label="Extracting"         value={totals.classifying || 0}      color="#1e40af" />
-          <KpiCard label="Dismissed"          value={totals.dismissed || 0}        color="#475569" />
+          <KpiCard label="Total received"     value={totals.total || 0}            color="#0f172a" href="/communications/triage?category=all" />
+          <KpiCard label="New Intimation"     value={intimationCount}              color="#7c3aed" sub="Click to drilldown" href="/communications/triage?tag=intimation" />
+          <KpiCard label="Unattended"         value={totals.received || 0}         color="#92400e" sub={totals.received > 0 ? 'Action needed' : 'All clear'} href="/communications/triage?category=unattended" />
+          <KpiCard label="Auto-routed"        value={totals.auto_routed || 0}      color="#065f46" sub={`${autoRouteRate}% of total`} href="/communications/triage?category=auto_routed" />
+          <KpiCard label="Pending review"     value={totals.pending_review || 0}   color="#5b21b6" href="/communications/review" />
+          <KpiCard label="Extracting"         value={totals.classifying || 0}      color="#1e40af" href="/communications/triage?category=classifying" />
+          <KpiCard label="Dismissed"          value={totals.dismissed || 0}        color="#475569" href="/communications/triage?category=dismissed" />
         </div>
 
         {/* Per-day table */}
@@ -200,7 +203,18 @@ export default function CommsDashboardPage() {
             {byTag.map((t, i) => {
               const pct = totals.total > 0 ? (t.count / totals.total) * 100 : 0;
               return (
-                <div key={t.tag} style={{ padding: '10px 14px', borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}>
+                <Link
+                  key={t.tag}
+                  href={`/communications/triage?tag=${encodeURIComponent(t.tag)}`}
+                  style={{
+                    display: 'block',
+                    padding: '10px 14px',
+                    borderTop: i === 0 ? 'none' : '1px solid #f1f5f9',
+                    textDecoration: 'none', color: 'inherit',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#fafaff'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
                       {TAG_LABELS[t.tag] || t.tag}
@@ -212,7 +226,7 @@ export default function CommsDashboardPage() {
                   <div style={{ background: '#f1f5f9', borderRadius: 999, height: 6, overflow: 'hidden' }}>
                     <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: '#7c3aed', borderRadius: 999 }} />
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -222,12 +236,9 @@ export default function CommsDashboardPage() {
   );
 }
 
-function KpiCard({ label, value, color, sub }) {
-  return (
-    <div style={{
-      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
-      padding: '14px 16px', minHeight: 86,
-    }}>
+function KpiCard({ label, value, color, sub, href }) {
+  const inner = (
+    <>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: 0.5, textTransform: 'uppercase' }}>
         {label}
       </div>
@@ -237,7 +248,27 @@ function KpiCard({ label, value, color, sub }) {
       {sub && (
         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{sub}</div>
       )}
-    </div>
+    </>
+  );
+  const cardStyle = {
+    background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+    padding: '14px 16px', minHeight: 86,
+    transition: 'border-color 0.1s, box-shadow 0.1s',
+  };
+  if (!href) return <div style={cardStyle}>{inner}</div>;
+  return (
+    <Link
+      href={href}
+      style={{
+        ...cardStyle,
+        textDecoration: 'none', color: 'inherit', display: 'block',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(124,58,237,0.15)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+    >
+      {inner}
+    </Link>
   );
 }
 

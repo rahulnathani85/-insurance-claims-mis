@@ -11,7 +11,7 @@
 // ============================================================
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
@@ -59,12 +59,19 @@ const ADMIN_ROLES = new Set(['admin', 'super_admin']);
 
 export default function TriageQueuePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
+
+  // Initial category / tag come from URL so dashboard drilldowns land
+  // on the right pre-filtered view.
+  const urlCategory = searchParams?.get('category') || 'all';
+  const urlTag = searchParams?.get('tag') || '';
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [category, setCategory] = useState('all');
+  const [category, setCategory] = useState(urlCategory);
+  const [tagFilter, setTagFilter] = useState(urlTag);
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -90,6 +97,7 @@ export default function TriageQueuePage() {
     try {
       const params = new URLSearchParams({ category, limit: String(limit), offset: String(offset) });
       if (q.trim()) params.set('q', q.trim());
+      if (tagFilter) params.set('tag', tagFilter);
       const res = await fetch(`/api/communications/messages?${params}`, {
         headers: { 'x-app-user-email': user.email },
         cache: 'no-store',
@@ -102,7 +110,7 @@ export default function TriageQueuePage() {
     } finally {
       setBusy(false);
     }
-  }, [user?.email, category, q, offset]);
+  }, [user?.email, category, tagFilter, q, offset]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -209,6 +217,24 @@ export default function TriageQueuePage() {
             onKeyDown={(e) => { if (e.key === 'Enter') { setOffset(0); load(); } }}
             style={inputStyle}
           />
+          {tagFilter && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              fontSize: 12, fontWeight: 600,
+              background: '#ede9fe', color: '#5b21b6',
+              padding: '4px 10px', borderRadius: 999,
+            }}>
+              Tag: {tagFilter}
+              <button
+                onClick={() => { setOffset(0); setTagFilter(''); }}
+                style={{ all: 'unset', cursor: 'pointer', fontWeight: 700, marginLeft: 2 }}
+                aria-label="Clear tag filter"
+                title="Clear tag filter"
+              >
+                ✕
+              </button>
+            </span>
+          )}
           <button onClick={() => { setOffset(0); load(); }} disabled={busy} style={btnStyle('primary', busy)}>
             {busy ? '…' : 'Search'}
           </button>
