@@ -24,6 +24,7 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/comms/session';
 
@@ -64,7 +65,7 @@ export async function GET(request) {
 
   // Single fetch of all messages in range; aggregation in JS keeps
   // the SQL surface tiny (no GROUP BY round-trips per status).
-  let q = supabaseAdmin
+  let q = supabase
     .from('inbox_messages')
     .select('id, status, received_at')
     .gte('received_at', from.toISOString())
@@ -112,7 +113,7 @@ export async function GET(request) {
     const CHUNK = 100;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const slice = ids.slice(i, i + CHUNK);
-      const { data: clsRows } = await supabaseAdmin
+      const { data: clsRows } = await supabase
         .from('message_classifications')
         .select('tag')
         .in('message_id', slice)

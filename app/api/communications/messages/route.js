@@ -24,6 +24,7 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/comms/session';
 
@@ -100,7 +101,7 @@ export async function GET(request) {
     categoryStatusList = ['auto_routed'];
   } else if (category === 'extraction' || category === 'non_extraction') {
     const tags = category === 'extraction' ? EXTRACTION_TAGS : NON_EXTRACTION_TAGS;
-    const { data: clsRows } = await supabaseAdmin
+    const { data: clsRows } = await supabase
       .from('message_classifications')
       .select('message_id')
       .eq('is_active', true)
@@ -121,7 +122,7 @@ export async function GET(request) {
   // also a tag-group filter, the resulting set is the intersection of
   // both ID lists.
   if (tagFilter) {
-    const { data: clsRows } = await supabaseAdmin
+    const { data: clsRows } = await supabase
       .from('message_classifications')
       .select('message_id')
       .eq('is_active', true)
@@ -145,7 +146,7 @@ export async function GET(request) {
     }
   }
 
-  let query = supabaseAdmin
+  let query = supabase
     .from('inbox_messages')
     .select(
       `id, source, source_msg_id, from_address, from_display, to_address,
@@ -186,7 +187,7 @@ export async function GET(request) {
   const ids = (data || []).map((m) => m.id);
   const tagByMessage = new Map();
   if (ids.length > 0) {
-    const { data: clsRows } = await supabaseAdmin
+    const { data: clsRows } = await supabase
       .from('message_classifications')
       .select('message_id, tag')
       .in('message_id', ids)
