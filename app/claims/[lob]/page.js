@@ -123,6 +123,27 @@ function ClaimsLobContent() {
     }
   }, [filterRef, filterStatus, filterInsurer]);
 
+  // Auto-open the edit modal when arriving with ?editId=<id>. This is
+  // how the comms Intimations page opens the registration form on a
+  // specific claim — the user fills in the remaining fields and saves,
+  // and the PUT handler flips phase from 'intimation' to 'registered'.
+  const editIdParam = searchParams.get('editId');
+  useEffect(() => {
+    if (loading || !editIdParam) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/claims/${editIdParam}`);
+        if (!res.ok) return;
+        const claim = await res.json();
+        if (cancelled || !claim?.id) return;
+        openEditClaim(claim);
+      } catch { /* swallow — user can still browse the list */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editIdParam, loading]);
+
   // Fetch available lifecycle templates for this LOB (used at registration time)
   useEffect(() => {
     if (!lob) return;
