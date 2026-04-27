@@ -206,6 +206,9 @@ export default function PageLayout({ children }) {
                   <Link href="/communications/review" className={`nav-item ${pathname === '/communications/review' ? 'active' : ''}`}>
                     <SideIcon letter="RV" bg="#ede9fe" color="#5b21b6" /><span>Review Queue</span>
                   </Link>
+                  <Link href="/communications/intimations" className={`nav-item ${pathname === '/communications/intimations' ? 'active' : ''}`}>
+                    <SideIcon letter="IN" bg="#fef3c7" color="#b45309" /><span>Pending Registration</span>
+                  </Link>
                 </div>
                 {user?.role === 'Admin' && (
                   <div className="nav-section">

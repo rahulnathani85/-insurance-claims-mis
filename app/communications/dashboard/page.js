@@ -50,6 +50,10 @@ export default function CommsDashboardPage() {
   const [rangeDays, setRangeDays] = useState('7');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  // Intimation-phase claims pending registration. Loaded once on mount,
+  // independent of the date-range picker because it represents a current
+  // backlog rather than a windowed metric.
+  const [pendingRegistration, setPendingRegistration] = useState(null);
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
@@ -88,6 +92,23 @@ export default function CommsDashboardPage() {
   }, [user?.email, rangeDays, customFrom, customTo]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Pending-registration count is independent of the date-range picker.
+  useEffect(() => {
+    if (!user?.email) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/claims/intimations', {
+          headers: { 'x-app-user-email': user.email },
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (!cancelled && res.ok) setPendingRegistration(json.total || 0);
+      } catch { /* silently ignored — card just shows 0 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.email]);
 
   if (loading) return <PageLayout><div style={{ padding: 24 }}>Loading…</div></PageLayout>;
   if (!user) return null;
@@ -152,6 +173,7 @@ export default function CommsDashboardPage() {
         }}>
           <KpiCard label="Total received"     value={totals.total || 0}            color="#0f172a" href="/communications/triage?category=all" />
           <KpiCard label="New Intimation"     value={intimationCount}              color="#7c3aed" sub="Click to drilldown" href="/communications/triage?tag=intimation" />
+          <KpiCard label="Pending Registration" value={pendingRegistration ?? 0}   color="#b45309" sub={(pendingRegistration ?? 0) > 0 ? 'Claims waiting to register' : 'All clear'} href="/communications/intimations" />
           <KpiCard label="Unattended"         value={totals.received || 0}         color="#92400e" sub={totals.received > 0 ? 'Action needed' : 'All clear'} href="/communications/triage?category=unattended" />
           <KpiCard label="Auto-routed"        value={totals.auto_routed || 0}      color="#065f46" sub={`${autoRouteRate}% of total`} href="/communications/triage?category=auto_routed" />
           <KpiCard label="Pending review"     value={totals.pending_review || 0}   color="#5b21b6" href="/communications/review" />
