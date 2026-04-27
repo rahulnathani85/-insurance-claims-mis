@@ -104,7 +104,8 @@ export async function GET(request) {
       .from('message_classifications')
       .select('message_id')
       .eq('is_active', true)
-      .in('tag', tags);
+      .in('tag', tags)
+      .range(0, 9999);
     preFilterIds = (clsRows || []).map((r) => r.message_id);
     categoryStatusList = ['classifying', 'pending_review', 'auto_routed'];
     if (preFilterIds.length === 0) {
@@ -121,11 +122,15 @@ export async function GET(request) {
   // also a tag-group filter, the resulting set is the intersection of
   // both ID lists.
   if (tagFilter) {
+    // Explicit .range() to bypass the PostgREST default 1000-row cap
+    // even though we expect far fewer rows; defensive against the cap
+    // ever being hit silently.
     const { data: clsRows } = await supabaseAdmin
       .from('message_classifications')
       .select('message_id')
       .eq('is_active', true)
-      .eq('tag', tagFilter);
+      .eq('tag', tagFilter)
+      .range(0, 9999);
     const tagIds = (clsRows || []).map((r) => r.message_id);
     if (tagIds.length === 0) {
       return NextResponse.json({ total: 0, limit, offset, messages: [] });

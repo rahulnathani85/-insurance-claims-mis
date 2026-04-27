@@ -68,7 +68,10 @@ export async function GET(request) {
     .from('inbox_messages')
     .select('id, status, received_at')
     .gte('received_at', from.toISOString())
-    .lte('received_at', to.toISOString());
+    .lte('received_at', to.toISOString())
+    // Defensive: bypass the PostgREST default 1000-row cap so the
+    // count totals are never silently truncated for a busy week.
+    .range(0, 9999);
   if (scopeCompany) q = q.eq('company', scopeCompany);
 
   const { data: rows, error } = await q;
