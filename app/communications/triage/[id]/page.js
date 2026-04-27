@@ -168,38 +168,18 @@ export default function TriageDetailPage() {
               )}
             </div>
 
-            <SectionTitle>Body</SectionTitle>
-            <div style={{
-              ...cardStyle,
-              maxHeight: 480, overflowY: 'auto',
-              whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55,
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-              color: '#0f172a',
-            }}>
-              {message.body_plain || '(empty)'}
-            </div>
+            <BodyViewer message={message} />
 
             {attachments?.length > 0 && (
               <>
                 <SectionTitle>Attachments ({attachments.length})</SectionTitle>
                 <div style={cardStyle}>
                   {attachments.map((a) => (
-                    <div key={a.id} style={{
-                      display: 'flex', justifyContent: 'space-between',
-                      padding: '6px 0', borderTop: '1px solid #f1f5f9',
-                      fontSize: 12,
-                    }}>
-                      <span style={{ color: '#0f172a' }}>
-                        {a.is_image ? '🖼️' : '📎'} {a.filename}
-                      </span>
-                      <span style={{ color: '#94a3b8' }}>
-                        {a.mime_type} · {formatBytes(a.size_bytes)}
-                      </span>
-                    </div>
+                    <AttachmentRow key={a.id} attachment={a} />
                   ))}
                   <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
-                    Stage 3c will run OCR on these and feed the text to the LLM
-                    after triage.
+                    Click any attachment to view in a new tab. OCR runs on these
+                    automatically after triage.
                   </div>
                 </div>
               </>
@@ -379,6 +359,139 @@ function ModeButton({ active, onClick, label }) {
       {label}
     </button>
   );
+}
+
+function BodyViewer({ message }) {
+  const hasHtml = !!(message.body_html && message.body_html.trim());
+  const hasPlain = !!(message.body_plain && message.body_plain.trim());
+  // Default to HTML when available — that's how Gmail shows it.
+  const [view, setView] = useState(hasHtml ? 'html' : 'plain');
+
+  return (
+    <>
+      <div style={{
+        margin: '18px 0 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <h3 style={{
+          margin: 0, fontSize: 11, color: '#475569',
+          textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700,
+        }}>Body</h3>
+        {hasHtml && hasPlain && (
+          <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 2, borderRadius: 6 }}>
+            <button
+              onClick={() => setView('html')}
+              style={viewToggleStyle(view === 'html')}
+            >
+              Rich (HTML)
+            </button>
+            <button
+              onClick={() => setView('plain')}
+              style={viewToggleStyle(view === 'plain')}
+            >
+              Plain
+            </button>
+          </div>
+        )}
+      </div>
+
+      {view === 'html' && hasHtml ? (
+        <div style={{
+          ...cardStyle, padding: 0, overflow: 'hidden',
+          maxHeight: 600,
+        }}>
+          {/* Sandboxed iframe — scripts disabled, no top-nav, no form submission.
+              allow-same-origin lets relative <img>/<a> resolve;
+              srcDoc isolates the email's CSS from our app's CSS. */}
+          <iframe
+            srcDoc={message.body_html}
+            sandbox="allow-same-origin allow-popups"
+            style={{
+              width: '100%', minHeight: 480, border: 'none',
+              background: '#fff', display: 'block',
+            }}
+            title="Email body"
+          />
+        </div>
+      ) : (
+        <div style={{
+          ...cardStyle,
+          maxHeight: 480, overflowY: 'auto',
+          whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          color: '#0f172a',
+        }}>
+          {message.body_plain || (hasHtml ? '(plain-text version not available — switch to Rich)' : '(empty)')}
+        </div>
+      )}
+    </>
+  );
+}
+
+function AttachmentRow({ attachment: a }) {
+  const isImage = a.is_image || a.mime_type?.startsWith('image/');
+  const isPdf = a.mime_type === 'application/pdf' || a.filename?.toLowerCase().endsWith('.pdf');
+  const icon = isImage ? '🖼️' : isPdf ? '📄' : '📎';
+  const clickable = !!a.download_url;
+
+  const content = (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '8px 0', borderTop: '1px solid #f1f5f9',
+      fontSize: 12,
+    }}>
+      {isImage && a.download_url ? (
+        <img
+          src={a.download_url}
+          alt={a.filename}
+          style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc' }}
+          onError={(e) => { e.target.style.display = 'none'; }}
+        />
+      ) : (
+        <span style={{
+          width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 18, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4,
+        }}>{icon}</span>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          color: clickable ? '#1d4ed8' : '#0f172a',
+          fontWeight: 600,
+          textDecoration: clickable ? 'underline' : 'none',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {a.filename}
+        </div>
+        <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 1 }}>
+          {a.mime_type} · {formatBytes(a.size_bytes)}
+        </div>
+      </div>
+      {clickable && (
+        <span style={{ fontSize: 11, color: '#0ea5e9', whiteSpace: 'nowrap' }}>Open ↗</span>
+      )}
+    </div>
+  );
+
+  return clickable ? (
+    <a
+      href={a.download_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+    >
+      {content}
+    </a>
+  ) : content;
+}
+
+function viewToggleStyle(active) {
+  return {
+    padding: '3px 10px', fontSize: 11, fontWeight: 600,
+    border: 'none', borderRadius: 4,
+    background: active ? '#fff' : 'transparent',
+    color: active ? '#0f172a' : '#64748b',
+    cursor: 'pointer',
+    boxShadow: active ? '0 1px 2px rgba(15,23,42,0.06)' : 'none',
+  };
 }
 
 function TagGroupSection({ title, titleColor, titleBg, borderColor, tags, selectedTag, onSelect }) {
