@@ -40,8 +40,8 @@ export async function GET(request) {
   let q = supabase
     .from('claims')
     .select(
-      `id, ref_number, lob, insured_name, policy_number, date_loss,
-       loss_location, company, created_at,
+      `id, ref_number, lob, insured_name, policy_number, claim_number,
+       date_loss, loss_location, company, created_at,
        intake_email_from, intake_received_at, intake_message_id`,
       { count: 'exact' }
     )
@@ -62,6 +62,7 @@ export async function GET(request) {
     const missing = [];
     if (!c.insured_name) missing.push('insured_name');
     if (!c.policy_number) missing.push('policy_number');
+    if (!c.claim_number) missing.push('claim_number');
     if (!c.date_loss) missing.push('date_loss');
     if (!c.loss_location) missing.push('loss_location');
     if (!c.ref_number || c.ref_number.startsWith('INTAKE/')) missing.push('ref_number');

@@ -22,6 +22,40 @@ export default function IntimationsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Per-row edits and saving state. Keyed by claim id. Edits are
+  // local until the user hits Save on that row, then PUT'd.
+  const [edits, setEdits] = useState({});
+  const [savingId, setSavingId] = useState(null);
+
+  function patchEdit(id, field, value) {
+    setEdits((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: value } }));
+  }
+
+  async function saveRow(claim) {
+    const patch = edits[claim.id];
+    if (!patch || Object.keys(patch).length === 0) return;
+    setSavingId(claim.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/claims/${claim.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
+        // Important: explicitly preserve phase='intimation' here.
+        // The PUT route auto-flips intimation → registered when phase
+        // is undefined; for inline edits we want the row to stay on
+        // this page, so we send phase explicitly.
+        body: JSON.stringify({ ...patch, phase: 'intimation' }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setEdits((prev) => { const n = { ...prev }; delete n[claim.id]; return n; });
+      await load();
+    } catch (err) {
+      setError(`Save failed: ${err.message}`);
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
@@ -80,9 +114,10 @@ export default function IntimationsPage() {
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={thStyle}>Ref</th>
+                  <th style={thStyle}>Intake Ref</th>
                   <th style={thStyle}>Insured / From</th>
-                  <th style={thStyle}>Policy</th>
+                  <th style={thStyle}>Policy #</th>
+                  <th style={thStyle}>Company Ref #</th>
                   <th style={thStyle}>LOB</th>
                   <th style={thStyle}>DOL</th>
                   <th style={thStyle}>Loss Location</th>
@@ -92,43 +127,94 @@ export default function IntimationsPage() {
               </thead>
               <tbody>
                 {claims.map((c) => {
-                  const isPlaceholderRef = !c.ref_number || c.ref_number.startsWith('INTAKE/');
+                  const e = edits[c.id] || {};
+                  // Helper that returns the current edit value if set,
+                  // otherwise the value from the server.
+                  const v = (field) => (e[field] !== undefined ? e[field] : (c[field] ?? ''));
+                  const dirty = Object.keys(e).length > 0;
+                  const isSaving = savingId === c.id;
                   return (
                     <tr key={c.id}>
                       <td style={tdStyle}>
-                        <Link href={`/claim-detail/${c.id}`} style={{ color: isPlaceholderRef ? '#92400e' : '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
-                          {isPlaceholderRef ? 'Pending' : c.ref_number}
-                        </Link>
+                        <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
+                          {c.ref_number || 'Pending'}
+                        </div>
                         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                          Received {fmtDateTime(c.intake_received_at || c.created_at)}
+                          {fmtDateTime(c.intake_received_at || c.created_at)}
                         </div>
                       </td>
                       <td style={tdStyle}>
-                        {c.insured_name ? (
-                          c.insured_name
-                        ) : (
-                          <span style={{ color: '#92400e', fontSize: 12 }}>
-                            From: {c.intake_email_from || '—'}
-                          </span>
-                        )}
+                        <input
+                          value={v('insured_name')}
+                          onChange={(ev) => patchEdit(c.id, 'insured_name', ev.target.value)}
+                          placeholder={c.intake_email_from ? `From: ${c.intake_email_from}` : 'Insured name'}
+                          style={inputStyle}
+                        />
                       </td>
-                      <td style={tdStyle}>{c.policy_number || <span style={fadedStyle}>—</span>}</td>
-                      <td style={tdStyle}>{c.lob || '—'}</td>
-                      <td style={tdStyle}>{c.date_loss ? fmtDate(c.date_loss) : <span style={fadedStyle}>—</span>}</td>
-                      <td style={tdStyle}>{c.loss_location || <span style={fadedStyle}>—</span>}</td>
+                      <td style={tdStyle}>
+                        <input
+                          value={v('policy_number')}
+                          onChange={(ev) => patchEdit(c.id, 'policy_number', ev.target.value)}
+                          placeholder="—"
+                          style={inputStyle}
+                        />
+                      </td>
+                      <td style={tdStyle}>
+                        <input
+                          value={v('claim_number')}
+                          onChange={(ev) => patchEdit(c.id, 'claim_number', ev.target.value)}
+                          placeholder="—"
+                          style={inputStyle}
+                        />
+                      </td>
+                      <td style={tdStyle}>
+                        <select
+                          value={v('lob')}
+                          onChange={(ev) => patchEdit(c.id, 'lob', ev.target.value)}
+                          style={inputStyle}
+                        >
+                          <option value="">—</option>
+                          {LOB_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </td>
+                      <td style={tdStyle}>
+                        <input
+                          type="date"
+                          value={v('date_loss') ? String(v('date_loss')).slice(0, 10) : ''}
+                          onChange={(ev) => patchEdit(c.id, 'date_loss', ev.target.value || null)}
+                          style={inputStyle}
+                        />
+                      </td>
+                      <td style={tdStyle}>
+                        <input
+                          value={v('loss_location')}
+                          onChange={(ev) => patchEdit(c.id, 'loss_location', ev.target.value)}
+                          placeholder="—"
+                          style={inputStyle}
+                        />
+                      </td>
                       <td style={tdStyle}>
                         <MissingFieldChips fields={c.missing_fields || []} />
                       </td>
                       <td style={tdStyle}>
-                        <Link
-                          href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
-                          style={{
-                            ...btnStyle('primary', false),
-                            textDecoration: 'none', display: 'inline-block',
-                          }}
-                        >
-                          Claim Registration →
-                        </Link>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <button
+                            onClick={() => saveRow(c)}
+                            disabled={!dirty || isSaving}
+                            style={{ ...btnStyle('secondary', !dirty || isSaving), whiteSpace: 'nowrap' }}
+                          >
+                            {isSaving ? 'Saving…' : 'Save inline'}
+                          </button>
+                          <Link
+                            href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                            style={{
+                              ...btnStyle('primary', false),
+                              textDecoration: 'none', display: 'inline-block', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Register →
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -142,11 +228,26 @@ export default function IntimationsPage() {
   );
 }
 
+// LOB options shown in the inline dropdown. Mirrors the canonical
+// LOB names used elsewhere in the portal (must match the keys the
+// claims page knows how to render in the Edit Claim form).
+const LOB_OPTIONS = [
+  'Motor', 'Marine Cargo', 'Fire', 'Engineering',
+  'Business Interruption', 'Liability', 'Miscellaneous',
+];
+
+const inputStyle = {
+  width: '100%', padding: '5px 7px', fontSize: 12,
+  border: '1px solid #e2e8f0', borderRadius: 4,
+  background: '#fff', boxSizing: 'border-box',
+};
+
 // Field-name → human-readable label for the "Needs" column. Keeps the
 // chip list short and recognisable.
 const FIELD_LABEL = {
   insured_name: 'Insured',
   policy_number: 'Policy #',
+  claim_number: 'Company Ref',
   date_loss: 'Date of loss',
   loss_location: 'Location',
   ref_number: 'Ref #',
