@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
 import { PIPELINE_STAGES, getClaimTatDeadline, getTatBadge } from '@/lib/pipelineStages';
+import { useMediaQuery, MOBILE_BREAKPOINT } from '@/lib/useMediaQuery';
 
 const STATUS_STYLES = {
   'Completed': { bg: '#dcfce7', color: '#166534', icon: '✅' },
@@ -18,6 +19,7 @@ export default function ClaimDetail() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const [claim, setClaim] = useState(null);
   const [workflow, setWorkflow] = useState([]);
   const [history, setHistory] = useState([]);
@@ -498,14 +500,19 @@ export default function ClaimDetail() {
           );
         })()}
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #e5e7eb', marginBottom: 20 }}>
+        {/* Tabs — horizontally scrollable on mobile */}
+        <div style={{
+          display: 'flex', gap: 0, borderBottom: '2px solid #e5e7eb', marginBottom: 20,
+          overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+        }}>
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)}
               style={{
-                padding: '10px 20px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 400,
+                padding: isMobile ? '10px 14px' : '10px 20px',
+                fontSize: 13, fontWeight: activeTab === t.key ? 700 : 400,
                 background: 'none', border: 'none', borderBottom: activeTab === t.key ? '3px solid #1e40af' : '3px solid transparent',
                 color: activeTab === t.key ? '#1e40af' : '#6b7280', cursor: 'pointer',
+                whiteSpace: 'nowrap', flexShrink: 0,
               }}>
               {t.icon} {t.label}
               {t.badge && <span style={{ marginLeft: 4, padding: '1px 6px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: '#1e40af', color: '#fff' }}>{t.badge}</span>}
@@ -516,7 +523,7 @@ export default function ClaimDetail() {
         {/* TAB: Overview */}
         {activeTab === 'overview' && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
               {/* Claim Registration Details */}
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 20 }}>
                 <h4 style={{ margin: '0 0 15px', color: '#1e40af', borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>Claim Registration</h4>
@@ -1052,7 +1059,7 @@ export default function ClaimDetail() {
             ) : (
               <div>
                 {/* Structured Team View */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
                   {/* Lead Surveyor */}
                   {(() => { const lead = assignments.find(a => a.assignment_type === 'lead_surveyor'); return (
                     <div style={{ border: '2px solid #1e40af', borderRadius: 10, padding: 14, background: '#eff6ff' }}>

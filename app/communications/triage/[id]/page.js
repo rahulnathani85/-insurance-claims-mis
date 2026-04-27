@@ -15,17 +15,19 @@
 // After successful submit, redirects back to /communications/triage.
 // ============================================================
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
+import { useMediaQuery, MOBILE_BREAKPOINT } from '@/lib/useMediaQuery';
 
 export default function TriageDetailPage() {
   const router = useRouter();
   const params = useParams();
   const messageId = params?.id;
   const { user, loading } = useAuth();
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -120,13 +122,13 @@ export default function TriageDetailPage() {
     );
   }
 
-  const { message, attachments, classifications, tags } = data;
+  const { message, attachments, classifications, tags, drafts } = data;
   const isReceived = message.status === 'received';
   const activeClassification = (classifications || []).find((c) => c.is_active);
 
   return (
     <PageLayout>
-      <div style={{ padding: '20px 24px', maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ padding: isMobile ? '12px 14px' : '20px 24px', maxWidth: 1100, margin: '0 auto' }}>
         <BackLink />
 
         <h2 style={{ margin: '8px 0 4px', fontSize: 22, color: '#1e293b' }}>
@@ -148,10 +150,11 @@ export default function TriageDetailPage() {
           </Banner>
         )}
 
-        {/* Two-column layout: message content + triage actions */}
+        {/* Two-column layout: message content + triage actions
+            On mobile: single column stack so triage actions appear after the body */}
         <div style={{
           display: 'grid', gap: 18,
-          gridTemplateColumns: 'minmax(0, 1fr) 360px',
+          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 360px',
           alignItems: 'start',
         }}>
           {/* LEFT: message content */}
@@ -168,20 +171,32 @@ export default function TriageDetailPage() {
               )}
             </div>
 
+            {/* Attachments BEFORE body — easier to find. */}
+            <SectionTitle>
+              Attachments ({attachments?.length || 0})
+              {message.attachments_count > (attachments?.length || 0) && (
+                <span style={{ marginLeft: 8, fontSize: 10, color: '#b45309', background: '#fef3c7', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                  Gmail reported {message.attachments_count}
+                </span>
+              )}
+            </SectionTitle>
+            <AttachmentsBlock
+              attachments={attachments}
+              gmailCount={message.attachments_count}
+              messageId={message.id}
+              userEmail={user.email}
+              userRole={user.role}
+              onReprocessed={load}
+            />
+
             <BodyViewer message={message} />
 
-            {attachments?.length > 0 && (
+            {drafts && drafts.filter((d) => d.status !== 'discarded').length > 0 && (
               <>
-                <SectionTitle>Attachments ({attachments.length})</SectionTitle>
-                <div style={cardStyle}>
-                  {attachments.map((a) => (
-                    <AttachmentRow key={a.id} attachment={a} />
-                  ))}
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
-                    Click any attachment to view in a new tab. OCR runs on these
-                    automatically after triage.
-                  </div>
-                </div>
+                <SectionTitle>AI Reply Drafts ({drafts.filter((d) => d.status !== 'discarded').length})</SectionTitle>
+                {drafts.filter((d) => d.status !== 'discarded').map((draft) => (
+                  <DraftCard key={draft.id} draft={draft} userEmail={user.email} onUpdate={load} />
+                ))}
               </>
             )}
           </div>
@@ -361,11 +376,285 @@ function ModeButton({ active, onClick, label }) {
   );
 }
 
+function DraftCard({ draft, userEmail, onUpdate }) {
+  const [editedBody, setEditedBody] = useState(draft.body_edited || draft.body);
+  const [editedSubject, setEditedSubject] = useState(draft.subject);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const isSent = draft.status === 'sent';
+
+  async function patch(updates) {
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch(`/api/communications/drafts/${draft.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-app-user-email': userEmail },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      if (onUpdate) await onUpdate();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function discard() {
+    if (!confirm('Discard this draft?')) return;
+    await patch({ status: 'discarded' });
+  }
+
+  async function copyToClipboard() {
+    try {
+      await navigator.clipboard.writeText(`To: ${draft.to_address}\nSubject: ${editedSubject}\n\n${editedBody}`);
+      alert('Copied to clipboard. Paste into Gmail to send.');
+    } catch (err) {
+      alert('Copy failed: ' + err.message);
+    }
+  }
+
+  return (
+    <div style={{
+      ...cardStyle, marginBottom: 10,
+      borderLeft: `4px solid ${isSent ? '#10b981' : '#7c3aed'}`,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+        <div>
+          <span style={{
+            fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+            background: isSent ? '#dcfce7' : '#ede9fe',
+            color: isSent ? '#166534' : '#5b21b6',
+          }}>
+            {isSent ? '✓ SENT' : 'AI DRAFT'}
+          </span>
+          {draft.llm_provider && (
+            <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8' }}>
+              {draft.llm_provider}
+              {draft.llm_cost_inr ? ` · ₹${Number(draft.llm_cost_inr).toFixed(4)}` : ''}
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>
+          {new Date(draft.created_at).toLocaleString('en-IN')}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>
+        <strong>To:</strong> {draft.to_address}
+      </div>
+
+      {isSent ? (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 4 }}>{editedSubject}</div>
+          <div style={{ fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.5, padding: '8px 0' }}>
+            {editedBody}
+          </div>
+          <div style={{ fontSize: 11, color: '#65a30d', marginTop: 6 }}>
+            Sent {draft.sent_at ? new Date(draft.sent_at).toLocaleString('en-IN') : ''} by {draft.sent_by}
+          </div>
+        </>
+      ) : (
+        <>
+          <input
+            type="text" value={editedSubject}
+            onChange={(e) => setEditedSubject(e.target.value)}
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '6px 10px',
+              fontSize: 13, fontWeight: 600, border: '1px solid #e2e8f0', borderRadius: 6, marginBottom: 6,
+            }}
+            disabled={busy}
+          />
+          <textarea
+            value={editedBody}
+            onChange={(e) => setEditedBody(e.target.value)}
+            rows={Math.min(Math.max(editedBody.split('\n').length, 6), 18)}
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+              fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit',
+              border: '1px solid #e2e8f0', borderRadius: 6, resize: 'vertical',
+            }}
+            disabled={busy}
+          />
+          {error && (
+            <div style={{ fontSize: 12, color: '#991b1b', marginTop: 6 }}>{error}</div>
+          )}
+          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => patch({ subject: editedSubject, body_edited: editedBody })}
+              disabled={busy || (editedBody === (draft.body_edited || draft.body) && editedSubject === draft.subject)}
+              style={btn('secondary', busy)}
+            >
+              Save edits
+            </button>
+            <button onClick={copyToClipboard} disabled={busy} style={btn('secondary', busy)}>
+              Copy to clipboard
+            </button>
+            <button
+              onClick={() => patch({ subject: editedSubject, body_edited: editedBody, status: 'sent' })}
+              disabled={busy}
+              style={btn('primary', busy)}
+            >
+              Mark as sent
+            </button>
+            <button onClick={discard} disabled={busy} style={btn('danger', busy)}>
+              Discard
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function btn(variant, disabled) {
+  const base = { padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 };
+  if (variant === 'primary') return { ...base, background: '#1e3a5f', color: '#fff' };
+  if (variant === 'danger') return { ...base, background: '#fef2f2', color: '#991b1b' };
+  return { ...base, background: '#f1f5f9', color: '#0f172a' };
+}
+
+function AttachmentsBlock({ attachments, gmailCount, messageId, userEmail, userRole, onReprocessed }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const isAdmin = ['admin', 'super_admin'].includes(String(userRole || '').toLowerCase());
+  const storedCount = attachments?.length || 0;
+  const missingAttachments = (gmailCount || 0) > storedCount;
+
+  async function reprocess() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/communications/messages/${messageId}/reprocess-attachments`, {
+        method: 'POST',
+        headers: { 'x-app-user-email': userEmail },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setResult(json);
+      // Refresh the page data so the attachments show up.
+      if (onReprocessed) await onReprocessed();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={cardStyle}>
+      {storedCount > 0 ? (
+        <>
+          {attachments.map((a) => (
+            <AttachmentRow key={a.id} attachment={a} />
+          ))}
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
+            Click any attachment to view in a new tab. Inline (cid:) images in the
+            email body won&apos;t render — open them from this list.
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '4px 0' }}>
+          No file attachments on this email.
+        </div>
+      )}
+
+      {/* Admin recovery: re-fetch from Gmail when stored < reported */}
+      {isAdmin && missingAttachments && (
+        <div style={{
+          marginTop: 12, paddingTop: 10, borderTop: '1px solid #f1f5f9',
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        }}>
+          <div style={{ fontSize: 11, color: '#92400e', flex: '1 1 auto' }}>
+            <strong>Mismatch:</strong> Gmail reported {gmailCount} attachments but only {storedCount} are stored.
+            Likely a transient ingest error.
+          </div>
+          <button
+            onClick={reprocess}
+            disabled={busy}
+            style={{
+              padding: '5px 12px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 6,
+              background: busy ? '#cbd5e1' : '#1e3a5f', color: '#fff',
+              cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            {busy ? 'Re-fetching…' : 'Reprocess from Gmail'}
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b', background: '#fef2f2', padding: '6px 10px', borderRadius: 6 }}>
+          {error}
+        </div>
+      )}
+      {result && (
+        <div style={{
+          marginTop: 8, fontSize: 12, padding: '8px 10px', borderRadius: 6,
+          color: result.failed > 0 ? '#92400e' : '#065f46',
+          background: result.failed > 0 ? '#fffbeb' : '#ecfdf5',
+        }}>
+          <div style={{ fontWeight: 700 }}>
+            Recovered {result.new_count} of {result.gmail_reported} attachments
+            {result.failed > 0 && ` — ${result.failed} failed`}.
+          </div>
+          {result.failures_by_stage && Object.keys(result.failures_by_stage).length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 11 }}>
+              {Object.entries(result.failures_by_stage).map(([stage, items]) => (
+                <div key={stage} style={{ marginTop: 4 }}>
+                  <strong>{stage}</strong> ({items.length}):
+                  <div style={{ marginLeft: 8, color: '#78716c', fontFamily: 'ui-monospace, monospace' }}>
+                    {items.slice(0, 3).map((it, i) => (
+                      <div key={i}>• {it.filename}: {it.error}</div>
+                    ))}
+                    {items.length > 3 && <div>… and {items.length - 3} more with same error</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BodyViewer({ message }) {
   const hasHtml = !!(message.body_html && message.body_html.trim());
   const hasPlain = !!(message.body_plain && message.body_plain.trim());
-  // Default to HTML when available — that's how Gmail shows it.
   const [view, setView] = useState(hasHtml ? 'html' : 'plain');
+  const iframeRef = useRef(null);
+  const [iframeHeight, setIframeHeight] = useState(400);
+
+  // Auto-resize iframe to fit its content so the page scrolls naturally
+  // (no double scrollbar fighting with the page).
+  function handleIframeLoad() {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) return;
+      // Add a CSS rule that hides broken images (cid: refs that don't resolve).
+      const style = doc.createElement('style');
+      style.textContent = `
+        body { margin: 12px; font-family: -apple-system, system-ui, sans-serif; }
+        img { max-width: 100%; height: auto; }
+        img[src^="cid:"] { display: none; }
+      `;
+      doc.head.appendChild(style);
+      // Measure body and resize iframe.
+      const h = Math.max(doc.body.scrollHeight + 24, 200);
+      setIframeHeight(h);
+    } catch {
+      // Cross-origin or sandbox restriction — fall back to fixed height.
+    }
+  }
 
   return (
     <>
@@ -378,35 +667,21 @@ function BodyViewer({ message }) {
         }}>Body</h3>
         {hasHtml && hasPlain && (
           <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 2, borderRadius: 6 }}>
-            <button
-              onClick={() => setView('html')}
-              style={viewToggleStyle(view === 'html')}
-            >
-              Rich (HTML)
-            </button>
-            <button
-              onClick={() => setView('plain')}
-              style={viewToggleStyle(view === 'plain')}
-            >
-              Plain
-            </button>
+            <button onClick={() => setView('html')} style={viewToggleStyle(view === 'html')}>Rich (HTML)</button>
+            <button onClick={() => setView('plain')} style={viewToggleStyle(view === 'plain')}>Plain</button>
           </div>
         )}
       </div>
 
       {view === 'html' && hasHtml ? (
-        <div style={{
-          ...cardStyle, padding: 0, overflow: 'hidden',
-          maxHeight: 600,
-        }}>
-          {/* Sandboxed iframe — scripts disabled, no top-nav, no form submission.
-              allow-same-origin lets relative <img>/<a> resolve;
-              srcDoc isolates the email's CSS from our app's CSS. */}
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
           <iframe
+            ref={iframeRef}
             srcDoc={message.body_html}
             sandbox="allow-same-origin allow-popups"
+            onLoad={handleIframeLoad}
             style={{
-              width: '100%', minHeight: 480, border: 'none',
+              width: '100%', height: iframeHeight, border: 'none',
               background: '#fff', display: 'block',
             }}
             title="Email body"
@@ -415,7 +690,6 @@ function BodyViewer({ message }) {
       ) : (
         <div style={{
           ...cardStyle,
-          maxHeight: 480, overflowY: 'auto',
           whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           color: '#0f172a',

@@ -51,12 +51,13 @@ export async function GET(request, { params }) {
     );
   }
 
-  // Parallel fetches: attachments, classifications, extractions, tag library.
+  // Parallel fetches: attachments, classifications, extractions, tag library, drafts.
   const [
     { data: attachments },
     { data: classifications },
     { data: extractions },
     { data: tagDefs },
+    { data: drafts },
   ] = await Promise.all([
     supabaseAdmin
       .from('message_attachments')
@@ -78,6 +79,11 @@ export async function GET(request, { params }) {
       .select('tag, display_label, short_code, description, guidance, ui_color, extraction_required, extraction_schema, auto_route_threshold, sort_order')
       .eq('enabled', true)
       .order('sort_order', { ascending: true }),
+    supabaseAdmin
+      .from('email_drafts')
+      .select('id, to_address, subject, body, body_edited, status, generated_by, llm_provider, llm_cost_inr, sent_at, sent_by, created_at, updated_at')
+      .eq('message_id', id)
+      .order('created_at', { ascending: false }),
   ]);
 
   // Mint signed download URLs for each attachment so the browser can
@@ -100,5 +106,6 @@ export async function GET(request, { params }) {
     classifications: classifications || [],
     extractions: extractions || [],
     tags: tagDefs || [],
+    drafts: drafts || [],
   });
 }
