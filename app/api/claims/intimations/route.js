@@ -12,6 +12,7 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/comms/session';
 
@@ -31,7 +32,12 @@ export async function GET(request) {
   const isMultiCompany = MULTI_COMPANY_ROLES.has(userCompanyKey);
   const scopeCompany = isMultiCompany ? (companyParam || null) : user.company;
 
-  let q = supabaseAdmin
+  // Use the regular supabase client (matches /api/claims which is the
+  // known-working list endpoint). supabaseAdmin was returning 0 rows
+  // here despite the data being present and RLS being off — the root
+  // cause turned out to be unrelated to credentials, but mirroring the
+  // working endpoint sidesteps the issue.
+  let q = supabase
     .from('claims')
     .select(
       `id, ref_number, lob, insured_name, policy_number, date_loss,
