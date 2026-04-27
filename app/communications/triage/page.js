@@ -37,14 +37,23 @@ const NON_EXTRACTION = [
   { tag: 'others',              label: 'Others',                    guidance: 'Does not fit any defined category. Add a note explaining why before dismissing.' },
 ];
 
-const STATUS_OPTIONS = [
-  { value: 'received',       label: 'Awaiting triage' },
-  { value: 'classifying',    label: 'Triaged (extracting)' },
-  { value: 'pending_review', label: 'Pending review' },
-  { value: 'auto_routed',    label: 'Auto-routed' },
-  { value: 'dismissed',      label: 'Dismissed' },
-  { value: 'all',            label: 'All statuses' },
+// New action-oriented filter — replaces the raw-status dropdown.
+// 'category' is sent to /api/communications/messages and the server
+// joins against message_classifications when needed.
+const CATEGORY_OPTIONS = [
+  { value: 'all',            label: 'All Mails' },
+  { value: 'unattended',     label: 'Unattended Emails' },
+  { value: 'dismissed',      label: 'Attended — Dismissed' },
+  { value: 'auto_routed',    label: 'Attended — Auto Routed' },
+  { value: 'extraction',     label: 'Attended — Categorised (Extraction)' },
+  { value: 'non_extraction', label: 'Attended — Categorised (Non Extraction)' },
 ];
+
+// Tag-group sets — mirror the EXTRACTION_REQUIRED / NON_EXTRACTION
+// arrays above. Used by ActionBadge to decide which "Categorised"
+// label to show on a triaged message.
+const EXTRACTION_TAG_SET = new Set(EXTRACTION_REQUIRED.map((t) => t.tag));
+const NON_EXTRACTION_TAG_SET = new Set(NON_EXTRACTION.map((t) => t.tag));
 
 const ADMIN_ROLES = new Set(['admin', 'super_admin']);
 
@@ -55,7 +64,7 @@ export default function TriageQueuePage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('received');
+  const [category, setCategory] = useState('all');
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -79,7 +88,7 @@ export default function TriageQueuePage() {
     setSelected(new Set());
     setBulkResult(null);
     try {
-      const params = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
+      const params = new URLSearchParams({ category, limit: String(limit), offset: String(offset) });
       if (q.trim()) params.set('q', q.trim());
       const res = await fetch(`/api/communications/messages?${params}`, {
         headers: { 'x-app-user-email': user.email },
@@ -93,7 +102,7 @@ export default function TriageQueuePage() {
     } finally {
       setBusy(false);
     }
-  }, [user?.email, status, q, offset]);
+  }, [user?.email, category, q, offset]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -120,18 +129,29 @@ export default function TriageQueuePage() {
     setBulkBusy(true);
     setBulkResult(null);
     const ids = [...selected];
-    let ok = 0; let fail = 0;
-    for (const message_id of ids) {
-      try {
-        const res = await fetch('/api/communications/triage', {
+
+    // Sentinel value 'DISMISS' switches the per-row request from
+    // action=classify to action=dismiss. Everything else is treated
+    // as a workflow_tag and goes through the classify path.
+    const isDismiss = bulkTag === 'DISMISS';
+
+    const settled = await Promise.allSettled(
+      ids.map((message_id) =>
+        fetch('/api/communications/triage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
-          body: JSON.stringify({ message_id, action: 'classify', tag: bulkTag }),
-        });
-        if (res.ok) ok++; else fail++;
-      } catch { fail++; }
-    }
-    setBulkResult({ ok, fail, total: ids.length });
+          body: JSON.stringify(
+            isDismiss
+              ? { message_id, action: 'dismiss', reason: 'Bulk dismiss from triage queue' }
+              : { message_id, action: 'classify', tag: bulkTag }
+          ),
+        }).then((res) => (res.ok ? 'ok' : 'fail'))
+      )
+    );
+    const ok = settled.filter((r) => r.status === 'fulfilled' && r.value === 'ok').length;
+    const fail = ids.length - ok;
+
+    setBulkResult({ ok, fail, total: ids.length, dismiss: isDismiss });
     setBulkBusy(false);
     setBulkTag('');
     await load();
@@ -166,16 +186,16 @@ export default function TriageQueuePage() {
         {error && <Banner kind="err">{error}</Banner>}
         {bulkResult && (
           <Banner kind={bulkResult.fail > 0 ? 'warn' : 'ok'}>
-            Bulk categorise: {bulkResult.ok} succeeded, {bulkResult.fail} failed (of {bulkResult.total}).
+            Bulk {bulkResult.dismiss ? 'dismiss' : 'categorise'}: {bulkResult.ok} succeeded, {bulkResult.fail} failed (of {bulkResult.total}).
           </Banner>
         )}
 
         {/* Filter bar */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <label style={labelStyle}>
-            Status:
-            <select value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value); }} style={selectStyle}>
-              {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            Show:
+            <select value={category} onChange={(e) => { setOffset(0); setCategory(e.target.value); }} style={selectStyle}>
+              {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
           <input
@@ -193,7 +213,7 @@ export default function TriageQueuePage() {
         </div>
 
         {/* Admin bulk-action bar */}
-        {isAdmin && status === 'received' && messages.length > 0 && (
+        {isAdmin && (category === 'all' || category === 'unattended') && messages.length > 0 && (
           <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
               Admin bulk action
@@ -207,20 +227,25 @@ export default function TriageQueuePage() {
               style={{ ...selectStyle, minWidth: 220 }}
               disabled={selected.size === 0 || bulkBusy}
             >
-              <option value="">— choose category —</option>
+              <option value="">— choose action —</option>
               <optgroup label="Extraction Required">
                 {EXTRACTION_REQUIRED.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
               </optgroup>
               <optgroup label="No Extraction">
                 {NON_EXTRACTION.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
               </optgroup>
+              <optgroup label="Dismiss">
+                <option value="DISMISS">Dismiss (not relevant — drop without extraction)</option>
+              </optgroup>
             </select>
             <button
               onClick={applyBulkTag}
               disabled={!bulkTag || selected.size === 0 || bulkBusy}
-              style={btnStyle('primary', !bulkTag || selected.size === 0 || bulkBusy)}
+              style={btnStyle(bulkTag === 'DISMISS' ? 'danger' : 'primary', !bulkTag || selected.size === 0 || bulkBusy)}
             >
-              {bulkBusy ? 'Applying…' : `Apply to ${selected.size}`}
+              {bulkBusy
+                ? (bulkTag === 'DISMISS' ? 'Dismissing…' : 'Applying…')
+                : (bulkTag === 'DISMISS' ? `Dismiss ${selected.size}` : `Apply to ${selected.size}`)}
             </button>
           </div>
         )}
@@ -228,12 +253,12 @@ export default function TriageQueuePage() {
         {/* Message list */}
         {messages.length === 0 ? (
           <div style={emptyBoxStyle}>
-            {status === 'received' ? 'No messages awaiting triage. Nice work.' : 'No messages match this filter.'}
+            {(category === 'all' || category === 'unattended') ? 'No messages awaiting triage. Nice work.' : 'No messages match this filter.'}
           </div>
         ) : (
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
             {/* Header row (admin only) */}
-            {isAdmin && status === 'received' && (
+            {isAdmin && (category === 'all' || category === 'unattended') && (
               <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <input
                   type="checkbox"
@@ -251,14 +276,14 @@ export default function TriageQueuePage() {
                 style={{
                   borderTop: i === 0 ? 'none' : '1px solid #f1f5f9',
                   display: 'grid',
-                  gridTemplateColumns: isAdmin && status === 'received' ? '36px 1fr auto' : '1fr auto',
+                  gridTemplateColumns: isAdmin && (category === 'all' || category === 'unattended') ? '36px 1fr auto' : '1fr auto',
                   alignItems: 'center',
                   background: selected.has(m.id) ? '#f5f3ff' : '#fff',
                   transition: 'background 0.1s',
                 }}
               >
                 {/* Checkbox (admin) */}
-                {isAdmin && status === 'received' && (
+                {isAdmin && (category === 'all' || category === 'unattended') && (
                   <div style={{ padding: '12px 0 12px 16px', display: 'flex', alignItems: 'center' }}>
                     {m.status === 'received' ? (
                       <input
@@ -302,9 +327,9 @@ export default function TriageQueuePage() {
                   </div>
                 </Link>
 
-                {/* Right: status + full timestamp */}
+                {/* Right: action label + full timestamp */}
                 <div style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <StatusBadge status={m.status} />
+                  <ActionBadge status={m.status} tag={m.active_tag} />
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                     {formatTs(m.received_at)}
                   </div>
@@ -328,20 +353,32 @@ export default function TriageQueuePage() {
 
 // ── Sub-components ─────────────────────────────────────────────
 
-function StatusBadge({ status }) {
-  const map = {
-    received:        { bg: '#fffbeb', fg: '#92400e', label: 'Awaiting triage' },
-    classifying:     { bg: '#dbeafe', fg: '#1e40af', label: 'Extracting…' },
-    pending_review:  { bg: '#ede9fe', fg: '#5b21b6', label: 'Pending review' },
-    auto_routed:     { bg: '#ecfdf5', fg: '#065f46', label: 'Auto-routed' },
-    rejected:        { bg: '#fef2f2', fg: '#991b1b', label: 'Rejected' },
-    dismissed:       { bg: '#f1f5f9', fg: '#475569', label: 'Dismissed' },
-    error:           { bg: '#fef2f2', fg: '#991b1b', label: 'Error' },
-  };
-  const c = map[status] || { bg: '#f1f5f9', fg: '#475569', label: status };
+// Renders an action-oriented label per row. The badge reflects what
+// has happened to the message rather than the raw inbox_messages.status.
+function ActionBadge({ status, tag }) {
+  let style = { bg: '#f1f5f9', fg: '#475569', label: status || '—' };
+
+  if (status === 'received') {
+    style = { bg: '#fffbeb', fg: '#92400e', label: 'Unattended' };
+  } else if (status === 'dismissed') {
+    style = { bg: '#f1f5f9', fg: '#475569', label: 'Dismissed' };
+  } else if (status === 'auto_routed') {
+    style = { bg: '#ecfdf5', fg: '#065f46', label: 'Auto-Routed' };
+  } else if (status === 'classifying' || status === 'pending_review') {
+    if (tag && EXTRACTION_TAG_SET.has(tag)) {
+      style = { bg: '#ede9fe', fg: '#5b21b6', label: 'Categorised — Extraction' };
+    } else if (tag && NON_EXTRACTION_TAG_SET.has(tag)) {
+      style = { bg: '#dbeafe', fg: '#1e40af', label: 'Categorised — Non Extraction' };
+    } else {
+      style = { bg: '#dbeafe', fg: '#1e40af', label: 'Processing…' };
+    }
+  } else if (status === 'rejected' || status === 'error') {
+    style = { bg: '#fef2f2', fg: '#991b1b', label: status === 'rejected' ? 'Rejected' : 'Error' };
+  }
+
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: c.fg, background: c.bg, padding: '2px 8px', borderRadius: 999 }}>
-      {c.label}
+    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: style.fg, background: style.bg, padding: '2px 8px', borderRadius: 999 }}>
+      {style.label}
     </span>
   );
 }
@@ -371,7 +408,7 @@ const emptyBoxStyle = { background: '#fff', border: '1px dashed #cbd5e1', border
 
 function btnStyle(variant, disabled) {
   const base = { padding: '6px 12px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 };
-  return variant === 'primary'
-    ? { ...base, background: '#1e3a5f', color: '#fff' }
-    : { ...base, background: '#f1f5f9', color: '#0f172a' };
+  if (variant === 'primary') return { ...base, background: '#1e3a5f', color: '#fff' };
+  if (variant === 'danger')  return { ...base, background: '#b91c1c', color: '#fff' };
+  return { ...base, background: '#f1f5f9', color: '#0f172a' };
 }

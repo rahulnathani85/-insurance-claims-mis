@@ -37,6 +37,16 @@ export default function TriageDetailPage() {
   const [selectedTag, setSelectedTag] = useState(null);
   const [mode, setMode] = useState('classify'); // 'classify' | 'dismiss'
   const [dismissReason, setDismissReason] = useState('');
+  // Attachment preview modal — null when closed, otherwise the
+  // attachment object that should be rendered in the lightbox.
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+
+  useEffect(() => {
+    if (!previewAttachment) return;
+    const onKey = (e) => { if (e.key === 'Escape') setPreviewAttachment(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewAttachment]);
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
@@ -187,6 +197,7 @@ export default function TriageDetailPage() {
               userEmail={user.email}
               userRole={user.role}
               onReprocessed={load}
+              onPreview={setPreviewAttachment}
             />
 
             <BodyViewer message={message} />
@@ -315,6 +326,12 @@ export default function TriageDetailPage() {
           </div>
         </div>
       </div>
+      {previewAttachment && (
+        <AttachmentPreviewModal
+          attachment={previewAttachment}
+          onClose={() => setPreviewAttachment(null)}
+        />
+      )}
     </PageLayout>
   );
 }
@@ -517,7 +534,7 @@ function btn(variant, disabled) {
   return { ...base, background: '#f1f5f9', color: '#0f172a' };
 }
 
-function AttachmentsBlock({ attachments, gmailCount, messageId, userEmail, userRole, onReprocessed }) {
+function AttachmentsBlock({ attachments, gmailCount, messageId, userEmail, userRole, onReprocessed, onPreview }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -552,11 +569,11 @@ function AttachmentsBlock({ attachments, gmailCount, messageId, userEmail, userR
       {storedCount > 0 ? (
         <>
           {attachments.map((a) => (
-            <AttachmentRow key={a.id} attachment={a} />
+            <AttachmentRow key={a.id} attachment={a} onPreview={onPreview} />
           ))}
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
-            Click any attachment to view in a new tab. Inline (cid:) images in the
-            email body won&apos;t render — open them from this list.
+            Click any attachment to preview it here. Inline (cid:) images in
+            the email body won&apos;t render — open them from this list.
           </div>
         </>
       ) : (
@@ -701,7 +718,7 @@ function BodyViewer({ message }) {
   );
 }
 
-function AttachmentRow({ attachment: a }) {
+function AttachmentRow({ attachment: a, onPreview }) {
   const isImage = a.is_image || a.mime_type?.startsWith('image/');
   const isPdf = a.mime_type === 'application/pdf' || a.filename?.toLowerCase().endsWith('.pdf');
   const icon = isImage ? '🖼️' : isPdf ? '📄' : '📎';
@@ -726,7 +743,7 @@ function AttachmentRow({ attachment: a }) {
           fontSize: 18, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4,
         }}>{icon}</span>
       )}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
         <div style={{
           color: clickable ? '#1d4ed8' : '#0f172a',
           fontWeight: 600,
@@ -740,21 +757,126 @@ function AttachmentRow({ attachment: a }) {
         </div>
       </div>
       {clickable && (
-        <span style={{ fontSize: 11, color: '#0ea5e9', whiteSpace: 'nowrap' }}>Open ↗</span>
+        <span style={{ fontSize: 11, color: '#0ea5e9', whiteSpace: 'nowrap' }}>Preview ›</span>
       )}
     </div>
   );
 
-  return clickable ? (
-    <a
-      href={a.download_url}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+  if (!clickable) return content;
+  return (
+    <button
+      type="button"
+      onClick={() => onPreview?.(a)}
+      style={{
+        all: 'unset',
+        cursor: 'pointer', display: 'block', width: '100%',
+      }}
     >
       {content}
-    </a>
-  ) : content;
+    </button>
+  );
+}
+
+// In-portal lightbox/modal for image and PDF attachments. Falls back
+// to a download link for any other mime type. Closes on backdrop
+// click, the close button, or the Escape key (handler in the page).
+function AttachmentPreviewModal({ attachment: a, onClose }) {
+  const isImage = a.is_image || a.mime_type?.startsWith('image/');
+  const isPdf = a.mime_type === 'application/pdf' || a.filename?.toLowerCase().endsWith('.pdf');
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(15,23,42,0.78)',
+        display: 'flex', flexDirection: 'column',
+        padding: 20,
+      }}
+    >
+      {/* Header */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          color: '#fff', marginBottom: 12,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {a.filename}
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+            {a.mime_type} · {formatBytes(a.size_bytes)}
+          </div>
+        </div>
+        <a
+          href={a.download_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: 12, fontWeight: 600, color: '#fff',
+            background: 'rgba(255,255,255,0.18)', padding: '6px 12px',
+            borderRadius: 6, textDecoration: 'none',
+          }}
+        >
+          Open in new tab ↗
+        </a>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff',
+            padding: '6px 12px', borderRadius: 6, fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          Close ✕
+        </button>
+      </div>
+
+      {/* Body */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          flex: 1, minHeight: 0,
+          background: '#fff', borderRadius: 8, overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {isImage ? (
+          <img
+            src={a.download_url}
+            alt={a.filename}
+            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
+          />
+        ) : isPdf ? (
+          <iframe
+            src={a.download_url}
+            title={a.filename}
+            style={{ width: '100%', height: '100%', border: 'none' }}
+          />
+        ) : (
+          <div style={{ padding: 32, textAlign: 'center', color: '#475569' }}>
+            <div style={{ fontSize: 14, marginBottom: 12 }}>
+              In-portal preview is not available for <strong>{a.mime_type || 'this file type'}</strong>.
+            </div>
+            <a
+              href={a.download_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: 13, fontWeight: 600, color: '#fff', background: '#1e3a5f',
+                padding: '8px 16px', borderRadius: 6, textDecoration: 'none',
+                display: 'inline-block',
+              }}
+            >
+              Download / Open externally
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function viewToggleStyle(active) {
