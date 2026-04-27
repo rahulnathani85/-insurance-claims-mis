@@ -110,117 +110,110 @@ export default function IntimationsPage() {
             No claims are currently in the Intimation phase. Nice work — everything is registered.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Intake Ref</th>
-                  <th style={thStyle}>Insured / From</th>
-                  <th style={thStyle}>Policy #</th>
-                  <th style={thStyle}>Company Ref #</th>
-                  <th style={thStyle}>LOB</th>
-                  <th style={thStyle}>DOL</th>
-                  <th style={thStyle}>Loss Location</th>
-                  <th style={thStyle}>Needs</th>
-                  <th style={thStyle}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claims.map((c) => {
-                  const e = edits[c.id] || {};
-                  // Helper that returns the current edit value if set,
-                  // otherwise the value from the server.
-                  const v = (field) => (e[field] !== undefined ? e[field] : (c[field] ?? ''));
-                  const dirty = Object.keys(e).length > 0;
-                  const isSaving = savingId === c.id;
-                  return (
-                    <tr key={c.id}>
-                      <td style={tdStyle}>
-                        <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
-                          {c.ref_number || 'Pending'}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                          {fmtDateTime(c.intake_received_at || c.created_at)}
-                        </div>
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={v('insured_name')}
-                          onChange={(ev) => patchEdit(c.id, 'insured_name', ev.target.value)}
-                          placeholder={c.intake_email_from ? `From: ${c.intake_email_from}` : 'Insured name'}
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={v('policy_number')}
-                          onChange={(ev) => patchEdit(c.id, 'policy_number', ev.target.value)}
-                          placeholder="—"
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={v('claim_number')}
-                          onChange={(ev) => patchEdit(c.id, 'claim_number', ev.target.value)}
-                          placeholder="—"
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <select
-                          value={v('lob')}
-                          onChange={(ev) => patchEdit(c.id, 'lob', ev.target.value)}
-                          style={inputStyle}
-                        >
-                          <option value="">—</option>
-                          {LOB_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          type="date"
-                          value={v('date_loss') ? String(v('date_loss')).slice(0, 10) : ''}
-                          onChange={(ev) => patchEdit(c.id, 'date_loss', ev.target.value || null)}
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={v('loss_location')}
-                          onChange={(ev) => patchEdit(c.id, 'loss_location', ev.target.value)}
-                          placeholder="—"
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <MissingFieldChips fields={c.missing_fields || []} />
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <button
-                            onClick={() => saveRow(c)}
-                            disabled={!dirty || isSaving}
-                            style={{ ...btnStyle('secondary', !dirty || isSaving), whiteSpace: 'nowrap' }}
-                          >
-                            {isSaving ? 'Saving…' : 'Save inline'}
-                          </button>
-                          <Link
-                            href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
-                            style={{
-                              ...btnStyle('primary', false),
-                              textDecoration: 'none', display: 'inline-block', whiteSpace: 'nowrap',
-                            }}
-                          >
-                            Register →
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {claims.map((c) => {
+              const e = edits[c.id] || {};
+              const v = (field) => (e[field] !== undefined ? e[field] : (c[field] ?? ''));
+              const dirty = Object.keys(e).length > 0;
+              const isSaving = savingId === c.id;
+              return (
+                <div key={c.id} style={cardStyle}>
+                  {/* Header: Intake Ref + received timestamp + sender */}
+                  <div style={cardHeaderStyle}>
+                    <div>
+                      <div style={miniLabelStyle}>Intake Ref</div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#78350f', fontWeight: 600 }}>
+                        {c.ref_number || 'Pending'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={miniLabelStyle}>Received</div>
+                      <div style={{ fontSize: 13, color: '#0f172a' }}>{fmtDateTime(c.intake_received_at || c.created_at)}</div>
+                      {c.intake_email_from && (
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>From: {c.intake_email_from}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Field grid: full-width inputs in 2 columns. */}
+                  <div style={fieldGridStyle}>
+                    <Field label="Insured Name">
+                      <input
+                        value={v('insured_name')}
+                        onChange={(ev) => patchEdit(c.id, 'insured_name', ev.target.value)}
+                        placeholder="Insured / company name"
+                        style={fullInputStyle}
+                      />
+                    </Field>
+                    <Field label="Policy Number">
+                      <input
+                        value={v('policy_number')}
+                        onChange={(ev) => patchEdit(c.id, 'policy_number', ev.target.value)}
+                        placeholder="Policy number"
+                        style={fullInputStyle}
+                      />
+                    </Field>
+                    <Field label="Company's Reference Number">
+                      <input
+                        value={v('claim_number')}
+                        onChange={(ev) => patchEdit(c.id, 'claim_number', ev.target.value)}
+                        placeholder="Insurer / broker / client reference"
+                        style={fullInputStyle}
+                      />
+                    </Field>
+                    <Field label="LOB">
+                      <select
+                        value={v('lob')}
+                        onChange={(ev) => patchEdit(c.id, 'lob', ev.target.value)}
+                        style={fullInputStyle}
+                      >
+                        <option value="">— Select LOB —</option>
+                        {LOB_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Date of Loss">
+                      <input
+                        type="date"
+                        value={v('date_loss') ? String(v('date_loss')).slice(0, 10) : ''}
+                        onChange={(ev) => patchEdit(c.id, 'date_loss', ev.target.value || null)}
+                        style={fullInputStyle}
+                      />
+                    </Field>
+                    <Field label="Loss Location">
+                      <input
+                        value={v('loss_location')}
+                        onChange={(ev) => patchEdit(c.id, 'loss_location', ev.target.value)}
+                        placeholder="City, area, full address"
+                        style={fullInputStyle}
+                      />
+                    </Field>
+                  </div>
+
+                  {/* Footer: needs chips + action buttons */}
+                  <div style={cardFooterStyle}>
+                    <div>
+                      <div style={miniLabelStyle}>Needs</div>
+                      <MissingFieldChips fields={c.missing_fields || []} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => saveRow(c)}
+                        disabled={!dirty || isSaving}
+                        style={{ ...btnStyle('secondary', !dirty || isSaving), padding: '8px 14px' }}
+                      >
+                        {isSaving ? 'Saving…' : 'Save changes'}
+                      </button>
+                      <Link
+                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                        style={{ ...btnStyle('primary', false), padding: '8px 14px', textDecoration: 'none', display: 'inline-block' }}
+                      >
+                        Register Claim →
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -228,18 +221,48 @@ export default function IntimationsPage() {
   );
 }
 
-// LOB options shown in the inline dropdown. Mirrors the canonical
-// LOB names used elsewhere in the portal (must match the keys the
-// claims page knows how to render in the Edit Claim form).
+// LOB options shown in the dropdown. Mirrors the canonical LOB
+// names used elsewhere in the portal.
 const LOB_OPTIONS = [
   'Motor', 'Marine Cargo', 'Fire', 'Engineering',
   'Business Interruption', 'Liability', 'Miscellaneous',
 ];
 
-const inputStyle = {
-  width: '100%', padding: '5px 7px', fontSize: 12,
-  border: '1px solid #e2e8f0', borderRadius: 4,
-  background: '#fff', boxSizing: 'border-box',
+// Card layout helpers (the page uses one card per intimation rather
+// than a cramped table — fields need full-width readable inputs).
+function Field({ label, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={miniLabelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const cardStyle = {
+  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+  padding: 16, display: 'flex', flexDirection: 'column', gap: 14,
+  boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+};
+const cardHeaderStyle = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+  paddingBottom: 12, borderBottom: '1px solid #f1f5f9', gap: 16,
+};
+const cardFooterStyle = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  paddingTop: 10, borderTop: '1px solid #f1f5f9', gap: 16, flexWrap: 'wrap',
+};
+const fieldGridStyle = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12,
+};
+const miniLabelStyle = {
+  fontSize: 10, color: '#475569', fontWeight: 700,
+  letterSpacing: 0.5, textTransform: 'uppercase',
+};
+const fullInputStyle = {
+  width: '100%', padding: '8px 10px', fontSize: 13,
+  border: '1px solid #cbd5e1', borderRadius: 6,
+  background: '#fff', boxSizing: 'border-box', color: '#0f172a',
 };
 
 // Field-name → human-readable label for the "Needs" column. Keeps the

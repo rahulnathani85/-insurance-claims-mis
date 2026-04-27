@@ -652,7 +652,7 @@ function ClaimsLobContent() {
               <thead>
                 <tr>
                   <th>Ref Number</th>
-                  <th>Claim Number</th>
+                  <th>Company&apos;s Ref #</th>
                   <th>Insured Name</th>
                   <th>Insurer</th>
                   <th>Policy Type</th>
@@ -736,33 +736,65 @@ function ClaimsLobContent() {
 
             <div className="form-section">
               <h4>Basic Information</h4>
-              {/* Reference Number with manual option */}
-              <div className="form-group">
-                <label>Ref Number</label>
-                {!editId && (
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 400 }}>
-                      <input type="radio" checked={!useManualRef} onChange={() => { setUseManualRef(false); setManualRefNumber(''); }} /> Auto-generate
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 400 }}>
-                      <input type="radio" checked={useManualRef} onChange={() => setUseManualRef(true)} /> Enter manually
-                    </label>
+              {/* Reference Number with manual option.
+                  Special case: when editing a claim that came from
+                  the comms intake pipeline, ref_number starts with
+                  "INTAKE/<co>/<short-id>" — that's the placeholder
+                  that needs to be replaced with the real ref
+                  number. We surface this as a separate "Intake Ref"
+                  read-only line and let the user type the real ref
+                  into the editable field below. */}
+              {(() => {
+                const isIntake = !!formData.ref_number && String(formData.ref_number).startsWith('INTAKE/');
+                return (
+                  <div className="form-group">
+                    {isIntake && (
+                      <div style={{ marginBottom: 10, padding: '8px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6 }}>
+                        <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Intake Ref (temporary)</div>
+                        <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#78350f', marginTop: 2 }}>{formData.ref_number}</div>
+                        <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>
+                          Replace with the proper Ref Number below to register this claim.
+                        </div>
+                      </div>
+                    )}
+                    <label>Ref Number</label>
+                    {!editId && (
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 400 }}>
+                          <input type="radio" checked={!useManualRef} onChange={() => { setUseManualRef(false); setManualRefNumber(''); }} /> Auto-generate
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', fontWeight: 400 }}>
+                          <input type="radio" checked={useManualRef} onChange={() => setUseManualRef(true)} /> Enter manually
+                        </label>
+                      </div>
+                    )}
+                    {!editId && useManualRef ? (
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <input
+                          value={manualRefNumber}
+                          onChange={e => { setManualRefNumber(e.target.value); setFormDirty(true); }}
+                          placeholder={`e.g. 5/26-27${getRefSuffix(lob)}`}
+                          style={{ flex: 1 }}
+                        />
+                        <span style={{ fontSize: 11, color: '#666', whiteSpace: 'nowrap' }}>Suffix ({getRefSuffix(lob)}) must be included</span>
+                      </div>
+                    ) : isIntake ? (
+                      // Intake claim — let the user type the real ref number directly.
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <input
+                          value={formData.ref_number || ''}
+                          onChange={e => { updateFormData({ ref_number: e.target.value }); setFormDirty(true); }}
+                          placeholder={`e.g. 5/26-27${getRefSuffix(lob)}`}
+                          style={{ flex: 1 }}
+                        />
+                        <span style={{ fontSize: 11, color: '#666', whiteSpace: 'nowrap' }}>Suffix ({getRefSuffix(lob)}) must be included</span>
+                      </div>
+                    ) : (
+                      <input disabled value={formData._tentative_ref || formData.ref_number || ''} />
+                    )}
                   </div>
-                )}
-                {!editId && useManualRef ? (
-                  <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                    <input
-                      value={manualRefNumber}
-                      onChange={e => { setManualRefNumber(e.target.value); setFormDirty(true); }}
-                      placeholder={`e.g. 5/26-27${getRefSuffix(lob)}`}
-                      style={{ flex: 1 }}
-                    />
-                    <span style={{ fontSize: 11, color: '#666', whiteSpace: 'nowrap' }}>Suffix ({getRefSuffix(lob)}) must be included</span>
-                  </div>
-                ) : (
-                  <input disabled value={formData._tentative_ref || formData.ref_number || ''} />
-                )}
-              </div>
+                );
+              })()}
 
               <div className="form-row">
                 <div className="form-group" style={{ position: 'relative' }}>
@@ -898,8 +930,8 @@ function ClaimsLobContent() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Claim Number</label>
-                  <input value={formData.claim_number || ''} onChange={e => updateFormData({ claim_number: e.target.value })} />
+                  <label>Company&apos;s Reference Number</label>
+                  <input value={formData.claim_number || ''} onChange={e => updateFormData({ claim_number: e.target.value })} placeholder="Insurer / broker / client reference (claim number from their system)" />
                 </div>
               </div>
               <div className="form-row">
