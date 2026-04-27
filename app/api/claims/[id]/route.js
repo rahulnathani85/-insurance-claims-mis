@@ -104,6 +104,26 @@ export async function PUT(request, { params }) {
     else body.estimated_loss_amount = n;
   }
 
+  // If the claim is currently in the 'intimation' phase, completing the
+  // edit IS the registration act — flip phase to 'registered' and stamp
+  // who/when. Caller may have explicitly set phase already (e.g. from a
+  // dedicated register endpoint); preserve that.
+  if (body.phase === undefined) {
+    const { data: existing } = await supabase
+      .from('claims')
+      .select('phase')
+      .eq('id', id)
+      .single();
+    if (existing?.phase === 'intimation') {
+      body.phase = 'registered';
+      body.registered_at = new Date().toISOString();
+      const userEmail = request.headers.get('x-app-user-email');
+      if (userEmail && body.registered_by === undefined) {
+        body.registered_by = userEmail;
+      }
+    }
+  }
+
   const { error } = await supabase.from('claims').update(body).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 

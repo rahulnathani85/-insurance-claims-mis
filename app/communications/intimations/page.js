@@ -22,9 +22,6 @@ export default function IntimationsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [registerBusyId, setRegisterBusyId] = useState(null);
-  const [confirmingId, setConfirmingId] = useState(null);
-  const [note, setNote] = useState('');
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
@@ -50,27 +47,6 @@ export default function IntimationsPage() {
   }, [user?.email]);
 
   useEffect(() => { load(); }, [load]);
-
-  async function registerClaim(claimId) {
-    setRegisterBusyId(claimId);
-    setError(null);
-    try {
-      const res = await fetch(`/api/claims/${claimId}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
-        body: JSON.stringify({ note: note.trim() || null }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      setConfirmingId(null);
-      setNote('');
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setRegisterBusyId(null);
-    }
-  }
 
   if (loading) return <PageLayout><div style={{ padding: 24 }}>Loading…</div></PageLayout>;
   if (!user) return null;
@@ -129,43 +105,15 @@ export default function IntimationsPage() {
                     <td style={tdStyle}>{c.loss_location || '—'}</td>
                     <td style={tdStyle}>{fmtDateTime(c.created_at)}</td>
                     <td style={tdStyle}>
-                      {confirmingId === c.id ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <input
-                            type="text"
-                            placeholder="Note (optional)"
-                            value={note}
-                            onChange={(e) => setNote(e.target.value)}
-                            style={{ padding: '4px 8px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 4, minWidth: 180 }}
-                          />
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button
-                              type="button"
-                              onClick={() => registerClaim(c.id)}
-                              disabled={registerBusyId === c.id}
-                              style={btnStyle('primary', registerBusyId === c.id)}
-                            >
-                              {registerBusyId === c.id ? 'Registering…' : 'Confirm'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setConfirmingId(null); setNote(''); }}
-                              disabled={registerBusyId === c.id}
-                              style={btnStyle('secondary', registerBusyId === c.id)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setConfirmingId(c.id); setNote(''); }}
-                          style={btnStyle('primary', false)}
-                        >
-                          Register
-                        </button>
-                      )}
+                      <Link
+                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                        style={{
+                          ...btnStyle('primary', false),
+                          textDecoration: 'none', display: 'inline-block',
+                        }}
+                      >
+                        Claim Registration →
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -187,6 +135,26 @@ function Banner({ kind, children }) {
       {children}
     </div>
   );
+}
+
+// Map the LOB hint stored on the claim row (often a lower-cased
+// extraction value like "motor" or "general") to one of the LOB
+// folders the claims page knows how to render. The claims page
+// expects display-cased names that match the LOB picker.
+const LOB_LOOKUP = {
+  motor: 'Motor', mc: 'Motor', vehicle: 'Motor',
+  marine: 'Marine Cargo', 'marine cargo': 'Marine Cargo',
+  fire: 'Fire',
+  engineering: 'Engineering', engg: 'Engineering',
+  miscellaneous: 'Miscellaneous', misc: 'Miscellaneous',
+  bi: 'Business Interruption', 'business interruption': 'Business Interruption',
+  liability: 'Liability',
+  general: 'Miscellaneous',
+};
+function resolveLob(raw) {
+  if (!raw) return 'Miscellaneous';
+  const key = String(raw).trim().toLowerCase();
+  return LOB_LOOKUP[key] || raw; // fall back to the original string if no mapping
 }
 
 function fmtDate(iso) {
