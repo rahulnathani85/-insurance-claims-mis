@@ -116,7 +116,7 @@ export default function TriageQueuePage() {
 
   function toggleAll() {
     const messages = data?.messages || [];
-    const selectableIds = messages.filter((m) => m.(category === 'all' || category === 'unattended')).map((m) => m.id);
+    const selectableIds = messages.filter((m) => m.status === 'received').map((m) => m.id);
     if (selectableIds.every((id) => selected.has(id))) {
       setSelected(new Set());
     } else {
@@ -130,19 +130,28 @@ export default function TriageQueuePage() {
     setBulkResult(null);
     const ids = [...selected];
 
+    // Sentinel value 'DISMISS' switches the per-row request from
+    // action=classify to action=dismiss. Everything else is treated
+    // as a workflow_tag and goes through the classify path.
+    const isDismiss = bulkTag === 'DISMISS';
+
     const settled = await Promise.allSettled(
       ids.map((message_id) =>
         fetch('/api/communications/triage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
-          body: JSON.stringify({ message_id, action: 'classify', tag: bulkTag }),
+          body: JSON.stringify(
+            isDismiss
+              ? { message_id, action: 'dismiss', reason: 'Bulk dismiss from triage queue' }
+              : { message_id, action: 'classify', tag: bulkTag }
+          ),
         }).then((res) => (res.ok ? 'ok' : 'fail'))
       )
     );
     const ok = settled.filter((r) => r.status === 'fulfilled' && r.value === 'ok').length;
     const fail = ids.length - ok;
 
-    setBulkResult({ ok, fail, total: ids.length });
+    setBulkResult({ ok, fail, total: ids.length, dismiss: isDismiss });
     setBulkBusy(false);
     setBulkTag('');
     await load();
@@ -155,8 +164,8 @@ export default function TriageQueuePage() {
   const messages = data?.messages || [];
   const showingFrom = total === 0 ? 0 : offset + 1;
   const showingTo = Math.min(offset + messages.length, total);
-  const selectableCount = messages.filter((m) => m.(category === 'all' || category === 'unattended')).length;
-  const allSelected = selectableCount > 0 && messages.filter((m) => m.(category === 'all' || category === 'unattended')).every((m) => selected.has(m.id));
+  const selectableCount = messages.filter((m) => m.status === 'received').length;
+  const allSelected = selectableCount > 0 && messages.filter((m) => m.status === 'received').every((m) => selected.has(m.id));
 
   return (
     <PageLayout>
@@ -177,7 +186,7 @@ export default function TriageQueuePage() {
         {error && <Banner kind="err">{error}</Banner>}
         {bulkResult && (
           <Banner kind={bulkResult.fail > 0 ? 'warn' : 'ok'}>
-            Bulk categorise: {bulkResult.ok} succeeded, {bulkResult.fail} failed (of {bulkResult.total}).
+            Bulk {bulkResult.dismiss ? 'dismiss' : 'categorise'}: {bulkResult.ok} succeeded, {bulkResult.fail} failed (of {bulkResult.total}).
           </Banner>
         )}
 
@@ -218,20 +227,25 @@ export default function TriageQueuePage() {
               style={{ ...selectStyle, minWidth: 220 }}
               disabled={selected.size === 0 || bulkBusy}
             >
-              <option value="">— choose category —</option>
+              <option value="">— choose action —</option>
               <optgroup label="Extraction Required">
                 {EXTRACTION_REQUIRED.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
               </optgroup>
               <optgroup label="No Extraction">
                 {NON_EXTRACTION.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
               </optgroup>
+              <optgroup label="Dismiss">
+                <option value="DISMISS">Dismiss (not relevant — drop without extraction)</option>
+              </optgroup>
             </select>
             <button
               onClick={applyBulkTag}
               disabled={!bulkTag || selected.size === 0 || bulkBusy}
-              style={btnStyle('primary', !bulkTag || selected.size === 0 || bulkBusy)}
+              style={btnStyle(bulkTag === 'DISMISS' ? 'danger' : 'primary', !bulkTag || selected.size === 0 || bulkBusy)}
             >
-              {bulkBusy ? 'Applying…' : `Apply to ${selected.size}`}
+              {bulkBusy
+                ? (bulkTag === 'DISMISS' ? 'Dismissing…' : 'Applying…')
+                : (bulkTag === 'DISMISS' ? `Dismiss ${selected.size}` : `Apply to ${selected.size}`)}
             </button>
           </div>
         )}
@@ -271,7 +285,7 @@ export default function TriageQueuePage() {
                 {/* Checkbox (admin) */}
                 {isAdmin && (category === 'all' || category === 'unattended') && (
                   <div style={{ padding: '12px 0 12px 16px', display: 'flex', alignItems: 'center' }}>
-                    {m.(category === 'all' || category === 'unattended') ? (
+                    {m.status === 'received' ? (
                       <input
                         type="checkbox"
                         checked={selected.has(m.id)}
@@ -394,7 +408,7 @@ const emptyBoxStyle = { background: '#fff', border: '1px dashed #cbd5e1', border
 
 function btnStyle(variant, disabled) {
   const base = { padding: '6px 12px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 };
-  return variant === 'primary'
-    ? { ...base, background: '#1e3a5f', color: '#fff' }
-    : { ...base, background: '#f1f5f9', color: '#0f172a' };
+  if (variant === 'primary') return { ...base, background: '#1e3a5f', color: '#fff' };
+  if (variant === 'danger')  return { ...base, background: '#b91c1c', color: '#fff' };
+  return { ...base, background: '#f1f5f9', color: '#0f172a' };
 }
