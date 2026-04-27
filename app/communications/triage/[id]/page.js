@@ -228,20 +228,28 @@ export default function TriageDetailPage() {
 
               {mode === 'classify' ? (
                 <>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                    Pick the workflow tag that best fits this message. Stage 3c
-                    will run AI extraction on the chosen tag&apos;s schema.
+                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+                    Pick the category that best fits this message. Extraction-required
+                    categories trigger AI extraction (Stage 3c) after you confirm.
                   </div>
-                  <div style={{ display: 'grid', gap: 6 }}>
-                    {(tags || []).map((t) => (
-                      <TagButton
-                        key={t.tag}
-                        tag={t}
-                        selected={selectedTag === t.tag}
-                        onSelect={() => setSelectedTag(t.tag)}
-                      />
-                    ))}
-                  </div>
+                  <TagGroupSection
+                    title="Extraction Required"
+                    titleColor="#1e40af"
+                    titleBg="#dbeafe"
+                    borderColor="#bfdbfe"
+                    tags={(tags || []).filter((t) => t.extraction_required !== false)}
+                    selectedTag={selectedTag}
+                    onSelect={setSelectedTag}
+                  />
+                  <TagGroupSection
+                    title="No Extraction"
+                    titleColor="#475569"
+                    titleBg="#f1f5f9"
+                    borderColor="#e2e8f0"
+                    tags={(tags || []).filter((t) => t.extraction_required === false)}
+                    selectedTag={selectedTag}
+                    onSelect={setSelectedTag}
+                  />
                 </>
               ) : (
                 <>
@@ -373,51 +381,88 @@ function ModeButton({ active, onClick, label }) {
   );
 }
 
-function TagButton({ tag, selected, onSelect }) {
-  const colorMap = {
-    blue:    { bg: '#dbeafe', fg: '#1e40af' },
-    violet:  { bg: '#ede9fe', fg: '#5b21b6' },
-    indigo:  { bg: '#e0e7ff', fg: '#3730a3' },
-    amber:   { bg: '#fef3c7', fg: '#92400e' },
-    emerald: { bg: '#d1fae5', fg: '#065f46' },
-    teal:    { bg: '#ccfbf1', fg: '#115e59' },
-    sky:     { bg: '#e0f2fe', fg: '#075985' },
-    slate:   { bg: '#f1f5f9', fg: '#475569' },
-  };
-  const c = colorMap[tag.ui_color] || colorMap.slate;
+function TagGroupSection({ title, titleColor, titleBg, borderColor, tags, selectedTag, onSelect }) {
+  if (!tags || tags.length === 0) return null;
   return (
-    <button
-      onClick={onSelect}
-      style={{
-        textAlign: 'left',
-        padding: '8px 10px',
-        background: selected ? c.fg : '#fff',
-        color: selected ? '#fff' : '#0f172a',
-        border: `2px solid ${selected ? c.fg : c.bg}`,
-        borderRadius: 6,
-        cursor: 'pointer',
-        fontSize: 12,
-        lineHeight: 1.4,
-      }}
-    >
-      <div style={{ fontWeight: 700 }}>
-        {tag.display_label}
-        {tag.short_code && (
-          <span style={{
-            marginLeft: 8, fontSize: 10, padding: '1px 5px',
-            background: selected ? 'rgba(255,255,255,0.2)' : c.bg,
-            color: selected ? '#fff' : c.fg,
-            borderRadius: 3, letterSpacing: 0.5,
-          }}>{tag.short_code}</span>
-        )}
-      </div>
+    <div style={{
+      marginBottom: 14,
+      border: `2px solid ${borderColor}`,
+      borderRadius: 8,
+      overflow: 'hidden',
+      background: '#fff',
+    }}>
+      {/* Section header — full-width banner */}
       <div style={{
-        fontSize: 11, marginTop: 2,
-        color: selected ? 'rgba(255,255,255,0.85)' : '#64748b',
+        background: titleBg,
+        color: titleColor,
+        padding: '8px 12px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: `2px solid ${borderColor}`,
       }}>
-        {tag.description}
+        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+          {title}
+        </span>
+        <span style={{
+          fontSize: 11, fontWeight: 700,
+          background: '#fff', color: titleColor,
+          padding: '1px 8px', borderRadius: 999,
+        }}>
+          {tags.length} {tags.length === 1 ? 'category' : 'categories'}
+        </span>
       </div>
-    </button>
+      {/* Tag rows */}
+      <div style={{ padding: 8, display: 'grid', gap: 5 }}>
+        {tags.map((t) => (
+          <TagButton key={t.tag} tag={t} selected={selectedTag === t.tag} onSelect={() => onSelect(t.tag)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TagButton({ tag, selected, onSelect }) {
+  const [showGuide, setShowGuide] = useState(false);
+  const isExtraction = tag.extraction_required !== false;
+  const selBg = isExtraction ? '#1e3a5f' : '#475569';
+
+  return (
+    <div style={{
+      border: `2px solid ${selected ? selBg : '#e2e8f0'}`,
+      borderRadius: 6, background: selected ? selBg : '#fff',
+      cursor: 'pointer', transition: 'border-color 0.1s',
+    }}>
+      <div
+        style={{ padding: '7px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}
+        onClick={onSelect}
+      >
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 12, color: selected ? '#fff' : '#0f172a' }}>
+            {tag.display_label}
+          </div>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowGuide((p) => !p); }}
+          style={{
+            fontSize: 10, padding: '1px 6px', borderRadius: 4, border: 'none',
+            background: selected ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+            color: selected ? '#fff' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+          }}
+        >
+          {showGuide ? 'Hide guide' : 'Guide'}
+        </button>
+      </div>
+      {showGuide && (
+        <div style={{
+          padding: '0 10px 8px', fontSize: 11, color: selected ? 'rgba(255,255,255,0.85)' : '#374151',
+          lineHeight: 1.5, borderTop: `1px solid ${selected ? 'rgba(255,255,255,0.15)' : '#f1f5f9'}`,
+          paddingTop: 6,
+        }}>
+          {tag.guidance || tag.description || 'No guidance available for this category.'}
+        </div>
+      )}
+    </div>
   );
 }
 

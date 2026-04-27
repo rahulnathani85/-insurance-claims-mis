@@ -195,28 +195,70 @@ export default function ClaimDetail() {
     finally { setTaggingEmail(null); }
   }
 
+  const [uploadProgress, setUploadProgress] = useState(0);
+
   async function uploadDocumentToCloud(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingDoc(true);
+    setUploadProgress(0);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('claim_id', id);
-      fd.append('ref_number', claim?.ref_number || '');
-      fd.append('file_type', 'other');
-      fd.append('uploaded_by', user?.email || '');
-      fd.append('company', claim?.company || 'NISLA');
-      const res = await fetch('/api/claim-documents', { method: 'POST', body: fd });
-      if (res.ok) {
-        await loadAll();
-        alert('Document uploaded successfully!');
-      } else {
-        const err = await res.json();
-        alert('Upload failed: ' + (err.error || 'Unknown error'));
+      // Step 1: get signed upload URL from server (no file body crosses Vercel)
+      const presignRes = await fetch('/api/claim-documents/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          claim_id: id,
+          ref_number: claim?.ref_number || '',
+          file_name: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+          company: claim?.company || 'NISLA',
+        }),
+      });
+      if (!presignRes.ok) {
+        const err = await presignRes.json();
+        throw new Error(err.error || 'Failed to get upload URL');
       }
+      const { signedUrl, path } = await presignRes.json();
+
+      // Step 2: PUT file directly to Supabase Storage (bypasses Vercel 32 MB limit)
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', signedUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Storage PUT failed: ${xhr.status}`)));
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(file);
+      });
+
+      // Step 3: confirm metadata in DB
+      const confirmRes = await fetch('/api/claim-documents/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path,
+          claim_id: id,
+          ref_number: claim?.ref_number || '',
+          file_name: file.name,
+          file_type: 'other',
+          mime_type: file.type,
+          file_size: file.size,
+          uploaded_by: user?.email || '',
+          company: claim?.company || 'NISLA',
+        }),
+      });
+      if (!confirmRes.ok) {
+        const err = await confirmRes.json();
+        throw new Error(err.error || 'Failed to save document record');
+      }
+      await loadAll();
+      alert('Document uploaded successfully!');
     } catch (err) { alert('Upload failed: ' + err.message); }
-    finally { setUploadingDoc(false); e.target.value = ''; }
+    finally { setUploadingDoc(false); setUploadProgress(0); e.target.value = ''; }
   }
 
   // Load portal users for @mention
@@ -850,7 +892,16 @@ export default function ClaimDetail() {
                 style={{ fontSize: 12 }}
                 disabled={uploadingDoc}
               />
-              {uploadingDoc && <p style={{ fontSize: 11, color: '#0284c7', marginTop: 6 }}>Uploading to cloud...</p>}
+              {uploadingDoc && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ height: 6, background: '#dbeafe', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${uploadProgress}%`, background: '#2563eb', transition: 'width 0.2s', borderRadius: 4 }} />
+                  </div>
+                  <p style={{ fontSize: 11, color: '#0284c7', marginTop: 4 }}>
+                    {uploadProgress < 100 ? `Uploading… ${uploadProgress}%` : 'Saving record…'}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Cloud-stored documents */}

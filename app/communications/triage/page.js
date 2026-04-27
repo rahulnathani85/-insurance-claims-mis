@@ -1,31 +1,52 @@
 'use client';
 
 // ============================================================
-// /communications/triage
+// /communications/triage  (Stage 3b + Stage 5 updates)
 // ------------------------------------------------------------
-// Stage 3b — triage queue for human-first message review.
+// Human-first triage queue. Lists inbox_messages newest-first.
+// Shows full timestamp, sender email, company, and attachment count.
 //
-// Lists inbox_messages with status='received' (the default
-// triage queue). Optional filters: status (any enum), substring
-// search on subject / from_address, pagination.
-//
-// Click a row to drill into the detail page where the human
-// picks a workflow tag or dismisses.
+// Admin feature: multi-select rows and bulk-categorise in one go.
+// Regular users see the same list but cannot bulk-act.
 // ============================================================
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
 
-const STATUS_OPTIONS = [
-  { value: 'received', label: 'Awaiting triage' },
-  { value: 'classifying', label: 'Triaged (extracting)' },
-  { value: 'pending_review', label: 'Pending review' },
-  { value: 'dismissed', label: 'Dismissed' },
-  { value: 'all', label: 'All statuses' },
+// ── Tag catalogue (mirrors DB seed; UI renders from API but this
+//    provides the grouping labels and guidance text client-side) ──
+const EXTRACTION_REQUIRED = [
+  { tag: 'intimation',         label: 'New Intimation',                      guidance: 'Extract policy number, insured name, date of loss, location, and contact. A new claim record will be created.' },
+  { tag: 'client_followup',    label: 'Client Follow-up',                    guidance: 'Extract claim reference and the nature of the follow-up. Link to the existing claim and log the note.' },
+  { tag: 'insurer_query',      label: 'Insurer Query / Follow-up',           guidance: 'Extract claim reference, query details, and deadline. Flag for the handling surveyor.' },
+  { tag: 'policy_doc',         label: 'Policy Documents',                    guidance: 'Extract policy number, insured name, LOB, sum insured, and validity dates. Archive to claim/policy folder.' },
+  { tag: 'claim_documents',    label: 'Claim Documents',                     guidance: 'Extract document type, claim reference, and value amounts. File to the claim folder.' },
+  { tag: 'surveyor_photos',    label: 'Survey / Site Visit Photographs',     guidance: 'Extract claim reference and image count. Images are attached to the claim gallery.' },
+  { tag: 'claim_registration', label: 'Claim Registration by Insurer/Client', guidance: 'Extract claim reference and insurer identifiers. Link to the existing claim.' },
+  { tag: 'settlement_advice',  label: 'Settlement Advice',                   guidance: 'Extract settled amount, deductions, settlement date, and payment mode. Updates claim and triggers fee invoice.' },
+  { tag: 'consent_email',      label: 'Consent Email',                       guidance: 'Extract claim reference, consent type, and consenting party name/date. File to claim folder.' },
 ];
+
+const NON_EXTRACTION = [
+  { tag: 'internal_admin',      label: 'Internal & Admin',          guidance: 'Internal team communication or system notice. No extraction needed — filed under internal.' },
+  { tag: 'duplicate',           label: 'Duplicate',                 guidance: 'Suspected duplicate. Ask the sender for proof (unique claim ref or doc). If provided → Non-Extraction. If not within 48 h → Investigation Pending.' },
+  { tag: 'update_from_insurer', label: 'Update Emails from Insurer', guidance: 'Status update or acknowledgement from the insurer. No structured data to extract — filed for reference.' },
+  { tag: 'others',              label: 'Others',                    guidance: 'Does not fit any defined category. Add a note explaining why before dismissing.' },
+];
+
+const STATUS_OPTIONS = [
+  { value: 'received',       label: 'Awaiting triage' },
+  { value: 'classifying',    label: 'Triaged (extracting)' },
+  { value: 'pending_review', label: 'Pending review' },
+  { value: 'auto_routed',    label: 'Auto-routed' },
+  { value: 'dismissed',      label: 'Dismissed' },
+  { value: 'all',            label: 'All statuses' },
+];
+
+const ADMIN_ROLES = new Set(['admin', 'super_admin']);
 
 export default function TriageQueuePage() {
   const router = useRouter();
@@ -39,6 +60,14 @@ export default function TriageQueuePage() {
   const [offset, setOffset] = useState(0);
   const limit = 50;
 
+  // Bulk-select state (admin only)
+  const [selected, setSelected] = useState(new Set());
+  const [bulkTag, setBulkTag] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
+  const isAdmin = ADMIN_ROLES.has(String(user?.role || '').toLowerCase());
+
   useEffect(() => {
     if (!loading && !user) router.push('/login');
   }, [loading, user, router]);
@@ -47,20 +76,15 @@ export default function TriageQueuePage() {
     if (!user?.email) return;
     setBusy(true);
     setError(null);
+    setSelected(new Set());
+    setBulkResult(null);
     try {
-      const params = new URLSearchParams({
-        status,
-        limit: String(limit),
-        offset: String(offset),
-      });
+      const params = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
       if (q.trim()) params.set('q', q.trim());
-      const res = await fetch(
-        `/api/communications/messages?${params.toString()}`,
-        {
-          headers: { 'x-app-user-email': user.email },
-          cache: 'no-store',
-        }
-      );
+      const res = await fetch(`/api/communications/messages?${params}`, {
+        headers: { 'x-app-user-email': user.email },
+        cache: 'no-store',
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setData(json);
@@ -73,60 +97,94 @@ export default function TriageQueuePage() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) {
-    return <PageLayout><div style={{ padding: 24 }}>Loading…</div></PageLayout>;
+  function toggleSelect(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   }
+
+  function toggleAll() {
+    const messages = data?.messages || [];
+    const selectableIds = messages.filter((m) => m.status === 'received').map((m) => m.id);
+    if (selectableIds.every((id) => selected.has(id))) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(selectableIds));
+    }
+  }
+
+  async function applyBulkTag() {
+    if (!bulkTag || selected.size === 0) return;
+    setBulkBusy(true);
+    setBulkResult(null);
+    const ids = [...selected];
+    let ok = 0; let fail = 0;
+    for (const message_id of ids) {
+      try {
+        const res = await fetch('/api/communications/triage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
+          body: JSON.stringify({ message_id, action: 'classify', tag: bulkTag }),
+        });
+        if (res.ok) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setBulkResult({ ok, fail, total: ids.length });
+    setBulkBusy(false);
+    setBulkTag('');
+    await load();
+  }
+
+  if (loading) return <PageLayout><div style={{ padding: 24 }}>Loading…</div></PageLayout>;
   if (!user) return null;
 
   const total = data?.total || 0;
   const messages = data?.messages || [];
   const showingFrom = total === 0 ? 0 : offset + 1;
   const showingTo = Math.min(offset + messages.length, total);
+  const selectableCount = messages.filter((m) => m.status === 'received').length;
+  const allSelected = selectableCount > 0 && messages.filter((m) => m.status === 'received').every((m) => selected.has(m.id));
 
   return (
     <PageLayout>
       <div style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto' }}>
-        <h2 style={{ margin: 0, fontSize: 22, color: '#1e293b' }}>
-          Communications &mdash; Triage queue
-        </h2>
-        <p style={{ margin: '6px 0 18px', fontSize: 13, color: '#64748b', maxWidth: 760 }}>
-          Read each message and pick a workflow tag &mdash; or dismiss it as not
-          relevant. Only categorised messages move on to AI extraction (Stage 3c).
-          Dismissed messages are terminal and never touched by AI.
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, color: '#1e293b' }}>Communications — Triage queue</h2>
+            <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#64748b', maxWidth: 700 }}>
+              Messages arrive newest-first. Pick a category for each — or dismiss if not relevant.
+              Only categorised messages move on to AI extraction.
+            </p>
+          </div>
+          <Link href="/communications/review" style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            Review queue →
+          </Link>
+        </div>
 
         {error && <Banner kind="err">{error}</Banner>}
+        {bulkResult && (
+          <Banner kind={bulkResult.fail > 0 ? 'warn' : 'ok'}>
+            Bulk categorise: {bulkResult.ok} succeeded, {bulkResult.fail} failed (of {bulkResult.total}).
+          </Banner>
+        )}
 
         {/* Filter bar */}
-        <div style={{
-          display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
-          marginBottom: 12,
-        }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <label style={labelStyle}>
             Status:
-            <select
-              value={status}
-              onChange={(e) => { setOffset(0); setStatus(e.target.value); }}
-              style={selectStyle}
-            >
-              {STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
+            <select value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value); }} style={selectStyle}>
+              {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
           <input
-            type="text"
-            placeholder="Search subject or sender…"
-            value={q}
+            type="text" placeholder="Search subject or sender…" value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { setOffset(0); load(); } }}
             style={inputStyle}
           />
-          <button
-            onClick={() => { setOffset(0); load(); }}
-            disabled={busy}
-            style={buttonStyle('primary', busy)}
-          >
+          <button onClick={() => { setOffset(0); load(); }} disabled={busy} style={btnStyle('primary', busy)}>
             {busy ? '…' : 'Search'}
           </button>
           <div style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>
@@ -134,63 +192,124 @@ export default function TriageQueuePage() {
           </div>
         </div>
 
+        {/* Admin bulk-action bar */}
+        {isAdmin && status === 'received' && messages.length > 0 && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+              Admin bulk action
+            </span>
+            <span style={{ fontSize: 12, color: '#64748b' }}>
+              {selected.size} selected
+            </span>
+            <select
+              value={bulkTag}
+              onChange={(e) => setBulkTag(e.target.value)}
+              style={{ ...selectStyle, minWidth: 220 }}
+              disabled={selected.size === 0 || bulkBusy}
+            >
+              <option value="">— choose category —</option>
+              <optgroup label="Extraction Required">
+                {EXTRACTION_REQUIRED.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
+              </optgroup>
+              <optgroup label="No Extraction">
+                {NON_EXTRACTION.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
+              </optgroup>
+            </select>
+            <button
+              onClick={applyBulkTag}
+              disabled={!bulkTag || selected.size === 0 || bulkBusy}
+              style={btnStyle('primary', !bulkTag || selected.size === 0 || bulkBusy)}
+            >
+              {bulkBusy ? 'Applying…' : `Apply to ${selected.size}`}
+            </button>
+          </div>
+        )}
+
         {/* Message list */}
         {messages.length === 0 ? (
           <div style={emptyBoxStyle}>
-            {status === 'received'
-              ? 'No messages awaiting triage. Nice work.'
-              : 'No messages match this filter.'}
+            {status === 'received' ? 'No messages awaiting triage. Nice work.' : 'No messages match this filter.'}
           </div>
         ) : (
-          <div style={{
-            border: '1px solid #e2e8f0', borderRadius: 8,
-            background: '#fff', overflow: 'hidden',
-          }}>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
+            {/* Header row (admin only) */}
+            {isAdmin && status === 'received' && (
+              <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: 12, color: '#64748b' }}>Select all on this page</span>
+              </div>
+            )}
+
             {messages.map((m, i) => (
-              <Link
+              <div
                 key={m.id}
-                href={`/communications/triage/${m.id}`}
-                style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
-              >
-                <div style={{
-                  padding: '12px 16px',
+                style={{
                   borderTop: i === 0 ? 'none' : '1px solid #f1f5f9',
                   display: 'grid',
-                  gridTemplateColumns: '1fr auto',
-                  gap: 16,
+                  gridTemplateColumns: isAdmin && status === 'received' ? '36px 1fr auto' : '1fr auto',
                   alignItems: 'center',
-                  background: '#fff',
-                  cursor: 'pointer',
+                  background: selected.has(m.id) ? '#f5f3ff' : '#fff',
+                  transition: 'background 0.1s',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 14, fontWeight: 600, color: '#0f172a',
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}>
-                      {m.subject || '(no subject)'}
-                    </div>
-                    <div style={{
-                      fontSize: 12, color: '#64748b', marginTop: 2,
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}>
-                      {m.from_display || m.from_address}
-                      {m.attachments_count > 0 && (
-                        <span style={{ marginLeft: 8 }}>📎 {m.attachments_count}</span>
-                      )}
-                      <span style={{ marginLeft: 8 }}>· {m.company}</span>
-                    </div>
+              >
+                {/* Checkbox (admin) */}
+                {isAdmin && status === 'received' && (
+                  <div style={{ padding: '12px 0 12px 16px', display: 'flex', alignItems: 'center' }}>
+                    {m.status === 'received' ? (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(m.id)}
+                        onChange={() => toggleSelect(m.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    ) : <span />}
                   </div>
-                  <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <StatusBadge status={m.status} />
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                      {formatRelative(m.received_at)}
-                    </div>
+                )}
+
+                {/* Main row content — clickable to triage detail */}
+                <Link
+                  href={`/communications/triage/${m.id}`}
+                  style={{ textDecoration: 'none', color: 'inherit', display: 'block', padding: '12px 16px' }}
+                  onClick={(e) => { if (selected.size > 0 && isAdmin) e.preventDefault(); }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 500 }}>
+                      {m.subject || '(no subject)'}
+                    </span>
+                    {m.has_active_classification && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 999 }}>
+                        Categorised
+                      </span>
+                    )}
+                  </div>
+                  {/* Sender email + company */}
+                  <div style={{ fontSize: 12, color: '#374151', marginTop: 3, fontWeight: 500 }}>
+                    {m.from_address}
+                    {m.from_display && m.from_display !== m.from_address && (
+                      <span style={{ color: '#9ca3af', fontWeight: 400 }}> ({m.from_display})</span>
+                    )}
+                    <span style={{ color: '#d1d5db', margin: '0 6px' }}>·</span>
+                    <span style={{ color: '#9ca3af', fontWeight: 400 }}>{m.company}</span>
+                    {m.attachments_count > 0 && (
+                      <span style={{ marginLeft: 8 }}>📎 {m.attachments_count}</span>
+                    )}
+                  </div>
+                </Link>
+
+                {/* Right: status + full timestamp */}
+                <div style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <StatusBadge status={m.status} />
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+                    {formatTs(m.received_at)}
                   </div>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}
@@ -198,20 +317,8 @@ export default function TriageQueuePage() {
         {/* Pagination */}
         {total > limit && (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-            <button
-              onClick={() => setOffset(Math.max(0, offset - limit))}
-              disabled={offset === 0 || busy}
-              style={buttonStyle('secondary', offset === 0 || busy)}
-            >
-              ← Prev
-            </button>
-            <button
-              onClick={() => setOffset(offset + limit)}
-              disabled={offset + limit >= total || busy}
-              style={buttonStyle('secondary', offset + limit >= total || busy)}
-            >
-              Next →
-            </button>
+            <button onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0 || busy} style={btnStyle('secondary', offset === 0 || busy)}>← Prev</button>
+            <button onClick={() => setOffset(offset + limit)} disabled={offset + limit >= total || busy} style={btnStyle('secondary', offset + limit >= total || busy)}>Next →</button>
           </div>
         )}
       </div>
@@ -219,9 +326,8 @@ export default function TriageQueuePage() {
   );
 }
 
-// ------------------------------------------------------------
-// Sub-components
-// ------------------------------------------------------------
+// ── Sub-components ─────────────────────────────────────────────
+
 function StatusBadge({ status }) {
   const map = {
     received:        { bg: '#fffbeb', fg: '#92400e', label: 'Awaiting triage' },
@@ -234,77 +340,38 @@ function StatusBadge({ status }) {
   };
   const c = map[status] || { bg: '#f1f5f9', fg: '#475569', label: status };
   return (
-    <span style={{
-      fontSize: 11, fontWeight: 700, letterSpacing: 0.4,
-      color: c.fg, background: c.bg,
-      padding: '2px 8px', borderRadius: 999,
-    }}>{c.label}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: c.fg, background: c.bg, padding: '2px 8px', borderRadius: 999 }}>
+      {c.label}
+    </span>
   );
 }
 
 function Banner({ kind, children }) {
-  const map = {
-    ok:   { bg: '#ecfdf5', fg: '#065f46', bd: '#a7f3d0' },
-    warn: { bg: '#fffbeb', fg: '#92400e', bd: '#fde68a' },
-    err:  { bg: '#fef2f2', fg: '#991b1b', bd: '#fecaca' },
-  };
-  const c = map[kind] || map.warn;
+  const c = { ok: ['#ecfdf5', '#065f46', '#a7f3d0'], warn: ['#fffbeb', '#92400e', '#fde68a'], err: ['#fef2f2', '#991b1b', '#fecaca'] }[kind] || ['#fffbeb', '#92400e', '#fde68a'];
   return (
-    <div style={{
-      background: c.bg, color: c.fg, border: `1px solid ${c.bd}`,
-      padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 12,
-    }}>
+    <div style={{ background: c[0], color: c[1], border: `1px solid ${c[2]}`, padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>
       {children}
     </div>
   );
 }
 
-function formatRelative(iso) {
+function formatTs(iso) {
   if (!iso) return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const dSec = Math.round((Date.now() - t) / 1000);
-  if (dSec < 60) return `${dSec}s ago`;
-  if (dSec < 3600) return `${Math.round(dSec / 60)}m ago`;
-  if (dSec < 86_400) return `${Math.round(dSec / 3600)}h ago`;
-  if (dSec < 7 * 86_400) return `${Math.round(dSec / 86_400)}d ago`;
-  return new Date(iso).toLocaleDateString();
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-// ------------------------------------------------------------
-// Inline styles
-// ------------------------------------------------------------
-const labelStyle = {
-  fontSize: 13, color: '#475569',
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-};
+// ── Styles ─────────────────────────────────────────────────────
 
-const selectStyle = {
-  padding: '6px 8px', fontSize: 13,
-  border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff',
-};
+const labelStyle = { fontSize: 13, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 };
+const selectStyle = { padding: '6px 8px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff' };
+const inputStyle = { flex: '1 1 220px', minWidth: 200, maxWidth: 360, padding: '6px 10px', fontSize: 13, border: '1px solid #cbd5e1', borderRadius: 6 };
+const emptyBoxStyle = { background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 8, padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13 };
 
-const inputStyle = {
-  flex: '1 1 220px', minWidth: 200, maxWidth: 360,
-  padding: '6px 10px', fontSize: 13,
-  border: '1px solid #cbd5e1', borderRadius: 6,
-};
-
-const emptyBoxStyle = {
-  background: '#fff', border: '1px dashed #cbd5e1',
-  borderRadius: 8, padding: 32, textAlign: 'center',
-  color: '#94a3b8', fontSize: 13,
-};
-
-function buttonStyle(variant, disabled) {
-  const base = {
-    padding: '6px 12px', fontSize: 13, fontWeight: 600,
-    border: 'none', borderRadius: 6,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.5 : 1,
-  };
-  if (variant === 'primary') {
-    return { ...base, background: '#1e3a5f', color: '#fff' };
-  }
-  return { ...base, background: '#f1f5f9', color: '#0f172a' };
+function btnStyle(variant, disabled) {
+  const base = { padding: '6px 12px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 };
+  return variant === 'primary'
+    ? { ...base, background: '#1e3a5f', color: '#fff' }
+    : { ...base, background: '#f1f5f9', color: '#0f172a' };
 }

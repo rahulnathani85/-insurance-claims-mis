@@ -10,6 +10,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/comms-cron/execute-routing",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/comms-cron/refresh-watch",
       "schedule": "0 3 * * *"
     }

@@ -75,9 +75,9 @@ export async function GET(request, { params }) {
       .order('created_at', { ascending: false }),
     supabaseAdmin
       .from('tag_definitions')
-      .select('tag, display_label, short_code, description, ui_color, classifier_prompt, extraction_schema, auto_route_threshold')
+      .select('tag, display_label, short_code, description, guidance, ui_color, extraction_required, extraction_schema, auto_route_threshold, sort_order')
       .eq('enabled', true)
-      .order('display_label', { ascending: true }),
+      .order('sort_order', { ascending: true }),
   ]);
 
   return NextResponse.json({
