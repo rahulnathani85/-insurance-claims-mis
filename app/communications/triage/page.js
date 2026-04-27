@@ -25,7 +25,7 @@ const EXTRACTION_REQUIRED = [
   { tag: 'policy_doc',         label: 'Policy Documents',                    guidance: 'Extract policy number, insured name, LOB, sum insured, and validity dates. Archive to claim/policy folder.' },
   { tag: 'claim_documents',    label: 'Claim Documents',                     guidance: 'Extract document type, claim reference, and value amounts. File to the claim folder.' },
   { tag: 'surveyor_photos',    label: 'Survey / Site Visit Photographs',     guidance: 'Extract claim reference and image count. Images are attached to the claim gallery.' },
-  { tag: 'claim_registration', label: 'Claim Registration by Insurer/Client', guidance: 'Extract claim reference and insurer identifiers. Link to the existing claim.' },
+  { tag: 'claim_registration', label: 'Claim Registration Email (from Client/Insurer)', guidance: 'Email from the client/insurer/broker confirming a claim has been registered in their system, with the claim reference. Link to the existing claim.' },
   { tag: 'settlement_advice',  label: 'Settlement Advice',                   guidance: 'Extract settled amount, deductions, settlement date, and payment mode. Updates claim and triggers fee invoice.' },
   { tag: 'consent_email',      label: 'Consent Email',                       guidance: 'Extract claim reference, consent type, and consenting party name/date. File to claim folder.' },
 ];
