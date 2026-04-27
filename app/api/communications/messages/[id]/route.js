@@ -80,9 +80,23 @@ export async function GET(request, { params }) {
       .order('sort_order', { ascending: true }),
   ]);
 
+  // Mint signed download URLs for each attachment so the browser can
+  // view/download them without ever needing the storage bucket to be public.
+  const ATTACHMENT_BUCKET = 'comms-attachments';
+  const SIGNED_URL_EXPIRY = 3600; // 1 hour
+  const enrichedAttachments = await Promise.all(
+    (attachments || []).map(async (a) => {
+      if (!a.storage_path) return { ...a, download_url: null };
+      const { data: signed } = await supabaseAdmin.storage
+        .from(ATTACHMENT_BUCKET)
+        .createSignedUrl(a.storage_path, SIGNED_URL_EXPIRY);
+      return { ...a, download_url: signed?.signedUrl || null };
+    })
+  );
+
   return NextResponse.json({
     message,
-    attachments: attachments || [],
+    attachments: enrichedAttachments,
     classifications: classifications || [],
     extractions: extractions || [],
     tags: tagDefs || [],
