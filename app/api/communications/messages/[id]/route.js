@@ -51,13 +51,14 @@ export async function GET(request, { params }) {
     );
   }
 
-  // Parallel fetches: attachments, classifications, extractions, tag library, drafts.
+  // Parallel fetches: attachments, classifications, extractions, tag library, drafts, routing executions.
   const [
     { data: attachments },
     { data: classifications },
     { data: extractions },
     { data: tagDefs },
     { data: drafts },
+    { data: routingExecutions },
   ] = await Promise.all([
     supabaseAdmin
       .from('message_attachments')
@@ -84,6 +85,11 @@ export async function GET(request, { params }) {
       .select('id, to_address, subject, body, body_edited, status, generated_by, llm_provider, llm_cost_inr, sent_at, sent_by, created_at, updated_at')
       .eq('message_id', id)
       .order('created_at', { ascending: false }),
+    supabaseAdmin
+      .from('routing_executions')
+      .select('id, action_type, claim_id, payload, status, error, executed_at')
+      .eq('message_id', id)
+      .order('executed_at', { ascending: true }),
   ]);
 
   // Mint signed download URLs for each attachment so the browser can
@@ -107,5 +113,6 @@ export async function GET(request, { params }) {
     extractions: extractions || [],
     tags: tagDefs || [],
     drafts: drafts || [],
+    routing_executions: routingExecutions || [],
   });
 }

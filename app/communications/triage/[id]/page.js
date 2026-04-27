@@ -132,9 +132,10 @@ export default function TriageDetailPage() {
     );
   }
 
-  const { message, attachments, classifications, tags, drafts } = data;
+  const { message, attachments, classifications, tags, drafts, extractions, routing_executions } = data;
   const isReceived = message.status === 'received';
   const activeClassification = (classifications || []).find((c) => c.is_active);
+  const isAdmin = ['admin', 'super_admin'].includes(String(user?.role || '').toLowerCase());
 
   return (
     <PageLayout>
@@ -158,6 +159,22 @@ export default function TriageDetailPage() {
             )}
             {' '}Triage actions are disabled below.
           </Banner>
+        )}
+
+        {/* Timeline + (admin only) revert action. Shown for any message
+            that is no longer in 'received' so the user can see exactly
+            what happened and undo it if it was wrong. */}
+        {!isReceived && (
+          <ActivityTimeline
+            message={message}
+            classifications={classifications || []}
+            extractions={extractions || []}
+            routingExecutions={routing_executions || []}
+            isAdmin={isAdmin}
+            messageId={messageId}
+            userEmail={user.email}
+            onReverted={load}
+          />
         )}
 
         {/* Two-column layout: message content + triage actions
@@ -339,6 +356,273 @@ export default function TriageDetailPage() {
 // ------------------------------------------------------------
 // Sub-components
 // ------------------------------------------------------------
+
+// Builds a chronologically sorted activity timeline from the message
+// row, classifications, extractions, and routing_executions. Renders
+// each step as a row with a coloured dot. Highlights the *current*
+// step (last entry) so the user can see where the message is now.
+// Admin gets a Revert button at the bottom.
+function ActivityTimeline({ message, classifications, extractions, routingExecutions, isAdmin, messageId, userEmail, onReverted }) {
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState('');
+  const [result, setResult] = useState(null);
+  const [revertError, setRevertError] = useState(null);
+
+  const events = [];
+
+  if (message.received_at) {
+    events.push({
+      at: message.received_at,
+      kind: 'received',
+      label: 'Email received',
+      who: message.from_address ? `from ${message.from_address}` : null,
+    });
+  }
+
+  for (const c of [...classifications].reverse()) {
+    events.push({
+      at: c.classified_at,
+      kind: c.classifier_model === 'human' ? 'triaged' : 'classified',
+      label: c.is_active
+        ? `Categorised as "${c.tag}"`
+        : `Categorised as "${c.tag}" (later replaced)`,
+      who: c.classified_by ? `by ${c.classified_by.replace(/^manual:/, '')}` : null,
+      detail: c.confidence != null ? `confidence ${(c.confidence * 100).toFixed(0)}%` : null,
+      muted: !c.is_active,
+    });
+  }
+
+  for (const e of [...extractions].reverse()) {
+    events.push({
+      at: e.created_at,
+      kind: e.is_valid ? 'extracted' : 'extraction_invalid',
+      label: e.is_valid ? 'Data extracted' : 'Extraction had validation errors',
+      who: e.tag ? `for tag "${e.tag}"` : null,
+      detail: !e.is_valid && Array.isArray(e.validation_errors) && e.validation_errors.length > 0
+        ? e.validation_errors.slice(0, 2).join('; ')
+        : null,
+    });
+  }
+
+  for (const r of routingExecutions) {
+    events.push({
+      at: r.executed_at,
+      kind: r.status === 'success' ? 'routed' : (r.status === 'failed' ? 'route_failed' : 'route_skipped'),
+      label: `Action: ${r.action_type}`,
+      who: r.claim_id ? `claim #${r.claim_id}` : null,
+      detail: r.status !== 'success' ? (r.error || r.status) : null,
+    });
+  }
+
+  if (message.dismissed_at) {
+    events.push({
+      at: message.dismissed_at,
+      kind: 'dismissed',
+      label: 'Dismissed',
+      who: message.dismissed_by ? `by ${message.dismissed_by}` : null,
+      detail: message.dismiss_reason || null,
+    });
+  }
+
+  events.sort((a, b) => new Date(a.at) - new Date(b.at));
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (!events[i].muted) { events[i].current = true; break; }
+  }
+
+  async function revert() {
+    setBusy(true);
+    setRevertError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/communications/messages/${messageId}/revert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-app-user-email': userEmail },
+        body: JSON.stringify({ reason: reason.trim() || null }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setResult(json);
+      setConfirming(false);
+      setReason('');
+      if (onReverted) await onReverted();
+    } catch (err) {
+      setRevertError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{
+      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+      padding: '14px 16px', marginBottom: 14,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 }}>
+        Activity timeline
+      </div>
+
+      {events.length === 0 ? (
+        <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>No activity recorded.</div>
+      ) : (
+        <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {events.map((e, i) => {
+            const dot = TIMELINE_DOT[e.kind] || { bg: '#cbd5e1', fg: '#fff', icon: '·' };
+            return (
+              <li key={i} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                padding: '6px 0', position: 'relative',
+                borderLeft: i < events.length - 1 ? '2px solid #f1f5f9' : 'none',
+                marginLeft: 11,
+                paddingLeft: 14,
+                opacity: e.muted ? 0.6 : 1,
+              }}>
+                <span style={{
+                  position: 'absolute', left: -11, top: 8,
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: dot.bg, color: dot.fg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 700,
+                  border: '2px solid #fff',
+                  boxShadow: e.current ? '0 0 0 3px rgba(124,58,237,0.25)' : 'none',
+                }}>
+                  {dot.icon}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
+                    {e.label}
+                    {e.current && (
+                      <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#5b21b6', background: '#ede9fe', padding: '1px 6px', borderRadius: 999 }}>
+                        CURRENT
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+                    {fmtTimelineTs(e.at)}
+                    {e.who && <> · {e.who}</>}
+                  </div>
+                  {e.detail && (
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{e.detail}</div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {isAdmin && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #f1f5f9' }}>
+          {!confirming && !result && (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              style={{
+                padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                border: '1px solid #fecaca', background: '#fff', color: '#b91c1c',
+                borderRadius: 6, cursor: 'pointer',
+              }}
+            >
+              Revert / Re-triage this message
+            </button>
+          )}
+
+          {confirming && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '10px 12px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+                Confirm revert
+              </div>
+              <div style={{ fontSize: 12, color: '#78350f', marginBottom: 8 }}>
+                This will deactivate the current categorisation, clear the claim link, and put the message back into the Triage queue.
+                Any claims created or updated by earlier auto-routing will <strong>not</strong> be reversed automatically — review them after.
+              </div>
+              <input
+                type="text"
+                placeholder="Reason (optional, for audit log)"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '6px 10px', fontSize: 12,
+                  border: '1px solid #cbd5e1', borderRadius: 6,
+                  marginBottom: 8,
+                }}
+                disabled={busy}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={revert}
+                  disabled={busy}
+                  style={{
+                    padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                    border: 'none', background: busy ? '#cbd5e1' : '#b91c1c', color: '#fff',
+                    borderRadius: 6, cursor: busy ? 'wait' : 'pointer',
+                  }}
+                >
+                  {busy ? 'Reverting…' : 'Yes, revert'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setConfirming(false); setReason(''); }}
+                  disabled={busy}
+                  style={{
+                    padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                    border: 'none', background: '#f1f5f9', color: '#0f172a',
+                    borderRadius: 6, cursor: busy ? 'wait' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {revertError && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#991b1b', background: '#fef2f2', padding: '6px 10px', borderRadius: 6 }}>
+              {revertError}
+            </div>
+          )}
+          {result && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#065f46', background: '#ecfdf5', padding: '8px 10px', borderRadius: 6 }}>
+              <strong>Reverted.</strong> {result.note}
+              {result.side_effects?.length > 0 && (
+                <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                  {result.side_effects.map((s, i) => (
+                    <li key={i}>{s.action_type}{s.claim_id ? ` → claim #${s.claim_id}` : ''}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TIMELINE_DOT = {
+  received:           { bg: '#fde68a', fg: '#92400e', icon: '✉' },
+  triaged:            { bg: '#7c3aed', fg: '#fff',    icon: '✓' },
+  classified:         { bg: '#3b82f6', fg: '#fff',    icon: 'AI' },
+  extracted:          { bg: '#0ea5e9', fg: '#fff',    icon: '↧' },
+  extraction_invalid: { bg: '#f59e0b', fg: '#fff',    icon: '!' },
+  routed:             { bg: '#10b981', fg: '#fff',    icon: '→' },
+  route_failed:       { bg: '#ef4444', fg: '#fff',    icon: '✕' },
+  route_skipped:      { bg: '#94a3b8', fg: '#fff',    icon: '–' },
+  dismissed:          { bg: '#64748b', fg: '#fff',    icon: '×' },
+};
+
+function fmtTimelineTs(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
 function BackLink() {
   return (
     <Link
