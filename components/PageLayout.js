@@ -194,8 +194,17 @@ export default function PageLayout({ children }) {
                 </div>
                 <div className="nav-section">
                   <div className="nav-section-title">Communications</div>
-                  <Link href="/communications" className={`nav-item ${pathname === '/communications' || pathname.startsWith('/communications/') ? 'active' : ''}`}>
+                  <Link href="/communications" className={`nav-item ${pathname === '/communications' ? 'active' : ''}`}>
                     <SideIcon letter="CM" bg="#e0f2fe" color="#0369a1" /><span>Communications</span>
+                  </Link>
+                  <Link href="/communications/dashboard" className={`nav-item ${pathname === '/communications/dashboard' ? 'active' : ''}`}>
+                    <SideIcon letter="DB" bg="#f3e8ff" color="#7c3aed" /><span>Comms Dashboard</span>
+                  </Link>
+                  <Link href="/communications/triage" className={`nav-item ${pathname.startsWith('/communications/triage') ? 'active' : ''}`}>
+                    <SideIcon letter="TQ" bg="#fef3c7" color="#92400e" /><span>Triage Queue</span>
+                  </Link>
+                  <Link href="/communications/review" className={`nav-item ${pathname === '/communications/review' ? 'active' : ''}`}>
+                    <SideIcon letter="RV" bg="#ede9fe" color="#5b21b6" /><span>Review Queue</span>
                   </Link>
                 </div>
                 {user?.role === 'Admin' && (

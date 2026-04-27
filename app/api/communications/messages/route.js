@@ -64,7 +64,12 @@ export async function GET(request) {
   //                      AND status in ('classifying','pending_review')
   //   non_extraction   — same but tag in NON_EXTRACTION_TAGS
   const category = (searchParams.get('category') || '').toLowerCase();
-  const status = searchParams.get('status') || (category ? null : 'received');
+  // 'tag' is a single workflow_tag filter — when set, returns messages
+  // whose active classification matches that tag, regardless of status
+  // (so a drilldown from the dashboard catches classifying / pending /
+  // auto-routed in one view).
+  const tagFilter = (searchParams.get('tag') || '').trim();
+  const status = searchParams.get('status') || (category || tagFilter ? null : 'received');
   const companyParam = searchParams.get('company');
   const q = (searchParams.get('q') || '').trim();
   const limit = clampInt(searchParams.get('limit'), 1, MAX_LIMIT, DEFAULT_LIMIT);
@@ -105,6 +110,38 @@ export async function GET(request) {
     if (preFilterIds.length === 0) {
       // No matching classifications — short-circuit to empty result.
       return NextResponse.json({ total: 0, limit, offset, messages: [] });
+    }
+  } else if (category === 'pending_review') {
+    categoryStatusList = ['pending_review'];
+  } else if (category === 'classifying') {
+    categoryStatusList = ['classifying'];
+  }
+
+  // Tag drilldown — narrows preFilterIds further. When category is
+  // also a tag-group filter, the resulting set is the intersection of
+  // both ID lists.
+  if (tagFilter) {
+    const { data: clsRows } = await supabaseAdmin
+      .from('message_classifications')
+      .select('message_id')
+      .eq('is_active', true)
+      .eq('tag', tagFilter);
+    const tagIds = (clsRows || []).map((r) => r.message_id);
+    if (tagIds.length === 0) {
+      return NextResponse.json({ total: 0, limit, offset, messages: [] });
+    }
+    if (preFilterIds) {
+      const tagSet = new Set(tagIds);
+      preFilterIds = preFilterIds.filter((id) => tagSet.has(id));
+      if (preFilterIds.length === 0) {
+        return NextResponse.json({ total: 0, limit, offset, messages: [] });
+      }
+    } else {
+      preFilterIds = tagIds;
+      // Default to any post-triage state when no category is selected.
+      if (!categoryStatusList) {
+        categoryStatusList = ['classifying', 'pending_review', 'auto_routed'];
+      }
     }
   }
 
