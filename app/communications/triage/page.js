@@ -55,7 +55,7 @@ export default function TriageQueuePage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('received');
+  const [status, setStatus] = useState('all');
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -120,17 +120,19 @@ export default function TriageQueuePage() {
     setBulkBusy(true);
     setBulkResult(null);
     const ids = [...selected];
-    let ok = 0; let fail = 0;
-    for (const message_id of ids) {
-      try {
-        const res = await fetch('/api/communications/triage', {
+
+    const settled = await Promise.allSettled(
+      ids.map((message_id) =>
+        fetch('/api/communications/triage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
           body: JSON.stringify({ message_id, action: 'classify', tag: bulkTag }),
-        });
-        if (res.ok) ok++; else fail++;
-      } catch { fail++; }
-    }
+        }).then((res) => (res.ok ? 'ok' : 'fail'))
+      )
+    );
+    const ok = settled.filter((r) => r.status === 'fulfilled' && r.value === 'ok').length;
+    const fail = ids.length - ok;
+
     setBulkResult({ ok, fail, total: ids.length });
     setBulkBusy(false);
     setBulkTag('');
