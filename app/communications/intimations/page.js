@@ -101,7 +101,7 @@ export default function IntimationsPage() {
                     <td style={tdStyle}>{c.insured_name || '—'}</td>
                     <td style={tdStyle}>{c.policy_number || '—'}</td>
                     <td style={tdStyle}>{c.lob || '—'}</td>
-                    <td style={tdStyle}>{c.date_of_loss ? fmtDate(c.date_of_loss) : '—'}</td>
+                    <td style={tdStyle}>{c.date_loss ? fmtDate(c.date_loss) : '—'}</td>
                     <td style={tdStyle}>{c.loss_location || '—'}</td>
                     <td style={tdStyle}>{fmtDateTime(c.created_at)}</td>
                     <td style={tdStyle}>

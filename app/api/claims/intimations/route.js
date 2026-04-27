@@ -33,7 +33,7 @@ export async function GET(request) {
 
   let q = supabaseAdmin
     .from('claims')
-    .select('id, ref_number, lob, insured_name, policy_number, date_of_loss, loss_location, company, created_at, source', { count: 'exact' })
+    .select('id, ref_number, lob, insured_name, policy_number, date_loss, loss_location, company, created_at, source', { count: 'exact' })
     .eq('phase', 'intimation')
     .order('created_at', { ascending: false })
     .limit(200);
