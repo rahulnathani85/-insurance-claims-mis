@@ -99,17 +99,27 @@ export async function GET(request) {
 
   // Tag distribution via active classifications. We restrict to
   // messages whose received_at is in range to keep the join tight.
+  //
+  // IMPORTANT: chunk the .in() filter. Supabase encodes .in() as a
+  // URL filter, and large id lists (a few hundred UUIDs) exceed the
+  // PostgREST URL length cap and silently drop ids — leading to
+  // undercounted by_tag totals on the dashboard. Fetch in batches of
+  // 100 and merge.
   let by_tag = [];
   const ids = (rows || []).map((r) => r.id);
   if (ids.length > 0) {
-    const { data: clsRows } = await supabaseAdmin
-      .from('message_classifications')
-      .select('tag')
-      .in('message_id', ids)
-      .eq('is_active', true);
     const tagCounts = new Map();
-    for (const r of clsRows || []) {
-      tagCounts.set(r.tag, (tagCounts.get(r.tag) || 0) + 1);
+    const CHUNK = 100;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const { data: clsRows } = await supabaseAdmin
+        .from('message_classifications')
+        .select('tag')
+        .in('message_id', slice)
+        .eq('is_active', true);
+      for (const r of clsRows || []) {
+        tagCounts.set(r.tag, (tagCounts.get(r.tag) || 0) + 1);
+      }
     }
     by_tag = [...tagCounts.entries()]
       .map(([tag, count]) => ({ tag, count }))

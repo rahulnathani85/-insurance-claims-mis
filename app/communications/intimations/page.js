@@ -81,42 +81,58 @@ export default function IntimationsPage() {
               <thead>
                 <tr>
                   <th style={thStyle}>Ref</th>
-                  <th style={thStyle}>Insured</th>
+                  <th style={thStyle}>Insured / From</th>
                   <th style={thStyle}>Policy</th>
                   <th style={thStyle}>LOB</th>
                   <th style={thStyle}>DOL</th>
                   <th style={thStyle}>Loss Location</th>
-                  <th style={thStyle}>Created</th>
+                  <th style={thStyle}>Needs</th>
                   <th style={thStyle}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {claims.map((c) => (
-                  <tr key={c.id}>
-                    <td style={tdStyle}>
-                      <Link href={`/claim-detail/${c.id}`} style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
-                        {c.ref_number || `#${c.id}`}
-                      </Link>
-                    </td>
-                    <td style={tdStyle}>{c.insured_name || '—'}</td>
-                    <td style={tdStyle}>{c.policy_number || '—'}</td>
-                    <td style={tdStyle}>{c.lob || '—'}</td>
-                    <td style={tdStyle}>{c.date_of_loss ? fmtDate(c.date_of_loss) : '—'}</td>
-                    <td style={tdStyle}>{c.loss_location || '—'}</td>
-                    <td style={tdStyle}>{fmtDateTime(c.created_at)}</td>
-                    <td style={tdStyle}>
-                      <Link
-                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
-                        style={{
-                          ...btnStyle('primary', false),
-                          textDecoration: 'none', display: 'inline-block',
-                        }}
-                      >
-                        Claim Registration →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {claims.map((c) => {
+                  const isPlaceholderRef = !c.ref_number || c.ref_number.startsWith('INTAKE/');
+                  return (
+                    <tr key={c.id}>
+                      <td style={tdStyle}>
+                        <Link href={`/claim-detail/${c.id}`} style={{ color: isPlaceholderRef ? '#92400e' : '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>
+                          {isPlaceholderRef ? 'Pending' : c.ref_number}
+                        </Link>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          Received {fmtDateTime(c.intake_received_at || c.created_at)}
+                        </div>
+                      </td>
+                      <td style={tdStyle}>
+                        {c.insured_name ? (
+                          c.insured_name
+                        ) : (
+                          <span style={{ color: '#92400e', fontSize: 12 }}>
+                            From: {c.intake_email_from || '—'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={tdStyle}>{c.policy_number || <span style={fadedStyle}>—</span>}</td>
+                      <td style={tdStyle}>{c.lob || '—'}</td>
+                      <td style={tdStyle}>{c.date_loss ? fmtDate(c.date_loss) : <span style={fadedStyle}>—</span>}</td>
+                      <td style={tdStyle}>{c.loss_location || <span style={fadedStyle}>—</span>}</td>
+                      <td style={tdStyle}>
+                        <MissingFieldChips fields={c.missing_fields || []} />
+                      </td>
+                      <td style={tdStyle}>
+                        <Link
+                          href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                          style={{
+                            ...btnStyle('primary', false),
+                            textDecoration: 'none', display: 'inline-block',
+                          }}
+                        >
+                          Claim Registration →
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -125,6 +141,35 @@ export default function IntimationsPage() {
     </PageLayout>
   );
 }
+
+// Field-name → human-readable label for the "Needs" column. Keeps the
+// chip list short and recognisable.
+const FIELD_LABEL = {
+  insured_name: 'Insured',
+  policy_number: 'Policy #',
+  date_loss: 'Date of loss',
+  loss_location: 'Location',
+  ref_number: 'Ref #',
+};
+function MissingFieldChips({ fields }) {
+  if (!fields || fields.length === 0) {
+    return <span style={{ color: '#15803d', fontSize: 11, fontWeight: 600 }}>Complete ✓</span>;
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {fields.map((f) => (
+        <span key={f} style={{
+          background: '#fef3c7', color: '#92400e', fontSize: 10, fontWeight: 600,
+          padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+        }}>
+          {FIELD_LABEL[f] || f}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const fadedStyle = { color: '#cbd5e1' };
 
 function Banner({ kind, children }) {
   const c = kind === 'err'

@@ -31,7 +31,7 @@ const TAG_LABELS = {
   policy_doc:          'Policy Documents',
   claim_documents:     'Claim Documents',
   surveyor_photos:     'Survey / Site Photos',
-  claim_registration:  'Claim Registration',
+  claim_registration:  'Claim Registration Email (from Client/Insurer)',
   settlement_advice:   'Settlement Advice',
   consent_email:       'Consent Email',
   internal_admin:      'Internal & Admin',
