@@ -178,9 +178,14 @@ export default function TriageQueuePage() {
               Only categorised messages move on to AI extraction.
             </p>
           </div>
-          <Link href="/communications/review" style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            Review queue →
-          </Link>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Link href="/communications/dashboard" style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              Dashboard →
+            </Link>
+            <Link href="/communications/review" style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              Review queue →
+            </Link>
+          </div>
         </div>
 
         {error && <Banner kind="err">{error}</Banner>}
