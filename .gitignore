@@ -16,3 +16,32 @@ scripts/puppeteer-server/.env
 # Microsoft Office lock files — created when a .docx/.xlsx is open in Word/Excel
 # on Windows. They're transient and contain the editing user's name.
 ~$*
+
+# Claude Code local scratch — never commit
+.claude/worktrees/
+.claude/cache/
+.claude/logs/
+.claude/sessions/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+# Claude Code local scratch � never commit
+.claude/worktrees/
+.claude/cache/
+.claude/logs/
+.claude/sessions/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
