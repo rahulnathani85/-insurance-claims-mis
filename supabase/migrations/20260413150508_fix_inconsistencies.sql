@@ -40,7 +40,9 @@ ALTER TABLE ew_vehicle_claims ADD COLUMN IF NOT EXISTS fsr_office_name text;
 ALTER TABLE ew_vehicle_claims ADD COLUMN IF NOT EXISTS fsr_office_address text;
 
 -- Migrate existing insurer data to appointing_office
-UPDATE claims SET appointing_office_name = insurer_name, appointing_office_address = insurer_address
+-- NOTE: claims has no `insurer_address` column (only `insurer_name`), so we
+-- only backfill the name on the claims side. ew_vehicle_claims has both.
+UPDATE claims SET appointing_office_name = insurer_name
 WHERE insurer_name IS NOT NULL AND appointing_office_name IS NULL;
 
 UPDATE ew_vehicle_claims SET appointing_office_name = insurer_name, appointing_office_address = insurer_address

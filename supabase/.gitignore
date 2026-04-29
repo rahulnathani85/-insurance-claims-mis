@@ -1,3 +1,6 @@
+# Bootstrap helper (one-time concatenated SQL for SQL Editor paste)
+_combined_for_sql_editor.sql
+
 # Supabase
 .branches
 .temp

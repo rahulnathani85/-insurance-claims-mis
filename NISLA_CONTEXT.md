@@ -1,6 +1,6 @@
 # NISLA SurveyorMIS — Project Context for Claude
 
-**Last updated:** 28 April 2026
+**Last updated:** 29 April 2026
 **Maintainer:** Rahul Nathani
 
 ---
@@ -42,24 +42,33 @@ Brand operating umbrella: NISLA. Both entities operate from the same portal.
 
 ### 4a. Supabase migration (in progress)
 
-Migrating from OLD Supabase project to NEW. 14-step plan drafted:
+**Plan changed from "migrate OLD → NEW" to "fresh start on NEW account"** (29 Apr).
+The user moved to a brand-new Supabase account (login: claim.intimation@nisla.in)
+with project `khtxngncvkwhoaybiigt` in `ap-south-1` (Mumbai). Data on OLD is being
+left behind — only the schema (48 migrations) ports forward.
 
 | Step | Status |
 |---|---|
 | Pre-flight checklist | Done |
 | Install Supabase CLI v2.95.4 via Scoop on Windows | Done (28 Apr) |
-| `supabase init` in repo | Pending |
-| Link to OLD project, `supabase db pull` | Pending |
-| Three-file dump (roles, schema, data) | Pending |
-| Pause portal writes | Pending |
-| Create NEW Supabase project (Singapore region) | Pending |
-| Restore in order to NEW | Pending |
-| Migrate Storage / Edge Functions / Auth providers / Vault | Pending |
-| Verify row counts and RLS | Pending |
+| `supabase init` in repo | **Done (29 Apr)** — config.toml + .gitignore created |
+| Reorganize 48 hand-written .sql files into supabase/migrations/ with 14-digit UTC prefixes | **Done (29 Apr)** — git-mv preserved history; commit 050c045 |
+| Delete typo'd `migration_comms_10_routing.sql.sql` (BIGINT vs UUID duplicate) | **Done (29 Apr)** |
+| Set project_id = "nisla-operational-portal" in config.toml | **Done (29 Apr)** |
+| Link CLI to new project khtxngncvkwhoaybiigt | **Done (29 Apr)** |
+| `supabase migration list --linked` (verify remote empty) | **Blocked** — DB password needs reset; first attempt rejected |
+| `supabase db push --linked --include-all` (apply 48 migrations) | Pending — blocked on password |
+| Migrate Storage buckets (PDFs/images) from OLD → NEW | Pending |
+| Re-create Auth providers (Google OAuth, Gmail OAuth) | Pending |
+| Re-create Vault secrets | Pending |
+| Update Vercel env vars (URL, anon, service-role) to NEW | Pending |
 | Smoke-test on Vercel preview | Pending |
-| Cutover production env vars | Pending |
+| Cutover production traffic | Pending |
 | Keep OLD running 7-14 days | Pending |
-| Establish migration workflow going forward | Pending |
+| Establish forward-going migration workflow | Effectively done (CLI workspace now in place) |
+
+**Token-format note:** CLI 2.95.4 rejects the new dashboard `sbp_v0_*` token
+prefix. Strip `v0_` to use legacy `sbp_<40-hex>` format.
 
 ### 4b. Claim verification skill (planned)
 

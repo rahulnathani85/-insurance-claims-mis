@@ -4,7 +4,7 @@
 -- Main EW Vehicle Claims table (extends claims table via claim_id)
 CREATE TABLE IF NOT EXISTS ew_vehicle_claims (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  claim_id UUID REFERENCES claims(id) ON DELETE SET NULL,
+  claim_id BIGINT REFERENCES claims(id) ON DELETE SET NULL,
   ref_number TEXT,
   company TEXT DEFAULT 'NISLA',
   report_date DATE,
