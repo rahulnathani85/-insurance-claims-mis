@@ -21,7 +21,8 @@ Brand operating umbrella: NISLA. Both entities operate from the same portal.
 | Stack | Next.js 14 / React 18 / Tailwind / TypeScript |
 | Backend | Supabase (Postgres + Auth + Storage + Edge Functions) |
 | Hosting | Vercel |
-| URL | nisla-operational-portal.vercel.app |
+| Custom domain | portal.nisla.in |
+| Vercel URL | insurance-claims-mis-1kl7.vercel.app |
 | Repo | github.com/nathaniinsurance/nisla-operational-portal |
 | Default branch | main (renamed from master March 2026) |
 | Admin user | claim.intimation@nisla.in |
