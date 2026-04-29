@@ -66,12 +66,14 @@ export async function POST(request, { params }) {
   // -------------------------------------------------------------------------
   // 1. Load + scope-check the claim
   // -------------------------------------------------------------------------
+  // Note: actual column is `date_loss` (not date_of_loss). lib/registration.js
+  // accepts either shape but production reads use date_loss.
   const { data: claim, error: loadErr } = await supabaseAdmin
     .from('claims')
     .select(`
       id, ref_number, phase, company, lob, status,
       insured_name, insurer_name, policy_number,
-      date_of_loss, policy_period_from, policy_period_to,
+      date_loss, policy_period_from, policy_period_to,
       gross_loss, estimated_loss_amount, claim_amount_intimated,
       is_catastrophe
     `)
@@ -122,7 +124,7 @@ export async function POST(request, { params }) {
   const duplicates = await findDuplicateClaims(supabaseAdmin, {
     insurerName: claim.insurer_name,
     policyNumber: claim.policy_number,
-    dateOfLoss: claim.date_of_loss,
+    dateOfLoss: claim.date_loss,
     excludeId: claim.id,
     windowDays: 7,
   });

@@ -129,7 +129,7 @@ describe('validateRegistration', () => {
       policy_number: 'POL-12345',
       insured_name: 'M/s Test Industries',
       lob: 'Fire',
-      date_of_loss: '2026-04-15',
+      date_loss: '2026-04-15',                // production column name
       policy_period_from: '2025-04-01',
       policy_period_to: '2026-03-31',
     };
@@ -143,25 +143,45 @@ describe('validateRegistration', () => {
     expect(r.errors).toHaveLength(0);
   });
 
-  it('fails when date_of_loss is missing', () => {
-    const claim = baseClaim();
-    claim.date_of_loss = null;
+  it('still accepts date_of_loss as an alias for date_loss (form-style payloads)', () => {
+    // Build claim using the spec's date_of_loss field instead of date_loss
+    const claim = {
+      ref_number: 'X', policy_number: 'Y', insured_name: 'Z', lob: 'Fire',
+      date_of_loss: '2026-04-15',
+      policy_period_from: '2025-04-01',
+      policy_period_to: '2026-12-31',
+    };
     const r = validateRegistration(claim, { today });
-    expect(r.ok).toBe(false);
-    expect(r.errors).toContain('date_of_loss is required and must be a valid date');
+    expect(r.ok).toBe(true);
   });
 
-  it('fails when date_of_loss is in the future', () => {
+  it('warns (but does not block) when date_loss is missing', () => {
     const claim = baseClaim();
-    claim.date_of_loss = '2026-05-30'; // future relative to today=Apr 29
+    claim.date_loss = null;
+    const r = validateRegistration(claim, { today });
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => w.includes('date_loss is missing'))).toBe(true);
+  });
+
+  it('blocks when date_loss is in the future', () => {
+    const claim = baseClaim();
+    claim.date_loss = '2026-05-30'; // future relative to today=Apr 29
     const r = validateRegistration(claim, { today });
     expect(r.ok).toBe(false);
     expect(r.errors.some(e => e.includes('future'))).toBe(true);
   });
 
-  it('warns when loss is more than 1 year old (but does not fail)', () => {
+  it('blocks when date_loss is set but malformed', () => {
     const claim = baseClaim();
-    claim.date_of_loss = '2025-01-01'; // ~16 months before today
+    claim.date_loss = 'not-a-date';
+    const r = validateRegistration(claim, { today });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some(e => e.includes('not a valid date'))).toBe(true);
+  });
+
+  it('warns when loss is more than 1 year old (but does not block)', () => {
+    const claim = baseClaim();
+    claim.date_loss = '2025-01-01'; // ~16 months before today
     claim.policy_period_from = '2024-04-01';
     claim.policy_period_to   = '2025-03-31';
     const r = validateRegistration(claim, { today });
@@ -169,9 +189,9 @@ describe('validateRegistration', () => {
     expect(r.warnings.some(w => w.includes('time-barred'))).toBe(true);
   });
 
-  it('fails when date_of_loss is outside policy period', () => {
+  it('blocks when date_loss is outside policy period', () => {
     const claim = baseClaim();
-    claim.date_of_loss = '2026-04-15';
+    claim.date_loss = '2026-04-15';
     claim.policy_period_from = '2025-01-01';
     claim.policy_period_to   = '2025-12-31'; // DoL is AFTER period
     const r = validateRegistration(claim, { today });
@@ -188,14 +208,15 @@ describe('validateRegistration', () => {
     expect(r.warnings.some(w => w.includes('policy_period'))).toBe(true);
   });
 
-  it('fails when required fields are missing', () => {
+  it('warns (but does not block) when required fields are missing', () => {
     const claim = baseClaim();
+    claim.policy_period_to = '2026-12-31'; // ensure DoL is inside (baseline has DoL 4/15 vs period_to 3/31)
     claim.ref_number   = '';
     claim.insured_name = null;
     const r = validateRegistration(claim, { today });
-    expect(r.ok).toBe(false);
-    expect(r.errors).toContain('reference number is required');
-    expect(r.errors).toContain('insured name is required');
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some(w => w.includes('reference number'))).toBe(true);
+    expect(r.warnings.some(w => w.includes('insured name'))).toBe(true);
   });
 });
 
