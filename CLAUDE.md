@@ -336,6 +336,28 @@ If a code change conflicts with any of the above, stop and ask the user before p
 
 ---
 
+## 13a. Provenance system rollout (4 phases, in progress)
+
+The provenance system (`docs/provenance-conflict-system-spec.md`) replaces the "raw column on claims" model with a versioned `claim_field_values` ledger so every value has a source, confidence, and authority. Rollout is intentionally phased per spec §10:
+
+| Phase | What | Status |
+|---|---|---|
+| **A — Backfill** | One-time script writes existing claim columns into `claim_field_values` with `source_type='migrated'`, `is_current=true`. Runs once during a low-traffic window. | ⏸ ready, not run — `scripts/migration_helpers/provenance_phase_a_backfill.js` |
+| **B — Dual-write** | New writes go to BOTH old columns AND `claim_field_values`. Reads still come from columns. ~2-week soak to verify daily counts match. | ❌ not started — every claim mutation site must call `POST /api/claims/[id]/field-values` |
+| **C — Switch reads** | Reads come from `v_current_claim_fields` view. Old columns kept but read-only. | ❌ not started — every read site must be migrated |
+| **D — Drop columns** | After 30 days clean on Phase C, drop redundant columns from `claims`. | ❌ blocked on C |
+
+**Don't take any one-shot shortcut on this.** The 4-phase plan exists because zero-downtime + zero-data-loss requires it. Any new feature (FSR, settlement, etc.) that needs a claim field should:
+1. Read via `v_current_claim_fields` if Phase C has shipped for that field, else read from raw column.
+2. Write via `POST /api/claims/[id]/field-values` (provenance) ONLY — never directly into the column.
+3. Use `lib/provenance/values.js` `buildFieldValue` for typed values.
+
+**Decision engine** (`lib/provenance/decide.js`) is pure and exhaustively tested (53 tests). Every new field that gains a non-default policy should add a row to `field_change_policy`; otherwise the `__default__` row applies (auto-update on empty, raise conflict on disagreement).
+
+**Phase 1 scope (slice 8):** tables + decision engine + read APIs + manual-entry write API + backfill script + tests. Phase 2 (separate slice) wires document ingestion + the conflict-resolution UI.
+
+---
+
 ## 14. When in doubt
 
 Ask, in this order:
