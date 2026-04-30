@@ -23,6 +23,7 @@ describe('NOTIFICATION_TYPES', () => {
       'ila_reminder_24h',
       'ila_reminder_6h',
       'ila_overdue',
+      'ila_submitted',
     ]);
   });
 });
