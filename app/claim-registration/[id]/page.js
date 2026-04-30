@@ -106,6 +106,10 @@ export default function ClaimRegistrationPage({ params }) {
   const [saveStatus, setSaveStatus] = useState('idle');
   const [submitting, setSubmitting] = useState(false);
   const [alert, setAlert] = useState(null);
+  const [suggestions, setSuggestions] = useState({ eligible: [], blocked: [] });
+  const [suggestLoading, setSuggestLoading] = useState(true);
+  const [teamPicks, setTeamPicks] = useState({}); // { lead_surveyor: surveyor_id, co_surveyor: id, ... }
+  const [teamMode, setTeamMode] = useState(false);
   const lastSavedRef = useRef(null);
   const saveTimerRef = useRef(null);
 
@@ -115,14 +119,17 @@ export default function ClaimRegistrationPage({ params }) {
   async function loadAll() {
     try {
       setLoading(true);
-      const [claimRes, draftRes, contextRes] = await Promise.all([
+      const [claimRes, draftRes, contextRes, suggRes] = await Promise.all([
         fetch(`/api/claims/${claimId}`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/claims/${claimId}/draft`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/claims/${claimId}/intimation-context`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/claims/${claimId}/suggested-surveyors`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
 
       setClaim(claimRes);
       setIntimation(contextRes);
+      setSuggestions(suggRes || { eligible: [], blocked: [] });
+      setSuggestLoading(false);
       const extracted = contextRes?.extraction?.extracted_data || {};
       setExtractedData(extracted);
 
@@ -184,6 +191,10 @@ export default function ClaimRegistrationPage({ params }) {
 
   async function submit() {
     if (submitting) return;
+    if (!teamPicks.lead_surveyor) {
+      showAlert('Pick a lead surveyor before submitting', 'error');
+      return;
+    }
     setSubmitting(true);
     try {
       // Persist current draft as the source-of-truth claim row, then call register.
@@ -206,6 +217,23 @@ export default function ClaimRegistrationPage({ params }) {
       const regData = await regRes.json();
       if (!regRes.ok) {
         throw new Error(regData.error || `Register failed: ${JSON.stringify(regData)}`);
+      }
+
+      // Team assignment (Slice F).
+      const assignments = Object.entries(teamPicks)
+        .filter(([, surveyor_id]) => !!surveyor_id)
+        .map(([role, surveyor_id]) => ({ role, surveyor_id }));
+      if (assignments.length > 0) {
+        const assignRes = await fetch(`/api/claims/${claimId}/team-assign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignments, assigned_by: user?.email || null }),
+        });
+        if (!assignRes.ok) {
+          const err = await assignRes.json();
+          showAlert(`Registered, but team-assign failed: ${err.error || 'unknown'}`, 'error');
+          // Don't throw — claim is registered; assignment can be re-tried.
+        }
       }
 
       // Drop the draft now that the claim is registered.
@@ -265,6 +293,12 @@ export default function ClaimRegistrationPage({ params }) {
             onSubmit={submit}
             submitting={submitting}
             saveStatus={saveStatus}
+            suggestions={suggestions}
+            suggestLoading={suggestLoading}
+            teamPicks={teamPicks}
+            setTeamPicks={setTeamPicks}
+            teamMode={teamMode}
+            setTeamMode={setTeamMode}
           />
         </div>
       </div>
@@ -407,7 +441,7 @@ function FormField({ field, value, onChange, confidence }) {
 // RIGHT PANE — AI summary + submit gate
 // ----------------------------------------------------------------------------
 
-function SuggestionsPane({ extracted, summary, onSubmit, submitting, saveStatus }) {
+function SuggestionsPane({ extracted, summary, onSubmit, submitting, saveStatus, suggestions, suggestLoading, teamPicks, setTeamPicks, teamMode, setTeamMode }) {
   const fieldsExtracted = Object.keys(extracted || {}).filter(k => !k.startsWith('_')).length;
   return (
     <aside style={paneStyle}>
@@ -424,14 +458,14 @@ function SuggestionsPane({ extracted, summary, onSubmit, submitting, saveStatus 
         </p>
       </div>
 
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
-          Surveyor suggestions
-        </div>
-        <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
-          Coming with Slice F — license-aware ranking + conflict check.
-        </p>
-      </div>
+      <SurveyorSuggestionsBlock
+        loading={suggestLoading}
+        suggestions={suggestions}
+        teamPicks={teamPicks}
+        setTeamPicks={setTeamPicks}
+        teamMode={teamMode}
+        setTeamMode={setTeamMode}
+      />
 
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
@@ -528,6 +562,139 @@ function ConfidenceBadge({ confidence }) {
     }} title={`AI confidence: ${(confidence * 100).toFixed(0)}%`}>
       {cfg.label}
     </span>
+  );
+}
+
+function SurveyorSuggestionsBlock({ loading, suggestions, teamPicks, setTeamPicks, teamMode, setTeamMode }) {
+  const eligible = suggestions?.eligible || [];
+  const blocked = suggestions?.blocked || [];
+
+  const lead = teamPicks.lead_surveyor || '';
+  const pickedIds = new Set(Object.values(teamPicks).filter(Boolean));
+  const pickIds = (role, surveyor_id) => setTeamPicks(p => ({ ...p, [role]: surveyor_id || null }));
+
+  return (
+    <div style={{ marginBottom: 14, padding: 10, background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          Surveyor suggestions
+        </div>
+        <label style={{ fontSize: 11, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" checked={teamMode} onChange={e => setTeamMode(e.target.checked)} />
+          Team
+        </label>
+      </div>
+
+      {loading ? (
+        <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Loading…</p>
+      ) : eligible.length === 0 ? (
+        <>
+          <p style={{ fontSize: 12, color: '#b45309', margin: '4px 0' }}>
+            No eligible surveyors. {blocked.length > 0 && `${blocked.length} blocked — see surveyor master.`}
+          </p>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 11, color: '#475569', margin: '4px 0' }}>
+            Lead surveyor *
+          </div>
+          <select
+            value={lead}
+            onChange={e => pickIds('lead_surveyor', e.target.value)}
+            style={{ ...inputStyle, fontSize: 12 }}
+          >
+            <option value="">— Pick lead —</option>
+            {eligible.map(({ surveyor, score, reasons }) => (
+              <option key={surveyor.id} value={surveyor.id}>
+                {surveyor.name} · score {Math.round(score)} · {reasons[0] || 'eligible'}
+              </option>
+            ))}
+          </select>
+
+          {teamMode && (
+            <>
+              <TeamRolePicker
+                role="co_surveyor"
+                label="Co-surveyor"
+                eligible={eligible}
+                pickedIds={pickedIds}
+                value={teamPicks.co_surveyor}
+                onChange={(v) => pickIds('co_surveyor', v)}
+              />
+              <TeamRolePicker
+                role="engineer"
+                label="Engineer"
+                eligible={eligible}
+                pickedIds={pickedIds}
+                value={teamPicks.engineer}
+                onChange={(v) => pickIds('engineer', v)}
+              />
+              <TeamRolePicker
+                role="ca"
+                label="CA"
+                eligible={eligible}
+                pickedIds={pickedIds}
+                value={teamPicks.ca}
+                onChange={(v) => pickIds('ca', v)}
+              />
+              <TeamRolePicker
+                role="manager"
+                label="Manager observer"
+                eligible={eligible}
+                pickedIds={pickedIds}
+                value={teamPicks.manager}
+                onChange={(v) => pickIds('manager', v)}
+              />
+            </>
+          )}
+
+          {lead && (() => {
+            const sel = eligible.find(e => e.surveyor.id === lead);
+            if (!sel) return null;
+            return (
+              <div style={{ marginTop: 6, fontSize: 10, color: '#475569' }}>
+                <strong>{sel.surveyor.name}</strong>: {sel.reasons.join(' · ')}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {blocked.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ fontSize: 10, color: '#94a3b8', cursor: 'pointer' }}>
+            {blocked.length} blocked
+          </summary>
+          <ul style={{ fontSize: 10, color: '#94a3b8', margin: '4px 0 0', paddingLeft: 16 }}>
+            {blocked.map(b => (
+              <li key={b.surveyor.id}>{b.surveyor.name}: {b.reason}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function TeamRolePicker({ role, label, eligible, pickedIds, value, onChange }) {
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ fontSize: 11, color: '#475569' }}>{label}</div>
+      <select
+        value={value || ''}
+        onChange={e => onChange(e.target.value)}
+        style={{ ...inputStyle, fontSize: 12 }}
+      >
+        <option value="">— optional —</option>
+        {eligible
+          .filter(({ surveyor }) => surveyor.id === value || !pickedIds.has(surveyor.id))
+          .map(({ surveyor, score }) => (
+            <option key={surveyor.id} value={surveyor.id}>
+              {surveyor.name} · score {Math.round(score)}
+            </option>
+          ))}
+      </select>
+    </div>
   );
 }
 
