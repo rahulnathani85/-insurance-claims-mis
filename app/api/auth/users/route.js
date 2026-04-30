@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { hashPassword } from '@/lib/passwords';
 
 // GET - List all users
 export async function GET() {
@@ -20,11 +21,13 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Email, password, and name are required' }, { status: 400 });
   }
 
+  const password_hash = await hashPassword(body.password);
+
   const { data, error } = await supabase
     .from('app_users')
     .insert([{
       email: body.email.toLowerCase().trim(),
-      password_hash: body.password,  // Plain text for now
+      password_hash,
       name: body.name,
       role: body.role || 'Staff',
       company: body.company || 'NISLA',

@@ -1,5 +1,8 @@
 import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
+import { hashPassword, verifyPassword } from '@/lib/passwords';
+import { captureError } from '@/lib/observability';
 
 export async function POST(request) {
   const body = await request.json();
@@ -14,10 +17,9 @@ export async function POST(request) {
 
   // Try lookup by username (name field) first, then fallback to email
   let user = null;
-  let error = null;
 
   // Try by name (case-insensitive)
-  const { data: byName, error: nameErr } = await supabase
+  const { data: byName } = await supabase
     .from('app_users')
     .select('*')
     .ilike('name', loginId.trim())
@@ -28,7 +30,7 @@ export async function POST(request) {
     user = byName;
   } else {
     // Fallback: try by email
-    const { data: byEmail, error: emailErr } = await supabase
+    const { data: byEmail } = await supabase
       .from('app_users')
       .select('*')
       .eq('email', loginId.toLowerCase().trim())
@@ -44,9 +46,25 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid User ID or password' }, { status: 401 });
   }
 
-  // Simple password check (plain text comparison)
-  if (user.password_hash !== password) {
+  const { ok, needsRehash } = await verifyPassword(password, user.password_hash);
+  if (!ok) {
     return NextResponse.json({ error: 'Invalid User ID or password' }, { status: 401 });
+  }
+
+  // Transparent migration: legacy plain-text rows get bcrypt-hashed on first
+  // successful login. Use the service-role client so RLS doesn't block it.
+  if (needsRehash) {
+    try {
+      const newHash = await hashPassword(password);
+      await supabaseAdmin
+        .from('app_users')
+        .update({ password_hash: newHash })
+        .eq('id', user.id);
+    } catch (e) {
+      // Non-fatal: login still succeeds; the row stays plain text until next
+      // login. Surface via Sentry so we notice if it's persistent.
+      captureError(e, { area: 'auth-login-rehash', user_id: user.id });
+    }
   }
 
   // Update last login

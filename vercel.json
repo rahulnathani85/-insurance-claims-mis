@@ -16,6 +16,10 @@
     {
       "path": "/api/comms-cron/refresh-watch",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/comms-cron/send-notifications",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

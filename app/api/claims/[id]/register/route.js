@@ -43,6 +43,9 @@ import {
   validateRegistration,
   findDuplicateClaims,
 } from '@/lib/registration';
+// Notifications are wired in /api/claims/[id]/team-assign — see slice G notes
+// in the registration spec; the dealing-officer-email column is not yet on
+// the claims table so the registration-ack path is deferred.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -198,6 +201,15 @@ export async function POST(request, { params }) {
         duplicates_overridden: overrideDuplicate && duplicates.length > 0,
       }),
     }]);
+
+  // -------------------------------------------------------------------------
+  // 7. Notifications (spec §11): registration-ack to the insurer dealing
+  // officer is deferred until the dealing_officer_email column is added to
+  // claims (spec §3 calls for it). Assignment notifications + ILA reminders
+  // are enqueued by /api/claims/[id]/team-assign once a lead surveyor is
+  // picked. For now, surface the queue endpoint exists so ops can monitor
+  // it: /api/comms-cron/send-notifications drains pending rows on cron.
+  // -------------------------------------------------------------------------
 
   return NextResponse.json({
     ok: true,
