@@ -388,6 +388,7 @@ export default function ClaimDetail() {
     { key: 'site-visits', label: 'Site Visits', icon: '📍', href: `/site-visits/${id}` },
     { key: 'ila', label: 'ILA', icon: '📑', href: `/ila/${id}` },
     { key: 'loss-sheet', label: 'Loss Sheet', icon: '📊', href: `/loss-sheet/${id}` },
+    { key: 'fsr-doc', label: 'FSR Doc', icon: '📜', href: `/fsr/${id}` },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
