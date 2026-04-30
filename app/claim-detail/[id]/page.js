@@ -387,7 +387,17 @@ export default function ClaimDetail() {
     { key: 'documents', label: 'Documents', icon: '📄' },
     { key: 'site-visits', label: 'Site Visits', icon: '📍', href: `/site-visits/${id}` },
     { key: 'ila', label: 'ILA', icon: '📑', href: `/ila/${id}` },
-    { key: 'loss-sheet', label: 'Loss Sheet', icon: '📊', href: `/loss-sheet/${id}` },
+    {
+      key: 'loss-sheet',
+      label: 'Loss Sheet',
+      icon: '📊',
+      // Marine Cargo claims use the Marine math flow (no depreciation; insurance% / GST / handling).
+      // Marine Hull = TBD (Phase 2 — uses neither the Fire nor Marine Cargo flow).
+      // Everything else (Fire / Engineering / Misc / LOP) defaults to the Fire-shaped page
+      // since they all share depreciation + underinsurance math.
+      href: claim.lob === 'Marine Cargo' ? `/marine-loss-sheet/${id}` : `/loss-sheet/${id}`,
+    },
+    { key: 'fsr-doc', label: 'FSR Doc', icon: '📜', href: `/fsr/${id}` },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
