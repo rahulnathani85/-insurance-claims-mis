@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+import { hashPassword } from '@/lib/passwords';
 
 // GET single user
 export async function GET(request, { params }) {
@@ -25,7 +26,9 @@ export async function PUT(request, { params }) {
   if (body.role !== undefined) updates.role = body.role;
   if (body.company !== undefined) updates.company = body.company;
   if (body.is_active !== undefined) updates.is_active = body.is_active;
-  if (body.password && body.password.trim()) updates.password_hash = body.password;
+  if (body.password && body.password.trim()) {
+    updates.password_hash = await hashPassword(body.password);
+  }
   // updated_at column may not exist yet — skip it
 
   const { data, error } = await supabase
