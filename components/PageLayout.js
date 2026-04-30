@@ -163,6 +163,9 @@ export default function PageLayout({ children }) {
                   <Link href="/insurer-master" className={`nav-item ${pathname === '/insurer-master' ? 'active' : ''}`}>
                     <SideIcon letter="IN" bg="#fef3c7" color="#b45309" /><span>Insurer Master</span>
                   </Link>
+                  <Link href="/surveyor-master" className={`nav-item ${pathname === '/surveyor-master' ? 'active' : ''}`}>
+                    <SideIcon letter="SM" bg="#dcfce7" color="#15803d" /><span>Surveyor Master</span>
+                  </Link>
                   <Link href="/policy-master" className={`nav-item ${pathname === '/policy-master' ? 'active' : ''}`}>
                     <SideIcon letter="PM" bg="#fce7f3" color="#be185d" /><span>Policy Master</span>
                   </Link>
