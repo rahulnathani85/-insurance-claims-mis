@@ -196,9 +196,11 @@ Use these terms exactly. Do not invent synonyms.
 - **CAT** — catastrophe claim (flood/cyclone/riot or others at scale).
 - **Salvage** — recoverable value from damaged property.
 - **Sum Insured (SI)** — maximum payable under the policy.
-- **Reference Number** — Surveyor's office file number (NISLA's internal `ref_number`)
-- **Claim Number** — Insurer's claim number
+- **Surveyor Reference Number** — NISLA / ACUERE's office file number, stored as `claims.ref_number` (e.g. `4053/26-27/Marine Cargo`). **This is the source of truth for the claim once registration is complete.** Every downstream artefact — file folder, ILA, FSR, survey-fee bill, correspondence, photo evidence, audit trail — keys off this number. The pre-registration intake email + intake-ref are superseded the moment a surveyor reference number is issued. _(Pre-registration claim shells use a stop-gap `INTAKE/<company>/<id>` ref, replaced during Claim Registration.)_
+- **Claim Number** — Insurer's claim number (`claims.claim_number`). Issued by the insurer; we record it but never treat it as our identifier.
+- **Intake Reference Number** — Stop-gap identifier used while a claim is in `phase='intimation'` and not yet registered. Format: `INTAKE/<company>/<short_msg_id>`. Replaced by the Surveyor Reference Number on registration.
 - **File Number** — Insurer's / broker / client file identification number
+- **LOB (Line of Business)** — IRDAI-defined claim taxonomy. The seven canonical values used by `claims.lob` are: **Fire / Engineering / Marine Cargo / Marine Hull / Motor / Miscellaneous / LOP**. Per-LOB sub-categories (e.g. Fire → SFSP, IAR, Mega Risk, Bharat Griha Raksha) live in [`lib/lobSubcategories.js`](lib/lobSubcategories.js) and are stored in `claims.lob_subcategory`. Source: `docs/modifications 30-04-2026.md` §4-§5.
 
 ---
 

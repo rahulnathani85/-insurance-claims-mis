@@ -386,6 +386,7 @@ export default function ClaimDetail() {
     { key: 'assignments', label: 'Team', icon: '👥' },
     { key: 'documents', label: 'Documents', icon: '📄' },
     { key: 'site-visits', label: 'Site Visits', icon: '📍', href: `/site-visits/${id}` },
+    { key: 'ila', label: 'ILA', icon: '📑', href: `/ila/${id}` },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
@@ -439,6 +440,7 @@ export default function ClaimDetail() {
             <div style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>{claim.assigned_to || 'Unassigned'}</div>
             <div style={{ fontSize: 11, color: '#6b7280' }}>Assigned To</div>
           </div>
+          <IlaTatWidget ilaDueAt={claim.ila_due_at} claimId={id} />
         </div>
 
         {/* 9-Stage Pipeline Stepper */}
@@ -1343,4 +1345,54 @@ export default function ClaimDetail() {
       </div>
     </PageLayout>
   );
+}
+
+// ILA TAT countdown widget — refreshes every minute. Shows nothing if the
+// claim doesn't have an ila_due_at set (e.g. still in intimation phase).
+function IlaTatWidget({ ilaDueAt, claimId }) {
+  const [tat, setTat] = useState(() => computeIlaTat(ilaDueAt));
+  useEffect(() => {
+    if (!ilaDueAt) return;
+    const tick = () => setTat(computeIlaTat(ilaDueAt));
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [ilaDueAt]);
+
+  if (!ilaDueAt || !tat) return null;
+  const cfg = {
+    green: { bg: '#f0fdf4', label: '#166534' },
+    amber: { bg: '#fefce8', label: '#92400e' },
+    red:   { bg: '#fef2f2', label: '#dc2626' },
+    breach:{ bg: '#fef2f2', label: '#7f1d1d' },
+  }[tat.severity] || { bg: '#f8fafc', label: '#475569' };
+
+  return (
+    <a href={`/ila/${claimId}`} style={{
+      padding: '10px 18px', background: cfg.bg, borderRadius: 8,
+      textDecoration: 'none', minWidth: 150, display: 'block',
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: cfg.label }}>{tat.label}</div>
+      <div style={{ fontSize: 11, color: '#6b7280' }}>ILA TAT</div>
+    </a>
+  );
+}
+
+function computeIlaTat(ilaDueAt) {
+  if (!ilaDueAt) return null;
+  const due = new Date(ilaDueAt);
+  if (Number.isNaN(due.getTime())) return null;
+  const ms = due.getTime() - Date.now();
+  const hours = ms / 3_600_000;
+  const fmt = (m) => {
+    const abs = Math.abs(m);
+    const h = Math.floor(abs / 3_600_000);
+    const min = Math.floor((abs % 3_600_000) / 60_000);
+    if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+    return `${h}h ${min}m`;
+  };
+  if (ms < 0) return { severity: 'breach', label: `OVERDUE ${fmt(ms)}` };
+  if (hours <= 6) return { severity: 'red', label: `${fmt(ms)} left` };
+  if (hours <= 24) return { severity: 'amber', label: `${fmt(ms)} left` };
+  return { severity: 'green', label: `${fmt(ms)} left` };
 }

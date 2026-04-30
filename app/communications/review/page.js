@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
+import { IRDAI_LOBS, normaliseLob } from '@/lib/lobSubcategories';
 
 export default function ReviewQueuePage() {
   const router = useRouter();
@@ -27,7 +28,15 @@ export default function ReviewQueuePage() {
   const [busy, setBusy] = useState(false);
   const [offset, setOffset] = useState(0);
   const [actionBusy, setActionBusy] = useState({});
+  const [surveyors, setSurveyors] = useState([]);
   const limit = 50;
+
+  // Load active surveyors once for the assignee picker (M3).
+  useEffect(() => {
+    fetch('/api/surveyors').then(r => r.ok ? r.json() : []).then(d => {
+      setSurveyors(Array.isArray(d) ? d : []);
+    }).catch(() => setSurveyors([]));
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
@@ -55,13 +64,13 @@ export default function ReviewQueuePage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleAction(messageId, action) {
+  async function handleAction(messageId, action, extras = {}) {
     setActionBusy((p) => ({ ...p, [messageId]: true }));
     try {
       const res = await fetch('/api/communications/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-app-user-email': user.email },
-        body: JSON.stringify({ message_id: messageId, action }),
+        body: JSON.stringify({ message_id: messageId, action, ...extras }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -124,9 +133,11 @@ export default function ReviewQueuePage() {
                 key={m.id}
                 message={m}
                 busy={!!actionBusy[m.id]}
-                onApprove={() => handleAction(m.id, 'approve')}
+                onApprove={(extras) => handleAction(m.id, 'approve', extras)}
+                onLink={(refNumber) => handleAction(m.id, 'approve', { link_to_ref_number: refNumber })}
                 onReject={() => handleAction(m.id, 'reject')}
                 userEmail={user.email}
+                surveyors={surveyors}
               />
             ))}
           </div>
@@ -143,10 +154,37 @@ export default function ReviewQueuePage() {
   );
 }
 
-function ReviewCard({ message: m, busy, onApprove, onReject }) {
+function ReviewCard({ message: m, busy, onApprove, onReject, onLink, surveyors = [] }) {
   const [expanded, setExpanded] = useState(false);
   const ext = m.extraction;
   const cls = m.classification;
+  const isIntimation = cls?.tag === 'intimation';
+
+  // Approve-time pickers (modifications 30-04-2026 §2):
+  // - lobOverride: clerk-picked LOB (intimation only) — defaults to LLM hint
+  // - assignedSurveyorId: lead surveyor (intimation only)
+  // - linkRef: tag this message to an existing claim by ref_number (any tag)
+  const extractedLob = ext?.extracted_data?.lob;
+  const [lobOverride, setLobOverride] = useState(
+    isIntimation ? normaliseLob(extractedLob) : ''
+  );
+  const [assignedSurveyorId, setAssignedSurveyorId] = useState('');
+  const [linkRef, setLinkRef] = useState('');
+
+  function approve() {
+    const extras = {};
+    if (isIntimation && lobOverride) extras.override_lob = lobOverride;
+    if (isIntimation && assignedSurveyorId) extras.assigned_surveyor_id = assignedSurveyorId;
+    onApprove(extras);
+  }
+
+  function linkToRef() {
+    if (!linkRef.trim()) {
+      alert('Enter a surveyor reference number first');
+      return;
+    }
+    onLink(linkRef.trim());
+  }
 
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
@@ -182,9 +220,12 @@ function ReviewCard({ message: m, busy, onApprove, onReject }) {
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button
-            onClick={(e) => { e.stopPropagation(); onApprove(); }}
+            onClick={(e) => { e.stopPropagation(); approve(); }}
             disabled={busy}
             style={btnStyle('approve', busy)}
+            title={isIntimation
+              ? `Approve as intimation${lobOverride ? ` · LOB ${lobOverride}` : ''}${assignedSurveyorId ? ' · with assignee' : ''}`
+              : 'Approve and route per tag rules'}
           >
             {busy ? '…' : 'Approve'}
           </button>
@@ -201,6 +242,75 @@ function ReviewCard({ message: m, busy, onApprove, onReject }) {
 
       {expanded && (
         <div style={{ borderTop: '1px solid #f1f5f9', padding: '12px 16px', background: '#f8fafc' }}>
+          <div style={{ marginBottom: 14, padding: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8 }}>
+              Approve options
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {isIntimation && (
+                <>
+                  <div>
+                    <label style={lblStyle}>LOB (override)</label>
+                    <select
+                      value={lobOverride || ''}
+                      onChange={(e) => setLobOverride(e.target.value)}
+                      style={smallInputStyle}
+                    >
+                      <option value="">— LLM-extracted —</option>
+                      {IRDAI_LOBS.map((lob) => (
+                        <option key={lob} value={lob}>{lob}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                      LLM hint: {extractedLob || '—'} → registered as {lobOverride || normaliseLob(extractedLob)}
+                    </div>
+                  </div>
+                  <div>
+                    <label style={lblStyle}>Assign to surveyor</label>
+                    <select
+                      value={assignedSurveyorId}
+                      onChange={(e) => setAssignedSurveyorId(e.target.value)}
+                      style={smallInputStyle}
+                    >
+                      <option value="">— No assignment yet —</option>
+                      {surveyors
+                        .filter((s) => s.active && s.license_status !== 'expired')
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                            {s.license_status === 'expiring_soon' ? ' · ⚠ expiring' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
+                <label style={lblStyle}>
+                  Or tag this message to an existing claim by reference #
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    placeholder="e.g. 4053/26-27/Marine Cargo"
+                    value={linkRef}
+                    onChange={(e) => setLinkRef(e.target.value)}
+                    style={{ ...smallInputStyle, flex: 1 }}
+                  />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); linkToRef(); }}
+                    disabled={busy || !linkRef.trim()}
+                    style={btnStyle('secondary', busy || !linkRef.trim())}
+                  >
+                    Tag &amp; file
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                  Bypasses tag routing — links message + attachments directly to that claim.
+                </div>
+              </div>
+            </div>
+          </div>
           {ext?.extracted_data && (
             <>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Extracted data</div>
@@ -270,6 +380,14 @@ function formatTs(iso) {
 const emptyBox = {
   background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 8,
   padding: 32, textAlign: 'center', color: '#94a3b8', fontSize: 13,
+};
+
+const lblStyle = {
+  display: 'block', fontSize: 11, fontWeight: 600, color: '#475569', marginBottom: 4,
+};
+const smallInputStyle = {
+  width: '100%', padding: '5px 8px', fontSize: 12,
+  border: '1px solid #cbd5e1', borderRadius: 4, background: '#fff',
 };
 
 function btnStyle(variant, disabled) {
