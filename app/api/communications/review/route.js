@@ -124,7 +124,15 @@ export async function POST(request) {
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { message_id, action, override_claim_id } = body;
+  const {
+    message_id,
+    action,
+    override_claim_id,
+    // Approve-time additions (modifications 30-04-2026 §2):
+    override_lob,            // M2: clerk-picked LOB
+    assigned_surveyor_id,    // M3: lead surveyor assignment on intimation tag
+    link_to_ref_number,      // M4: tag message to existing claim by ref_number (any tag)
+  } = body;
   if (!message_id || !action) {
     return NextResponse.json({ error: 'message_id and action are required' }, { status: 400 });
   }
@@ -161,6 +169,66 @@ export async function POST(request) {
     });
 
     return NextResponse.json({ ok: true, action: 'rejected', message_id });
+  }
+
+  // M4: tag-to-existing-ref. Bypasses executor — directly link the message to
+  // the claim with the matching ref_number (modifications 30-04-2026 §2). Used
+  // for non-intimation tags (claim docs, follow-ups, etc.) where the clerk
+  // knows which claim this email belongs to.
+  if (link_to_ref_number) {
+    const ref = String(link_to_ref_number).trim();
+    const { data: target } = await supabaseAdmin
+      .from('claims')
+      .select('id, ref_number, company')
+      .eq('ref_number', ref)
+      .maybeSingle();
+    if (!target) {
+      return NextResponse.json({ error: `No claim found with ref ${ref}` }, { status: 404 });
+    }
+
+    await supabaseAdmin
+      .from('inbox_messages')
+      .update({ status: 'auto_routed', claim_id: target.id })
+      .eq('id', message_id);
+
+    // File any image attachments under the claim, mirroring actionAttachPhotosToClaim.
+    const { data: atts } = await supabaseAdmin
+      .from('message_attachments')
+      .select('id, filename, mime_type, size_bytes, is_image, storage_path')
+      .eq('message_id', message_id);
+
+    if (atts && atts.length > 0) {
+      const docRows = atts.map((a) => ({
+        claim_id: target.id,
+        ref_number: target.ref_number || null,
+        file_name: a.filename || 'attachment',
+        file_type: a.is_image ? 'survey_photo' : 'other',
+        mime_type: a.mime_type || null,
+        file_size: a.size_bytes || null,
+        storage_path: a.storage_path || null,
+        source: 'gmail',
+        company: target.company || message.company || 'NISLA',
+      }));
+      await supabaseAdmin.from('claim_documents').insert(docRows);
+    }
+
+    await recordPortalActivity({
+      user_email: user.email,
+      user_name: user.name,
+      action: 'comms_message_linked_to_ref',
+      entity_type: 'inbox_message',
+      details: { message_id, ref_number: ref, claim_id: target.id, attachment_count: atts?.length || 0 },
+      company: target.company || message.company || 'NISLA',
+    });
+
+    return NextResponse.json({
+      ok: true,
+      action: 'linked',
+      message_id,
+      claim_id: target.id,
+      ref_number: target.ref_number,
+      attachments_filed: atts?.length || 0,
+    });
   }
 
   // action === 'approve': run executeRouting, overriding the threshold guard.
@@ -206,7 +274,51 @@ export async function POST(request) {
       .eq('id', ext.id);
   }
 
-  const result = await executeRouting(message_id, { triggeredBy: `human:${user.email}` });
+  // M2: pass clerk-picked LOB (and any future overrides) into executor.
+  const overrides = {};
+  if (override_lob) overrides.lob = override_lob;
+
+  const result = await executeRouting(message_id, {
+    triggeredBy: `human:${user.email}`,
+    overrides: Object.keys(overrides).length > 0 ? overrides : null,
+  });
+
+  // M3: lead-surveyor assignment on a freshly-created claim.
+  // We pull the claim_id from the executor result (set when create_claim ran).
+  // Failures here are non-fatal — claim is registered; assignment can be retried.
+  let assignmentRow = null;
+  if (assigned_surveyor_id && result?.ok && result.claimId) {
+    try {
+      const { data: surveyor } = await supabaseAdmin
+        .from('surveyors')
+        .select('id, name, email, active, license_expiry_date')
+        .eq('id', assigned_surveyor_id)
+        .maybeSingle();
+      if (surveyor && surveyor.active) {
+        const { data: ins } = await supabaseAdmin
+          .from('claim_assignments')
+          .insert([{
+            claim_id: result.claimId,
+            surveyor_id: surveyor.id,
+            assigned_to: surveyor.email || null,
+            assigned_to_name: surveyor.name || null,
+            assigned_by: user.email,
+            role: 'lead_surveyor',
+            assignment_type: 'lead',
+            status: 'Assigned',
+            assigned_date: new Date().toISOString().slice(0, 10),
+            company: message.company || 'NISLA',
+            assignment_basis: 'review_queue_intimation_tag',
+          }])
+          .select()
+          .single();
+        assignmentRow = ins;
+      }
+    } catch (e) {
+      // Don't fail the approve — record and move on.
+      assignmentRow = { error: e.message };
+    }
+  }
 
   // Restore original confidence if we changed it.
   if (cls && cls.confidence !== null) {
@@ -221,12 +333,18 @@ export async function POST(request) {
     user_name: user.name,
     action: 'comms_message_approved',
     entity_type: 'inbox_message',
-    details: { message_id, routing_result: result },
+    details: { message_id, routing_result: result, override_lob, assigned_surveyor_id, assignment: assignmentRow },
     company: message.company || 'NISLA',
   });
 
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, action: 'approved', message_id, routing: result });
+  return NextResponse.json({
+    ok: true,
+    action: 'approved',
+    message_id,
+    routing: result,
+    assignment: assignmentRow,
+  });
 }

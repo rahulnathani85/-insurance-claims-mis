@@ -12,6 +12,7 @@ import {
   hasMeaningfulDiff,
   FORM_FIELDS,
 } from '@/lib/registrationDraft';
+import { IRDAI_LOBS, subcategoriesFor, suggestSubcategory } from '@/lib/lobSubcategories';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
@@ -54,7 +55,8 @@ const SECTIONS = [
     key: 'loss',
     title: 'Loss',
     fields: [
-      { key: 'lob', label: 'LOB', type: 'text', mandatory: true },
+      { key: 'lob', label: 'LOB', type: 'select', mandatory: true, options: ['', ...IRDAI_LOBS] },
+      { key: 'lob_subcategory', label: 'Sub-category', type: 'lob_subcategory' },
       { key: 'peril_type', label: 'Peril', type: 'text' },
       { key: 'date_loss', label: 'Date of loss', type: 'date', mandatory: true },
       { key: 'date_of_intimation', label: 'Date of intimation', type: 'date', mandatory: true },
@@ -142,6 +144,12 @@ export default function ClaimRegistrationPage({ params }) {
             initial[f] = value;
           }
         }
+      }
+      // Auto-suggest sub-category from extraction when not already set.
+      // The clerk can still override via the dropdown.
+      if (!initial.lob_subcategory && initial.lob) {
+        const suggested = suggestSubcategory(initial.lob, extracted);
+        if (suggested) initial.lob_subcategory = suggested;
       }
       setFormState(initial);
       lastSavedRef.current = initial;
@@ -383,6 +391,7 @@ function FormPane({ sections, formState, setField, fieldConfidences }) {
               value={formState[f.key]}
               onChange={(v) => setField(f.key, v)}
               confidence={fieldConfidences[f.key]}
+              formState={formState}
             />
           ))}
         </div>
@@ -391,8 +400,12 @@ function FormPane({ sections, formState, setField, fieldConfidences }) {
   );
 }
 
-function FormField({ field, value, onChange, confidence }) {
+function FormField({ field, value, onChange, confidence, formState }) {
   const id = `f_${field.key}`;
+  // Sub-category options depend on the currently-selected LOB.
+  const subcatOptions = field.type === 'lob_subcategory'
+    ? subcategoriesFor(formState?.lob)
+    : null;
   return (
     <div style={{ marginBottom: 10 }}>
       <label htmlFor={id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: '#374151' }}>
@@ -408,6 +421,19 @@ function FormField({ field, value, onChange, confidence }) {
           onChange={e => onChange(e.target.value)}
           style={inputStyle}
         />
+      ) : field.type === 'lob_subcategory' ? (
+        subcatOptions && subcatOptions.length > 0 ? (
+          <select id={id} value={value ?? ''} onChange={e => onChange(e.target.value || null)} style={inputStyle}>
+            <option value="">— Select sub-category —</option>
+            {subcatOptions.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        ) : (
+          <div style={{ ...inputStyle, color: '#94a3b8', background: '#f8fafc' }}>
+            Pick an LOB first
+          </div>
+        )
       ) : field.type === 'select' ? (
         <select id={id} value={value ?? ''} onChange={e => onChange(e.target.value || null)} style={inputStyle}>
           {field.options.map(opt => (
