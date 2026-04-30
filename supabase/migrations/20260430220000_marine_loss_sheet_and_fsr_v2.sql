@@ -162,7 +162,7 @@ UPDATE public.fsr_lob_templates
    AND template_name = 'Default'
    AND version = 1;
 
-INSERT INTO public.fsr_lob_templates (company, lob, template_name, version, body_html, is_active) VALUES
+INSERT INTO public.fsr_lob_templates (company, lob, template_name, version, body_html) VALUES
 ('NISLA', 'Fire', 'Default', 2,
 '<!DOCTYPE html>
 <html lang="en">
@@ -414,7 +414,7 @@ ON CONFLICT (company, lob, template_name, version) DO NOTHING;
 -- 4. Marine Cargo FSR template (NISLA + Acuere) — Marine math summary
 -- -----------------------------------------------------------------------------
 
-INSERT INTO public.fsr_lob_templates (company, lob, template_name, version, body_html, is_active) VALUES
+INSERT INTO public.fsr_lob_templates (company, lob, template_name, version, body_html) VALUES
 ('NISLA', 'Marine Cargo', 'Default', 1,
 '<!DOCTYPE html>
 <html lang="en">
