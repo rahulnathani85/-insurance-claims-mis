@@ -17,10 +17,12 @@ export const runtime = 'nodejs';
 export async function GET(_request, { params }) {
   const { id } = params;
 
-  // Confirm claim exists and pull SI default from the claim record.
+  // Confirm claim exists. claims doesn't have a sum_insured column on the
+  // live schema (it lives on policies); the surveyor enters SI on the
+  // loss-sheet header directly.
   const { data: claim, error: claimErr } = await supabaseAdmin
     .from('claims')
-    .select('id, ref_number, lob, sum_insured, company')
+    .select('id, ref_number, lob, company')
     .eq('id', id)
     .single();
   if (claimErr || !claim) {
@@ -38,13 +40,11 @@ export async function GET(_request, { params }) {
     if (existing) {
       sheet = existing;
     } else {
-      // Default sum_insured from claims; cast to numeric if string.
-      const defaultSi = parseRupees(claim.sum_insured);
       const { data: created, error: createErr } = await supabaseAdmin
         .from('loss_sheets')
         .insert([{
           claim_id: parseInt(id, 10),
-          sum_insured: defaultSi,
+          sum_insured: null,
           excess_amount: 0,
           company: claim.company || 'NISLA',
         }])
@@ -131,14 +131,4 @@ function numericOrNull(v) {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
-function parseRupees(v) {
-  if (v === null || v === undefined) return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  // claims.sum_insured is TEXT; strip currency symbols/commas.
-  const cleaned = String(v).replace(/[^\d.]/g, '');
-  if (!cleaned) return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
 }
