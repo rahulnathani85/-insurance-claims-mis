@@ -204,10 +204,17 @@ export default function IntimationsPage() {
                         {isSaving ? 'Saving…' : 'Save changes'}
                       </button>
                       <Link
-                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                        href={`/claim-registration/${encodeURIComponent(c.id)}`}
                         style={{ ...btnStyle('primary', false), padding: '8px 14px', textDecoration: 'none', display: 'inline-block' }}
                       >
                         Register Claim →
+                      </Link>
+                      <Link
+                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                        style={{ ...btnStyle('secondary', false), padding: '8px 14px', textDecoration: 'none', display: 'inline-block', fontSize: 12 }}
+                        title="Legacy single-column form"
+                      >
+                        Legacy form
                       </Link>
                     </div>
                   </div>
