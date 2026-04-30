@@ -28,6 +28,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { isEligibleForAssignment } from '@/lib/surveyors';
 import { ASSIGNMENT_ROLES, findConflictedSurveyors } from '@/lib/assignmentRanking';
+import { enqueueAssignmentNotify, enqueueIlaReminders } from '@/lib/notifications/queue';
 
 export async function POST(request, { params }) {
   const { id } = params;
@@ -153,6 +154,27 @@ export async function POST(request, { params }) {
       assignments: insertRows.map(r => ({ surveyor_id: r.surveyor_id, role: r.role })),
     }),
   }]);
+
+  // Notifications (spec §11). Failures don't block the response — helpers
+  // swallow + log; the queue cron retries pending rows.
+  for (const item of items) {
+    const s = surveyorById.get(item.surveyor_id);
+    if (!s?.email) continue;
+    await enqueueAssignmentNotify(supabaseAdmin, {
+      claim,
+      surveyor: s,
+      role: item.role,
+    });
+  }
+
+  // ILA-due reminders for the lead surveyor (24h, 6h, overdue).
+  const leadItem = items.find(i => i.role === 'lead_surveyor');
+  if (leadItem) {
+    const lead = surveyorById.get(leadItem.surveyor_id);
+    if (lead?.email && claim.ila_due_at) {
+      await enqueueIlaReminders(supabaseAdmin, { claim, lead_surveyor: lead });
+    }
+  }
 
   return NextResponse.json({ assignments: data || [] }, { status: 201 });
 }
