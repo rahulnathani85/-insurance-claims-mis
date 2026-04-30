@@ -101,8 +101,16 @@ export default function TriageDetailPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      // Success — go back to the queue.
-      router.push('/communications/triage');
+      // Success — for classify, navigate to the Review Queue with this
+      // message highlighted. The cron at /api/comms-cron/extract-pending
+      // picks the message up within ~5 min; the review page polls and
+      // flashes the row when it appears. For dismiss, go back to the
+      // triage queue (no further action expected).
+      if (mode === 'classify') {
+        router.push(`/communications/review?highlight=${encodeURIComponent(messageId)}&just_tagged=1`);
+      } else {
+        router.push('/communications/triage');
+      }
     } catch (err) {
       setError(err.message);
       setBusy(false);

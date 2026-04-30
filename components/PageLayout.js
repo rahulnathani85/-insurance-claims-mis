@@ -30,6 +30,60 @@ function LobDot({ color }) {
   );
 }
 
+// Collapsible section wrapper — clickable header with chevron, persists
+// open/closed state in localStorage so users keep their preference across
+// navigations and sessions.
+function CollapsibleNavSection({ title, sectionKey, defaultOpen = true, badge, children }) {
+  const storageKey = `mis_nav_open:${sectionKey}`;
+  // Default to defaultOpen until hydrated; falls back to localStorage on mount.
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const v = localStorage.getItem(storageKey);
+    if (v === '0') setOpen(false);
+    else if (v === '1') setOpen(true);
+  }, [storageKey]);
+
+  function toggle() {
+    setOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(storageKey, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  return (
+    <div className="nav-section">
+      <button
+        type="button"
+        onClick={toggle}
+        className="nav-section-title"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          width: '100%', background: 'none', border: 'none', padding: '6px 12px',
+          cursor: 'pointer', textAlign: 'left', color: 'inherit',
+          fontSize: 'inherit', fontWeight: 'inherit', textTransform: 'inherit',
+          letterSpacing: 'inherit',
+        }}
+        title={open ? 'Collapse section' : 'Expand section'}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {title}
+          {badge}
+        </span>
+        <span style={{
+          display: 'inline-block', transition: 'transform 200ms',
+          transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+          fontSize: 10, opacity: 0.7,
+        }}>▶</span>
+      </button>
+      <div style={{ display: open ? 'block' : 'none' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function PageLayout({ children }) {
   const pathname = usePathname();
   const { company, setCompany } = useCompany();
@@ -140,8 +194,7 @@ export default function PageLayout({ children }) {
 
             {/* Extended Warranty Section */}
             {!isAllMode && (
-              <div className="nav-section">
-                <div className="nav-section-title">Extended Warranty</div>
+              <CollapsibleNavSection title="Extended Warranty" sectionKey="ew">
                 <Link href="/ew-vehicle-claims" className={`nav-item ${pathname === '/ew-vehicle-claims' || (pathname.startsWith('/ew-vehicle-claims/') && !pathname.startsWith('/ew-vehicle-claims/dashboard') && !pathname.startsWith('/ew-vehicle-claims/mis')) ? 'active' : ''}`}>
                   <SideIcon letter="EW" bg="#ede9fe" color="#7c3aed" /><span>EW Vehicle Claims</span>
                 </Link>
@@ -154,12 +207,11 @@ export default function PageLayout({ children }) {
                 <Link href="/ew-lots" className={`nav-item ${pathname === '/ew-lots' || pathname.startsWith('/ew-lots/') ? 'active' : ''}`}>
                   <SideIcon letter="EL" bg="#fce7f3" color="#9d174d" /><span>EW Lots</span>
                 </Link>
-              </div>
+              </CollapsibleNavSection>
             )}
             {!isAllMode && (
               <>
-                <div className="nav-section">
-                  <div className="nav-section-title">Masters</div>
+                <CollapsibleNavSection title="Masters" sectionKey="masters">
                   <Link href="/insurer-master" className={`nav-item ${pathname === '/insurer-master' ? 'active' : ''}`}>
                     <SideIcon letter="IN" bg="#fef3c7" color="#b45309" /><span>Insurer Master</span>
                   </Link>
@@ -184,19 +236,17 @@ export default function PageLayout({ children }) {
                   <Link href="/ref-number-portal" className={`nav-item ${pathname === '/ref-number-portal' ? 'active' : ''}`}>
                     <SideIcon letter="R#" bg="#f3e8ff" color="#7e22ce" /><span>Ref Number Portal</span>
                   </Link>
-                </div>
+                </CollapsibleNavSection>
                 {/* Workflow Overview + File Tracking retired — use Lifecycle Generator */}
-                <div className="nav-section">
-                  <div className="nav-section-title">Documents</div>
+                <CollapsibleNavSection title="Documents" sectionKey="documents">
                   <Link href="/lor-ila-generator" className={`nav-item ${pathname === '/lor-ila-generator' ? 'active' : ''}`}>
                     <SideIcon letter="LI" bg="#fef9c3" color="#a16207" /><span>LOR / ILA Generator</span>
                   </Link>
                   <Link href="/file-assignments" className={`nav-item ${pathname === '/file-assignments' ? 'active' : ''}`}>
                     <SideIcon letter="FA" bg="#ffe4e6" color="#be123c" /><span>File Assignments</span>
                   </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">Communications</div>
+                </CollapsibleNavSection>
+                <CollapsibleNavSection title="Communications" sectionKey="comms">
                   <Link href="/communications" className={`nav-item ${pathname === '/communications' ? 'active' : ''}`}>
                     <SideIcon letter="CM" bg="#e0f2fe" color="#0369a1" /><span>Communications</span>
                   </Link>
@@ -212,10 +262,14 @@ export default function PageLayout({ children }) {
                   <Link href="/communications/intimations" className={`nav-item ${pathname === '/communications/intimations' ? 'active' : ''}`}>
                     <SideIcon letter="IN" bg="#fef3c7" color="#b45309" /><span>Pending Registration</span>
                   </Link>
-                </div>
+                </CollapsibleNavSection>
                 {user?.role === 'Admin' && (
-                  <div className="nav-section">
-                    <div className="nav-section-title">Lifecycle Engine <span style={{ fontSize: 9, background: '#4B0082', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>NEW</span></div>
+                  <CollapsibleNavSection
+                    title="Lifecycle Engine"
+                    sectionKey="lifecycle-engine"
+                    defaultOpen={false}
+                    badge={<span style={{ fontSize: 9, background: '#4B0082', color: '#fff', padding: '1px 6px', borderRadius: 6, verticalAlign: 'middle' }}>NEW</span>}
+                  >
                     <Link href="/admin/lifecycle" className={`nav-item ${pathname === '/admin/lifecycle' ? 'active' : ''}`}>
                       <SideIcon letter="LE" bg="#ede9fe" color="#4B0082" /><span>Engine Dashboard</span>
                     </Link>
@@ -237,11 +291,15 @@ export default function PageLayout({ children }) {
                     <Link href="/admin/lifecycle/audit" className={`nav-item ${pathname === '/admin/lifecycle/audit' ? 'active' : ''}`}>
                       <SideIcon letter="AU" bg="#f3f4f6" color="#374151" /><span>History & Audit</span>
                     </Link>
-                  </div>
+                  </CollapsibleNavSection>
                 )}
                 {user?.role === 'Admin' && (
-                  <div className="nav-section">
-                    <div className="nav-section-title">Lifecycle Generator <span style={{ fontSize: 9, background: '#7c3aed', color: '#fff', padding: '1px 6px', borderRadius: 6, marginLeft: 4, verticalAlign: 'middle' }}>ADMIN</span></div>
+                  <CollapsibleNavSection
+                    title="Lifecycle Generator"
+                    sectionKey="lifecycle-generator"
+                    defaultOpen={false}
+                    badge={<span style={{ fontSize: 9, background: '#7c3aed', color: '#fff', padding: '1px 6px', borderRadius: 6, verticalAlign: 'middle' }}>ADMIN</span>}
+                  >
                     <Link href="/lifecycle-templates/features" className={`nav-item ${pathname === '/lifecycle-templates/features' ? 'active' : ''}`}>
                       <SideIcon letter="RM" bg="#fef9c3" color="#a16207" /><span>Features / ReadMe</span>
                     </Link>
@@ -254,11 +312,10 @@ export default function PageLayout({ children }) {
                     <Link href="/lifecycle-templates/bulk-attach" className={`nav-item ${pathname === '/lifecycle-templates/bulk-attach' ? 'active' : ''}`}>
                       <SideIcon letter="BA" bg="#fef3c7" color="#92400e" /><span>Bulk Attach</span>
                     </Link>
-                  </div>
+                  </CollapsibleNavSection>
                 )}
                 {user?.role === 'Admin' && (
-                  <div className="nav-section">
-                    <div className="nav-section-title">Admin</div>
+                  <CollapsibleNavSection title="Admin" sectionKey="admin" defaultOpen={false}>
                     <Link href="/user-management" className={`nav-item ${pathname === '/user-management' ? 'active' : ''}`}>
                       <SideIcon letter="UM" bg="#e0e7ff" color="#3730a3" /><span>User Management</span>
                     </Link>
@@ -268,29 +325,26 @@ export default function PageLayout({ children }) {
                     <Link href="/user-monitoring" className={`nav-item ${pathname === '/user-monitoring' ? 'active' : ''}`}>
                       <SideIcon letter="UM" bg="#fce7f3" color="#9d174d" /><span>User Monitoring</span>
                     </Link>
-                  </div>
+                  </CollapsibleNavSection>
                 )}
-                <div className="nav-section">
-                  <div className="nav-section-title">Billing</div>
+                <CollapsibleNavSection title="Billing" sectionKey="billing">
                   <Link href="/survey-fee-bill" className={`nav-item ${pathname === '/survey-fee-bill' ? 'active' : ''}`}>
                     <SideIcon letter="SF" bg="#dcfce7" color="#166534" /><span>Survey Fee Bill</span>
                   </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">System</div>
+                </CollapsibleNavSection>
+                <CollapsibleNavSection title="System" sectionKey="system" defaultOpen={false}>
                   <Link href="/backup" className={`nav-item ${pathname === '/backup' ? 'active' : ''}`}>
                     <SideIcon letter="DB" bg="#f1f5f9" color="#475569" /><span>Data Backup</span>
                   </Link>
-                </div>
-                <div className="nav-section">
-                  <div className="nav-section-title">Claims by LOB</div>
+                </CollapsibleNavSection>
+                <CollapsibleNavSection title="Claims by LOB" sectionKey="claims-by-lob" defaultOpen={false}>
                   {LOB_LIST.map(lob => (
                     <Link key={lob} href={`/claims/${encodeURIComponent(lob)}`}
                       className={`nav-item ${pathname.includes(encodeURIComponent(lob)) ? 'active' : ''}`}>
                       <LobDot color={LOB_COLORS[lob] || '#64748b'} /><span>{lob}</span>
                     </Link>
                   ))}
-                </div>
+                </CollapsibleNavSection>
               </>
             )}
           </div>
