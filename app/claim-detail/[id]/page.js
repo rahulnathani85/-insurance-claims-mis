@@ -385,6 +385,7 @@ export default function ClaimDetail() {
     { key: 'lifecycle', label: 'Pipeline & Lifecycle', icon: '🔄' },
     { key: 'assignments', label: 'Team', icon: '👥' },
     { key: 'documents', label: 'Documents', icon: '📄' },
+    { key: 'site-visits', label: 'Site Visits', icon: '📍', href: `/site-visits/${id}` },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
@@ -506,7 +507,7 @@ export default function ClaimDetail() {
           overflowX: 'auto', WebkitOverflowScrolling: 'touch',
         }}>
           {tabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
+            <button key={t.key} onClick={() => t.href ? router.push(t.href) : setActiveTab(t.key)}
               style={{
                 padding: isMobile ? '10px 14px' : '10px 20px',
                 fontSize: 13, fontWeight: activeTab === t.key ? 700 : 400,
