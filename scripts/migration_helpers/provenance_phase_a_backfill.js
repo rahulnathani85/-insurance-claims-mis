@@ -40,20 +40,28 @@ const supabase = createClient(url, key);
 // source_document_type='migrated' tags the synthetic source so authority
 // ranking treats these rows as the lowest-authority baseline (per the spec
 // §10 phase A intent).
+// Only columns that actually exist on the live claims table on NEW.
+// Verified by probing /rest/v1/claims?select=id,<col>&limit=1.
+//
+// Excluded:
+//   - sum_insured              lives on policies, not claims (joined via policy_number)
+//   - claim_amount_intimated   not yet wired on the live schema
+//   - peril_type               not yet on the live schema
+// These three remain valid provenance "fields" for write paths that
+// originate elsewhere (e.g. document ingestion pulling sum_insured from
+// the policy schedule); they just have no backing column to backfill from.
 const COLUMN_MAP = [
-  { col: 'sum_insured',           field: 'sum_insured',           kind: 'money' },
-  { col: 'gross_loss',            field: 'gross_loss',            kind: 'money' },
-  { col: 'claim_amount_intimated', field: 'claim_amount_intimated', kind: 'money' },
-  { col: 'date_loss',             field: 'date_loss',             kind: 'date' },
-  { col: 'date_of_intimation',    field: 'date_of_intimation',    kind: 'date' },
-  { col: 'policy_period_from',    field: 'policy_period_from',    kind: 'date' },
-  { col: 'policy_period_to',      field: 'policy_period_to',      kind: 'date' },
-  { col: 'policy_number',         field: 'policy_number',         kind: 'string' },
-  { col: 'insured_name',          field: 'insured_name',          kind: 'string' },
-  { col: 'insurer_name',          field: 'insurer_name',          kind: 'string' },
-  { col: 'lob',                   field: 'lob',                   kind: 'string' },
-  { col: 'peril_type',            field: 'peril_type',            kind: 'string' },
-  { col: 'loss_location',         field: 'loss_location',         kind: 'string' },
+  { col: 'gross_loss',             field: 'gross_loss',             kind: 'money' },
+  { col: 'estimated_loss_amount',  field: 'estimated_loss_amount',  kind: 'money' },
+  { col: 'date_loss',              field: 'date_loss',              kind: 'date' },
+  { col: 'date_of_intimation',     field: 'date_of_intimation',     kind: 'date' },
+  { col: 'policy_period_from',     field: 'policy_period_from',     kind: 'date' },
+  { col: 'policy_period_to',       field: 'policy_period_to',       kind: 'date' },
+  { col: 'policy_number',          field: 'policy_number',          kind: 'string' },
+  { col: 'insured_name',           field: 'insured_name',           kind: 'string' },
+  { col: 'insurer_name',           field: 'insurer_name',           kind: 'string' },
+  { col: 'lob',                    field: 'lob',                    kind: 'string' },
+  { col: 'loss_location',          field: 'loss_location',          kind: 'string' },
 ];
 
 async function main() {
