@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
+import { dualWriteClaimFields } from '@/lib/provenance';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -126,6 +128,35 @@ export async function PUT(request, { params }) {
 
   const { error } = await supabase.from('claims').update(body).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Provenance Phase B (dual-write) — for any provenance-managed field in
+  // the body, append a row to claim_field_values via the decision engine.
+  // Failures here do NOT roll back the legacy update; provenance is the
+  // observability layer until Phase C switches reads. See CLAUDE.md §13a.
+  //
+  // Per-field errors are captured by dualWriteClaimFields into the return
+  // value rather than thrown; we surface any errors to the server log here
+  // so silent skips during the rollout are visible in dev / Vercel logs.
+  try {
+    const userEmail = request.headers.get('x-app-user-email');
+    const provResult = await dualWriteClaimFields(supabaseAdmin, id, body, {
+      type: 'manual',
+      documentType: 'manual_entry',
+      label: 'Edit via /api/claims/[id] PUT',
+      extractedBy: `human:${userEmail || 'unknown'}`,
+      capturedBy: userEmail || null,
+    });
+    const fieldErrors = (provResult?.provenance || []).filter((r) => r.error);
+    if (fieldErrors.length > 0) {
+      console.warn(
+        `[provenance] claim ${id}: ${fieldErrors.length} field(s) failed dual-write —`,
+        fieldErrors.map((r) => `${r.field_name}: ${r.error}`).join('; ')
+      );
+    }
+  } catch (provErr) {
+    // Non-fatal — Phase B prioritises legacy correctness.
+    console.warn(`[provenance] claim ${id}: dual-write threw —`, provErr?.message || provErr);
+  }
 
   // Bidirectional sync: push shared field updates to any linked ew_vehicle_claims row.
   // Fire-and-forget so the caller's response isn't held up by the sync.

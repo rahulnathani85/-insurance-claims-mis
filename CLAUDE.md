@@ -343,18 +343,24 @@ The provenance system (`docs/provenance-conflict-system-spec.md`) replaces the "
 | Phase | What | Status |
 |---|---|---|
 | **A — Backfill** | One-time script writes existing claim columns into `claim_field_values` with `source_type='migrated'`, `is_current=true`. Runs once during a low-traffic window. | ⏸ ready, not run — `scripts/migration_helpers/provenance_phase_a_backfill.js` |
-| **B — Dual-write** | New writes go to BOTH old columns AND `claim_field_values`. Reads still come from columns. ~2-week soak to verify daily counts match. | ❌ not started — every claim mutation site must call `POST /api/claims/[id]/field-values` |
-| **C — Switch reads** | Reads come from `v_current_claim_fields` view. Old columns kept but read-only. | ❌ not started — every read site must be migrated |
+| **B — Dual-write** | New writes go to BOTH old columns AND `claim_field_values`. Reads still come from columns. ~2-week soak to verify daily counts match. | 🟡 **foundation shipped** — `lib/provenance/dualWrite.js` + `/api/claims/[id]` PUT route now dual-writes. Other mutation sites (intimations PUT, register, etc.) need to be migrated to the same helper. |
+| **C — Switch reads** | Reads come from `v_current_claim_fields` view (or the merge-read helper). Old columns kept but read-only. | 🟡 **foundation shipped** — `lib/provenance/read.js` + `GET /api/claims/[id]/with-provenance` endpoint available. Individual read sites can migrate one at a time. |
 | **D — Drop columns** | After 30 days clean on Phase C, drop redundant columns from `claims`. | ❌ blocked on C |
 
 **Don't take any one-shot shortcut on this.** The 4-phase plan exists because zero-downtime + zero-data-loss requires it. Any new feature (FSR, settlement, etc.) that needs a claim field should:
-1. Read via `v_current_claim_fields` if Phase C has shipped for that field, else read from raw column.
-2. Write via `POST /api/claims/[id]/field-values` (provenance) ONLY — never directly into the column.
-3. Use `lib/provenance/values.js` `buildFieldValue` for typed values.
+1. **Read** via `GET /api/claims/[id]/with-provenance` (returns `merged` shape combining legacy column + provenance overlay). Fall back to legacy `/api/claims/[id]` only if you specifically need the unmerged column data.
+2. **Write** through any code path that ends up at `/api/claims/[id]` PUT — the dual-write happens automatically. For other mutation routes (intimations, register, etc.), call `dualWriteClaimFields(supabaseAdmin, claimId, body, sourceMeta)` after the legacy update.
+3. Use `lib/provenance/values.js` `buildFieldValue` for typed values when calling helpers directly.
 
-**Decision engine** (`lib/provenance/decide.js`) is pure and exhaustively tested (53 tests). Every new field that gains a non-default policy should add a row to `field_change_policy`; otherwise the `__default__` row applies (auto-update on empty, raise conflict on disagreement).
+**Provenance-managed fields (`PROVENANCE_MANAGED_FIELDS` export):** `sum_insured`, `gross_loss`, `estimated_loss_amount`, `claim_amount_intimated`, `date_loss`, `date_of_intimation`, `policy_period_from`, `policy_period_to`, `policy_number`, `insured_name`, `insurer_name`, `lob`, `peril_type`, `loss_location`. Three of these (`sum_insured`, `claim_amount_intimated`, `peril_type`) have **no backing column on the live claims table** but are still valid provenance fields — writes go to the ledger only.
 
-**Phase 1 scope (slice 8):** tables + decision engine + read APIs + manual-entry write API + backfill script + tests. Phase 2 (separate slice) wires document ingestion + the conflict-resolution UI.
+**Decision engine** (`lib/provenance/decide.js`) is pure and exhaustively tested. Every new field that gains a non-default policy should add a row to `field_change_policy`; otherwise the `__default__` row applies (auto-update on empty, raise conflict on disagreement).
+
+**Phase B/C error handling:** dual-write failures are logged to Sentry (via `lib/observability`) but do **not** roll back the legacy write — Phase B prioritises legacy correctness because reads still come from columns. After Phase C ships everywhere, this changes: provenance becomes the source of truth and write failures should fail the request.
+
+**Tests:**
+- `tests/provenance.test.js` — 53 tests on the decision engine + value typing.
+- `tests/provenanceDualWrite.test.js` — 18 tests on dual-write orchestration + merge-read (auto-update / corroborate / raise_conflict / multi-field / null skip / data-quality scoring / unknown claim).
 
 ---
 
