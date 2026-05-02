@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
+import FsrRenderPanel from '@/components/fsr/FsrRenderPanel';
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
@@ -1308,12 +1309,12 @@ export default function ClaimDetail() {
                 )}
               </div>
             ) : (
-              /* Non-EW Claims: AI-powered FSR (future) */
-              <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
-                <div style={{ fontSize: 40, marginBottom: 10 }}>📑</div>
-                <p>AI-powered FSR generation for {claim.lob} claims coming soon.</p>
-                <p style={{ fontSize: 12 }}>Currently available for Extended Warranty claims. Other LOBs will be added after AI integration is configured.</p>
-              </div>
+              /* Non-EW LOBs: template-based FSR via fsr_lob_templates.
+                 Slice 4 + 5: <FsrRenderPanel> wires the render endpoint
+                 (POST /api/fsr-drafts/render), the LOB-aware narrative
+                 editor (saves to claim_fsr_drafts.narrative_jsonb), and
+                 the missing-placeholders checklist into one panel. */
+              <FsrRenderPanel claim={claim} userEmail={user?.email} />
             )}
           </div>
         )}
