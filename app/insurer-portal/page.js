@@ -87,7 +87,7 @@ export default function InsurerPortalDashboard() {
       {/* Header bar */}
       <header style={headerStyle}>
         <div>
-          <h1 style={titleStyle}>{insurer?.name || 'Insurer Portal'}</h1>
+          <h1 style={titleStyle}>{insurer?.company_name || 'Insurer Portal'}</h1>
           <p style={subtitleStyle}>
             Read-only view of claims NISLA / Acuere are handling on your behalf.
             Logged in as <strong>{user.name}</strong> · {user.email}
@@ -130,7 +130,7 @@ export default function InsurerPortalDashboard() {
       ) : filtered.length === 0 ? (
         <div style={emptyStyle}>
           {claims.length === 0
-            ? <>📂 No claims for {insurer?.name || 'your account'} yet. New claims appear here as soon as NISLA registers them.</>
+            ? <>📂 No claims for {insurer?.company_name || 'your account'} yet. New claims appear here as soon as NISLA registers them.</>
             : <>No claims match your filter.</>
           }
         </div>

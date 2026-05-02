@@ -30,7 +30,8 @@
 
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { isInsurerUser, loadInsurer } from '@/lib/auth/insurer';
+import { scopedSupabaseFor } from '@/lib/supabaseScoped';
+import { INSURER_ROLE, loadInsurer } from '@/lib/auth/insurer';
 import { getClaimWithProvenance } from '@/lib/provenance';
 
 export const runtime = 'nodejs';
@@ -54,42 +55,48 @@ export async function GET(request, { params }) {
   const userEmail = request.headers.get('x-user-email') || '';
   if (!userEmail) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
 
+  // Phase 3: scoped client establishes the session GUC; RLS on `claims`
+  // refuses any row whose insurer_name doesn't match the principal.
+  const { client: supabase, role, ok, error } = await scopedSupabaseFor({ email: userEmail });
+  if (!ok) {
+    return NextResponse.json({ error: error || 'Account not found or inactive' }, { status: 401 });
+  }
+  if (role !== INSURER_ROLE) {
+    return NextResponse.json({ error: 'Endpoint is restricted to insurer-portal users' }, { status: 403 });
+  }
+
+  // Resolve insurer for the dashboard header (admin-side lookup — the
+  // insurers table is metadata, not insurer-scoped).
   const { data: user } = await supabaseAdmin
     .from('app_users')
     .select('id, email, role, insurer_id, is_active')
     .ilike('email', userEmail.trim())
     .maybeSingle();
-  if (!user || !user.is_active) {
-    return NextResponse.json({ error: 'Account not found or inactive' }, { status: 401 });
-  }
-  if (!isInsurerUser(user)) {
-    return NextResponse.json({ error: 'Endpoint is restricted to insurer-portal users' }, { status: 403 });
-  }
-
   const insurer = await loadInsurer(user);
-  if (!insurer?.name) {
+  if (!insurer?.company_name) {
     return NextResponse.json({ error: 'Insurer linkage misconfigured' }, { status: 500 });
   }
 
-  // Load the merged claim. We don't pass the user's filter to
-  // getClaimWithProvenance — instead we check ownership AFTER and
-  // 404 if the claim doesn't belong to this insurer. That way the
-  // ownership check is the same shape as scopeClaimsForInsurer.
+  // Load the merged claim via the SCOPED client so RLS enforces
+  // ownership at the DB layer. If the claim doesn't belong to this
+  // insurer, getClaimWithProvenance throws 'Claim not found' because
+  // the underlying SELECT returns no rows — which is exactly the 404
+  // we want.
   let merged;
   try {
-    const out = await getClaimWithProvenance(supabaseAdmin, id);
-    merged = out;
+    merged = await getClaimWithProvenance(supabase, id);
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 404 });
+    return NextResponse.json({ error: 'Claim not found' }, { status: 404 });
   }
-  if (merged?.claim?.insurer_name !== insurer.name) {
-    // Don't leak existence — the insurer mustn't be able to probe other
-    // insurers' claim id ranges.
+  // Belt-and-braces: if RLS regresses, the user-space check still 404s.
+  if (merged?.claim?.insurer_name !== insurer.company_name) {
     return NextResponse.json({ error: 'Claim not found' }, { status: 404 });
   }
 
-  // Latest approved FSR draft — only signed FSRs are visible
-  const { data: submittedFsr } = await supabaseAdmin
+  // Latest approved FSR draft — RLS on claim_fsr_drafts already
+  // restricts insurer principals to status='approved' rows belonging
+  // to their claims, so this scoped query is doubly safe.
+  const { data: submittedFsr } = await supabase
     .from('claim_fsr_drafts')
     .select('id, version_number, status, approved_by, approved_at, draft_content')
     .eq('claim_id', id)

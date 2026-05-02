@@ -236,7 +236,9 @@ describe('scopeClaimsForInsurer', () => {
   });
 
   it('chains insurer_name filter for insurer user with valid insurer row', async () => {
-    mockState.insurersById.set(7, { id: 7, name: 'New India Assurance Co. Ltd.' });
+    // Note: the insurers table column is `company_name` (V1 legacy
+    // schema), not `name`. claims.insurer_name stores the same string.
+    mockState.insurersById.set(7, { id: 7, company_name: 'New India Assurance Co. Ltd.' });
     const fakeQuery = { _filters: [], eq(col, val) { this._filters.push([col, val]); return this; } };
     const user = { role: 'insurer_readonly', insurer_id: 7 };
     const out = await scopeClaimsForInsurer(fakeQuery, user);
@@ -266,10 +268,10 @@ describe('loadInsurer', () => {
 
   it('returns the insurer row for a valid insurer user', async () => {
     mockState.insurersById.set(3, {
-      id: 3, name: 'Oriental Insurance', irdai_code: 'ORI', address: 'New Delhi',
+      id: 3, company_name: 'Oriental Insurance', code: 'ORI', registered_address: 'New Delhi',
     });
     const out = await loadInsurer({ role: 'insurer_readonly', insurer_id: 3 });
-    expect(out).toEqual(expect.objectContaining({ id: 3, name: 'Oriental Insurance' }));
+    expect(out).toEqual(expect.objectContaining({ id: 3, company_name: 'Oriental Insurance' }));
   });
 
   it('returns null when the linked insurer row is missing', async () => {
