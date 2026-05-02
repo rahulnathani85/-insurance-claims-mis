@@ -66,6 +66,14 @@ export async function POST(request) {
   }
   const save = body?.save !== false;  // default true
 
+  // Flag-1 hybrid versioning: by default we update the latest open draft
+  // in place (cheap iteration). When the surveyor wants an explicit
+  // checkpoint — e.g. "snapshot before sending to the insurer for
+  // review" — they pass force_new_version=true and we always insert a
+  // new row with version_number = max + 1, regardless of whether the
+  // current latest draft is open.
+  const forceNewVersion = body?.force_new_version === true;
+
   // Surveyor (signer) hint for the {{signer.*}} block. Looked up from the
   // surveyors table via user_email; falls back to email-only if no row.
   let signer = null;
@@ -132,6 +140,7 @@ export async function POST(request) {
         templateName: template.template_name,
         narrative,
         html,
+        forceNewVersion,
       });
     } catch (e) {
       // Status 409 ("approved/superseded") is expected — surface it directly.
@@ -187,8 +196,14 @@ export async function POST(request) {
 // -----------------------------------------------------------------------------
 // upsertDraft — find the latest non-approved draft for the claim and update
 // it, or insert a new one at version_number = max + 1.
+//
+// forceNewVersion=true overrides the in-place-update path. Used when the
+// surveyor wants an explicit checkpoint before sending to the insurer
+// for review. Pre-existing approved/superseded drafts still 409 — that
+// path is reserved for a deliberate "supersede the approved version"
+// flow which doesn't exist yet.
 // -----------------------------------------------------------------------------
-async function upsertDraft({ claimId, lob, templateName, narrative, html }) {
+async function upsertDraft({ claimId, lob, templateName, narrative, html, forceNewVersion = false }) {
   // Find the most recent draft for this claim
   const { data: latest } = await supabaseAdmin
     .from('claim_fsr_drafts')
@@ -198,7 +213,7 @@ async function upsertDraft({ claimId, lob, templateName, narrative, html }) {
     .limit(1)
     .maybeSingle();
 
-  if (latest && latest.status === 'draft') {
+  if (latest && latest.status === 'draft' && !forceNewVersion) {
     // Update in place — surveyor is iterating on the same draft
     const updates = sanitiseDraftPayload({
       draft_content: html,
@@ -217,13 +232,16 @@ async function upsertDraft({ claimId, lob, templateName, narrative, html }) {
 
   if (latest && (latest.status === 'approved' || latest.status === 'superseded')) {
     // Approved drafts are immutable — caller must explicitly create a new
-    // version. Encode the 409 via a tagged error.
+    // version. Encode the 409 via a tagged error. (Even forceNewVersion
+    // doesn't bypass this: superseding an approved draft is a deliberate
+    // workflow that requires the previous version to also be marked
+    // superseded — out of scope for this route.)
     const e = new Error(`Latest draft is ${latest.status}; supersede it explicitly before re-rendering`);
     e.statusCode = 409;
     throw e;
   }
 
-  // No prior draft (or only under_review which we treat as locked): insert a new one
+  // No prior draft, or under_review (locked), or forceNewVersion=true: insert a new row.
   const nextVersion = latest ? latest.version_number + 1 : 1;
   const { data, error } = await supabaseAdmin
     .from('claim_fsr_drafts')
