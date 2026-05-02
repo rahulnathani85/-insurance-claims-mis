@@ -67,6 +67,24 @@ export async function POST(request) {
     }
   }
 
+  // Insurer-portal users (Phase 2): row-level integrity check. The DB
+  // CHECK constraint app_users_insurer_role_pairing ensures every
+  // insurer_readonly row has insurer_id NOT NULL, so this should never
+  // fire — but if it does (e.g. constraint dropped, hand-edited row),
+  // refuse the login rather than leak an unscoped session.
+  if (user.role === 'insurer_readonly') {
+    if (!user.insurer_id) {
+      captureError(new Error('insurer_readonly user missing insurer_id'), {
+        area: 'auth-login-insurer-no-id',
+        user_id: user.id,
+      });
+      return NextResponse.json(
+        { error: 'Account misconfigured — please contact NISLA admin.' },
+        { status: 403 }
+      );
+    }
+  }
+
   // Update last login
   await supabase
     .from('app_users')
@@ -83,7 +101,13 @@ export async function POST(request) {
     company: user.company,
   }]);
 
-  // Return user without password
+  // Return user without password. The `redirect_to` hint tells the
+  // client which landing page to push to after sessionStorage hydrate;
+  // surveyor users get the regular dashboard, insurer-readonly users
+  // go straight to the insurer portal.
   const { password_hash, ...safeUser } = user;
-  return NextResponse.json({ user: safeUser });
+  return NextResponse.json({
+    user: safeUser,
+    redirect_to: user.role === 'insurer_readonly' ? '/insurer-portal' : '/',
+  });
 }

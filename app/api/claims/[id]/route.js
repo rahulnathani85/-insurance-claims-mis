@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 import { dualWriteClaimFields } from '@/lib/provenance';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -64,6 +65,19 @@ async function decrementCounter(lob, clientCategory) {
 }
 
 export async function PUT(request, { params }) {
+  // Phase 2 mutation guard — refuse insurer_readonly principals.
+  // The X-User-Email header is set by lib/api/authedFetch on every
+  // authenticated request. Server-to-server / cron requests with no
+  // header pass through.
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+
   const id = params.id;
   const body = await request.json();
 
@@ -183,6 +197,16 @@ export async function PUT(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
+  // Phase 2 mutation guard
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+
   const id = params.id;
 
   // First, get the claim details to know which counter to decrement

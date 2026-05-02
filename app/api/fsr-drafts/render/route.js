@@ -47,12 +47,23 @@ import {
   sanitiseDraftPayload,
 } from '@/lib/fsr';
 import { captureError } from '@/lib/observability';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 export async function POST(request) {
+  // Phase 2 mutation guard
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+
   let body;
   try {
     body = await request.json();

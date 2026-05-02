@@ -9,6 +9,20 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sanitiseDraftPayload } from '@/lib/fsr';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
+
+// Phase 2 helper — wraps a route in the insurer-mutation guard.
+async function checkSurveyor(request) {
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+  return null;
+}
 
 export async function GET(_request, { params }) {
   const { id } = params;
@@ -22,6 +36,9 @@ export async function GET(_request, { params }) {
 }
 
 export async function PUT(request, { params }) {
+  const guard = await checkSurveyor(request);
+  if (guard) return guard;
+
   const { id } = params;
   const body = await request.json().catch(() => ({}));
 
@@ -55,7 +72,10 @@ export async function PUT(request, { params }) {
   return NextResponse.json(data);
 }
 
-export async function DELETE(_request, { params }) {
+export async function DELETE(request, { params }) {
+  const guard = await checkSurveyor(request);
+  if (guard) return guard;
+
   const { id } = params;
   const { error } = await supabaseAdmin
     .from('claim_fsr_drafts')

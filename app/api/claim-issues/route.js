@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
 
 const VALID_SEVERITY = new Set(['info', 'warn', 'error']);
 const VALID_STATUS = new Set(['open', 'resolved', 'dismissed', 'all']);
@@ -55,6 +56,16 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  // Phase 2 mutation guard
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+
   const body = await request.json().catch(() => ({}));
 
   const claimId = body?.claim_id;
