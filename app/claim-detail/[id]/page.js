@@ -4,6 +4,8 @@ import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import FsrRenderPanel from '@/components/fsr/FsrRenderPanel';
 import IssuesPanel from '@/components/IssuesPanel';
+import ClaimChatPanel from '@/components/ClaimChatPanel';
+import PhotoGrid from '@/components/PhotoGrid';
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
@@ -407,6 +409,8 @@ export default function ClaimDetail() {
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
+    { key: 'photos', label: 'Photos (AI)', icon: '📷' },
+    { key: 'ai-copilot', label: 'AI Co-pilot', icon: '🤖' },
     { key: 'issues', label: 'Issues', icon: '⚠️', badge: openIssuesCount || null },
     { key: 'chat', label: 'Chat', icon: '💬', badge: chatMessages.length || null },
     { key: 'activity', label: 'Activity', icon: '📝' },
@@ -1323,6 +1327,31 @@ export default function ClaimDetail() {
               <FsrRenderPanel claim={claim} userEmail={user?.email} />
             )}
           </div>
+        )}
+
+        {/* TAB: Photos (AI-classified) — Slice 9 */}
+        {activeTab === 'photos' && (
+          <PhotoGrid
+            claimId={parseInt(id)}
+            userEmail={user?.email}
+            refreshKey={issuesRefreshKey}
+          />
+        )}
+
+        {/* TAB: AI Co-pilot — Slice 7 */}
+        {activeTab === 'ai-copilot' && (
+          <ClaimChatPanel
+            claimId={parseInt(id)}
+            userEmail={user?.email}
+            userName={user?.name}
+            onApplied={() => {
+              // After accepting a proposed change, the field / narrative /
+              // computation has been mutated. Refresh whichever data the
+              // panel might surface so the UI reflects it.
+              loadAll();
+              setIssuesRefreshKey((k) => k + 1);
+            }}
+          />
         )}
 
         {/* TAB: Issues — Slice 10 */}
