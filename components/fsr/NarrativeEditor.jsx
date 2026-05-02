@@ -21,6 +21,9 @@
 //   disabled         bool                  true → all inputs read-only (e.g. when draft is approved)
 //   onAiDraft(key)   fn                    optional. When provided, a "✨ AI" button
 //                                          appears next to each textarea. Slice 6 wires this up.
+//   aiDraftingKey    string | null         which key is currently mid-draft (one at a time);
+//                                          shows a spinner on that field's AI button and disables
+//                                          the others while the call is in flight.
 // =============================================================================
 
 import { useState, useMemo } from 'react';
@@ -34,6 +37,7 @@ export default function NarrativeEditor({
   missingKeys = [],
   disabled = false,
   onAiDraft,
+  aiDraftingKey = null,
 }) {
   const sections = useMemo(() => fieldsForLob(lob, templateName), [lob, templateName]);
   const missingSet = useMemo(() => new Set(missingKeys), [missingKeys]);
@@ -103,6 +107,8 @@ export default function NarrativeEditor({
                     missing={missingSet.has(f.key)}
                     disabled={disabled}
                     onAiDraft={onAiDraft ? () => onAiDraft(f.key) : null}
+                    aiDrafting={aiDraftingKey === f.key}
+                    aiBlocked={!!aiDraftingKey && aiDraftingKey !== f.key}
                   />
                 ))}
               </div>
@@ -117,8 +123,9 @@ export default function NarrativeEditor({
 // -----------------------------------------------------------------------------
 // FieldInput — single labelled input. Picks textarea / text based on type.
 // -----------------------------------------------------------------------------
-function FieldInput({ field, value, onChange, missing, disabled, onAiDraft }) {
+function FieldInput({ field, value, onChange, missing, disabled, onAiDraft, aiDrafting, aiBlocked }) {
   const isTextarea = field.type === 'textarea';
+  const aiDisabled = disabled || aiDrafting || aiBlocked;
 
   return (
     <label style={fieldWrapStyle(field.wide || isTextarea)}>
@@ -131,11 +138,15 @@ function FieldInput({ field, value, onChange, missing, disabled, onAiDraft }) {
           <button
             type="button"
             onClick={onAiDraft}
-            disabled={disabled}
-            style={aiButtonStyle(disabled)}
-            title="Have the AI draft this section based on the claim data"
+            disabled={aiDisabled}
+            style={aiButtonStyle(aiDisabled)}
+            title={
+              aiDrafting ? 'Drafting…'
+              : aiBlocked ? 'Another section is being drafted'
+              : 'Have the AI draft this section based on the claim data'
+            }
           >
-            ✨ AI
+            {aiDrafting ? '⏳ Drafting…' : '✨ AI Draft'}
           </button>
         )}
       </div>
