@@ -67,7 +67,9 @@ export async function GET(request, { params }) {
   }
 
   const insurer = await loadInsurer(user);
-  if (!insurer?.name) {
+  // The insurers table column is `company_name` (legacy V1 schema);
+  // claims store the same string in `claims.insurer_name`.
+  if (!insurer?.company_name) {
     return NextResponse.json({ error: 'Insurer linkage misconfigured' }, { status: 500 });
   }
 
@@ -82,7 +84,7 @@ export async function GET(request, { params }) {
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 404 });
   }
-  if (merged?.claim?.insurer_name !== insurer.name) {
+  if (merged?.claim?.insurer_name !== insurer.company_name) {
     // Don't leak existence — the insurer mustn't be able to probe other
     // insurers' claim id ranges.
     return NextResponse.json({ error: 'Claim not found' }, { status: 404 });
