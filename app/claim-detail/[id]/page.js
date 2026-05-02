@@ -6,6 +6,21 @@ import FsrRenderPanel from '@/components/fsr/FsrRenderPanel';
 import IssuesPanel from '@/components/IssuesPanel';
 import ClaimChatPanel from '@/components/ClaimChatPanel';
 import PhotoGrid from '@/components/PhotoGrid';
+import FieldWithProvenance, { useClaimProvenance } from '@/components/FieldWithProvenance';
+
+// Map an Overview-tab row label to the provenance field name it tracks.
+// Only labels in this map get the provenance dot; everything else
+// renders as plain text.
+const PROVENANCE_LABEL_MAP = {
+  'Policy Number': 'policy_number',
+  'Insured Name': 'insured_name',
+  'Insurer': 'insurer_name',
+  'LOB': 'lob',
+  'Date of Intimation': 'date_of_intimation',
+  'Date of Loss': 'date_loss',
+  'Loss Location': 'loss_location',
+  'Gross Loss': 'gross_loss',
+};
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
@@ -40,6 +55,11 @@ export default function ClaimDetail() {
   const [fsrGenerating, setFsrGenerating] = useState(false);
   const [openIssuesCount, setOpenIssuesCount] = useState(0);
   const [issuesRefreshKey, setIssuesRefreshKey] = useState(0);
+
+  // Fetch the provenance overlay so the Overview tab can show source
+  // dots next to fields that have ledger entries. Single fetch shared
+  // across every <FieldWithProvenance> on the page.
+  const { provenance: claimProvenance } = useClaimProvenance(id);
   const [ewFsrHtml, setEwFsrHtml] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -570,7 +590,17 @@ export default function ClaimDetail() {
                     ].map(([label, val]) => val ? (
                       <tr key={label}>
                         <td style={{ padding: '5px 0', color: '#6b7280', width: '40%' }}>{label}</td>
-                        <td style={{ padding: '5px 0', fontWeight: 500 }}>{val}</td>
+                        <td style={{ padding: '5px 0', fontWeight: 500 }}>
+                          {PROVENANCE_LABEL_MAP[label] ? (
+                            <FieldWithProvenance
+                              claimId={id}
+                              field={PROVENANCE_LABEL_MAP[label]}
+                              provenance={claimProvenance?.[PROVENANCE_LABEL_MAP[label]]}
+                            >
+                              {val}
+                            </FieldWithProvenance>
+                          ) : val}
+                        </td>
                       </tr>
                     ) : null)}
                   </tbody>
@@ -592,7 +622,17 @@ export default function ClaimDetail() {
                     ].map(([label, val]) => (
                       <tr key={label}>
                         <td style={{ padding: '5px 0', color: '#6b7280', width: '50%' }}>{label}</td>
-                        <td style={{ padding: '5px 0', fontWeight: 500 }}>{val || '-'}</td>
+                        <td style={{ padding: '5px 0', fontWeight: 500 }}>
+                          {val && PROVENANCE_LABEL_MAP[label] ? (
+                            <FieldWithProvenance
+                              claimId={id}
+                              field={PROVENANCE_LABEL_MAP[label]}
+                              provenance={claimProvenance?.[PROVENANCE_LABEL_MAP[label]]}
+                            >
+                              {val}
+                            </FieldWithProvenance>
+                          ) : (val || '-')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -612,7 +652,17 @@ export default function ClaimDetail() {
                     ].map(([label, val]) => (
                       <tr key={label}>
                         <td style={{ padding: '5px 0', color: '#6b7280', width: '50%' }}>{label}</td>
-                        <td style={{ padding: '5px 0', fontWeight: 500 }}>{val || '-'}</td>
+                        <td style={{ padding: '5px 0', fontWeight: 500 }}>
+                          {val && PROVENANCE_LABEL_MAP[label] ? (
+                            <FieldWithProvenance
+                              claimId={id}
+                              field={PROVENANCE_LABEL_MAP[label]}
+                              provenance={claimProvenance?.[PROVENANCE_LABEL_MAP[label]]}
+                            >
+                              {val}
+                            </FieldWithProvenance>
+                          ) : (val || '-')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
