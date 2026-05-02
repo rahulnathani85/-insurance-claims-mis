@@ -53,6 +53,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { dualWriteClaimFields, PROVENANCE_MANAGED_FIELDS } from '@/lib/provenance/dualWrite';
 import { captureError } from '@/lib/observability';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,16 @@ const NARRATIVE_KEY_MAP = {
 const MARINE_LOBS = new Set(['Marine Cargo', 'Marine Hull']);
 
 export async function POST(request) {
+  // Phase 2 mutation guard
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+
   let body;
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }

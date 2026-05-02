@@ -12,10 +12,26 @@
 
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
 
 const VALID_STATUS = new Set(['open', 'resolved', 'dismissed']);
 
+async function checkSurveyor(request) {
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+  return null;
+}
+
 export async function PATCH(request, { params }) {
+  const guard = await checkSurveyor(request);
+  if (guard) return guard;
+
   const { id } = params;
   const body = await request.json().catch(() => ({}));
 
@@ -48,7 +64,10 @@ export async function PATCH(request, { params }) {
   return NextResponse.json(data);
 }
 
-export async function DELETE(_request, { params }) {
+export async function DELETE(request, { params }) {
+  const guard = await checkSurveyor(request);
+  if (guard) return guard;
+
   const { id } = params;
   const { error } = await supabaseAdmin
     .from('claim_issues')

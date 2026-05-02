@@ -24,12 +24,23 @@ import { isEligibleForAssignment } from '@/lib/surveyors';
 import { FILE_SERVER_URL, PUPPETEER_URL, buildHeaders } from '@/lib/apiGateway';
 import { enqueue } from '@/lib/notifications/queue';
 import { captureError } from '@/lib/observability';
+import { requireSurveyorRequest } from '@/lib/auth/insurer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(request, { params }) {
+  // Phase 2 mutation guard
+  try {
+    await requireSurveyorRequest(request);
+  } catch (e) {
+    if (e?.code === 'INSURER_FORBIDDEN') {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: 403 });
+    }
+    throw e;
+  }
+
   const { id: draftId } = params;
   const body = await request.json().catch(() => ({}));
 
