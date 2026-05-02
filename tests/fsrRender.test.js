@@ -19,6 +19,7 @@ import {
   renderFsrHtml,
   renderMarineLossItemsTable,
   companyProfile,
+  assertCssSafeColor,
   rupeesInWords,
   numberInWords,
   validateClaim,
@@ -101,6 +102,69 @@ describe('companyProfile', () => {
 });
 
 // -----------------------------------------------------------------------------
+// assertCssSafeColor (Flag-3) — guards company.accent_color values from
+// breaking the <style> blocks they're interpolated into.
+// -----------------------------------------------------------------------------
+
+describe('assertCssSafeColor', () => {
+  it('accepts 6-hex', () => {
+    expect(() => assertCssSafeColor('#1e3a5f')).not.toThrow();
+    expect(() => assertCssSafeColor('#1a7ab5')).not.toThrow();
+    expect(() => assertCssSafeColor('#FFFFFF')).not.toThrow();
+  });
+
+  it('accepts 3-hex', () => {
+    expect(() => assertCssSafeColor('#abc')).not.toThrow();
+    expect(() => assertCssSafeColor('#FFF')).not.toThrow();
+  });
+
+  it('accepts 8-hex with alpha', () => {
+    expect(() => assertCssSafeColor('#1e3a5fcc')).not.toThrow();
+  });
+
+  it('accepts rgb() / rgba()', () => {
+    expect(() => assertCssSafeColor('rgb(30, 58, 95)')).not.toThrow();
+    expect(() => assertCssSafeColor('rgba(30, 58, 95, 0.5)')).not.toThrow();
+  });
+
+  it('accepts hsl() / hsla()', () => {
+    expect(() => assertCssSafeColor('hsl(220, 50%, 25%)')).not.toThrow();
+    expect(() => assertCssSafeColor('hsla(220, 50%, 25%, 0.8)')).not.toThrow();
+  });
+
+  it('accepts named colours', () => {
+    expect(() => assertCssSafeColor('darkblue')).not.toThrow();
+    expect(() => assertCssSafeColor('navy')).not.toThrow();
+    expect(() => assertCssSafeColor('red')).not.toThrow();
+  });
+
+  it('rejects HTML metacharacters', () => {
+    expect(() => assertCssSafeColor('red & blue')).toThrow(/HTML metacharacter/);
+    expect(() => assertCssSafeColor('<script>')).toThrow(/HTML metacharacter/);
+    expect(() => assertCssSafeColor('"green"')).toThrow(/HTML metacharacter/);
+  });
+
+  it('rejects non-string input', () => {
+    expect(() => assertCssSafeColor(null)).toThrow(/must be a string/);
+    expect(() => assertCssSafeColor(undefined)).toThrow(/must be a string/);
+    expect(() => assertCssSafeColor(0xff0000)).toThrow(/must be a string/);
+  });
+
+  it('rejects unrecognised CSS shapes', () => {
+    expect(() => assertCssSafeColor('bg-blue-500')).toThrow(/not a recognised CSS colour/);
+    expect(() => assertCssSafeColor('var(--brand)')).toThrow(/not a recognised CSS colour/);
+    expect(() => assertCssSafeColor('color: red;')).toThrow(/HTML metacharacter|not a recognised/);
+    expect(() => assertCssSafeColor('123abc')).toThrow(/not a recognised CSS colour/);
+  });
+
+  it('uses the supplied label in the error message for debuggability', () => {
+    // 'bad-color' has a hyphen so doesn't match the named-colour regex.
+    expect(() => assertCssSafeColor('bad-color', 'NISLA.accent_color'))
+      .toThrow(/NISLA\.accent_color/);
+  });
+});
+
+// -----------------------------------------------------------------------------
 // buildContext — Marine LOB
 // -----------------------------------------------------------------------------
 
@@ -162,7 +226,10 @@ describe('buildContext — Marine Cargo', () => {
     expect(ctx.loss_sheet.gst_amount_inr).toMatch(/4,944/);
     expect(ctx.loss_sheet.after_gst_inr).toMatch(/32,413/);
     expect(ctx.loss_sheet.handling_rate_pct).toBe('10.00');
-    expect(ctx.loss_sheet.handling_label).toBe('Handling');
+    // Default label is 'Add 10%' (matches production samples + the
+    // marine_loss_sheets.handling_label column default in the
+    // 20260503020000 migration). Surveyors can override per-claim.
+    expect(ctx.loss_sheet.handling_label).toBe('Add 10%');
     expect(ctx.loss_sheet.handling_amount_inr).toMatch(/3,241/);
     expect(ctx.loss_sheet.gross_loss_inr).toMatch(/35,655/);
     expect(ctx.loss_sheet.salvage_inr).toMatch(/—|0/);
@@ -176,6 +243,27 @@ describe('buildContext — Marine Cargo', () => {
     const ctx = buildContext({ claim: marineClaim, marineSheet, marineItems });
     expect(ctx.company.name).toBe('ACUERE SURVEYORS');
     expect(ctx.company.accent_color).toBe('#1a7ab5');
+  });
+
+  it('passes through marineSheet.handling_label when present (per-claim override)', () => {
+    // Per Flag-4: surveyors override the handling-row label per claim
+    // (e.g. 'Sundry @ 10%' for STO policies, '+10% as per Policy' for
+    // some annual turnover policies). Test the override path.
+    const ctx = buildContext({
+      claim: marineClaim,
+      marineSheet: { ...marineSheet, handling_label: 'Sundry @ 10%' },
+      marineItems,
+    });
+    expect(ctx.loss_sheet.handling_label).toBe('Sundry @ 10%');
+  });
+
+  it('falls back to "Add 10%" when handling_label is null/empty', () => {
+    const ctx = buildContext({
+      claim: marineClaim,
+      marineSheet: { ...marineSheet, handling_label: null },
+      marineItems,
+    });
+    expect(ctx.loss_sheet.handling_label).toBe('Add 10%');
   });
 
   it('still renders policy_period dates', () => {
