@@ -48,6 +48,7 @@ export default function FsrRenderPanel({ claim, userEmail }) {
   const [downloadingWord, setDownloadingWord] = useState(false);
   const [error, setError] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
+  const [aiDraftingKey, setAiDraftingKey] = useState(null);  // section key being drafted, or null
 
   // Keep a ref so the debounce closure always sees the latest narrative
   const narrativeRef = useRef(narrative);
@@ -151,6 +152,40 @@ export default function FsrRenderPanel({ claim, userEmail }) {
   function onNarrativeChange(next) {
     setNarrative(next);
     scheduleRender();
+  }
+
+  // Slice 6: ✨ AI button per textarea. Fetches a single-section draft from
+  // /api/ai/fsr-narrative and patches it into the local narrative state.
+  // The next render will pick up the new value via the auto-render debounce.
+  async function onAiDraft(sectionKey) {
+    if (!sectionKey || !claimId || aiDraftingKey) return;
+    setAiDraftingKey(sectionKey);
+    setError(null);
+    try {
+      const res = await fetch('/api/ai/fsr-narrative', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_id: claimId, section: sectionKey }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'AI draft failed');
+      // Confirm with the surveyor before overwriting if there's existing text.
+      const existing = (narrativeRef.current?.[sectionKey] || '').trim();
+      if (existing && !window.confirm(
+        `Replace your existing "${data.field_label || sectionKey}" with the AI draft?\n\n` +
+        `Your current text:\n${truncate(existing, 200)}\n\n` +
+        `AI draft:\n${truncate(data.draft, 200)}`
+      )) {
+        return;  // surveyor cancelled
+      }
+      const next = { ...narrativeRef.current, [sectionKey]: data.draft };
+      setNarrative(next);
+      scheduleRender();
+    } catch (e) {
+      setError(`AI draft failed: ${e.message}`);
+    } finally {
+      setAiDraftingKey(null);
+    }
   }
 
   // -- PDF / Word download via puppeteer-server proxy ---------------------
@@ -330,6 +365,8 @@ export default function FsrRenderPanel({ claim, userEmail }) {
             onChange={onNarrativeChange}
             missingKeys={narrativeMissing.map((p) => p.replace(/^narrative\./, ''))}
             disabled={draftIsFinal}
+            onAiDraft={onAiDraft}
+            aiDraftingKey={aiDraftingKey}
           />
         </div>
 
@@ -362,6 +399,15 @@ export default function FsrRenderPanel({ claim, userEmail }) {
       </div>
     </div>
   );
+}
+
+// -----------------------------------------------------------------------------
+// truncate — for the AI-overwrite confirm dialog
+// -----------------------------------------------------------------------------
+function truncate(s, n) {
+  if (typeof s !== 'string') return '';
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + '…';
 }
 
 // -----------------------------------------------------------------------------
