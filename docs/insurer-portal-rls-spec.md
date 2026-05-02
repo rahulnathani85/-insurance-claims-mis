@@ -2,12 +2,20 @@
 
 > CLAUDE.md §11 #8: "Insurer read-only portal via Supabase RLS — Phase 2."
 >
-> This doc defines the design and the safe-rollout plan. Phase 1
-> scaffolding ships in commit `<this batch>` — column shape, role
-> enum, helper module, design freeze. Phases 2–4 are subsequent
-> slices.
+> This doc defines the design and the safe-rollout plan.
 >
-> **Last updated:** 3 May 2026
+> - Phase 1 scaffolding shipped in commit `34ff778` — column shape,
+>   role enum, helper module, design freeze.
+> - Phase 2 shipped in `0549a57` + `7de3d82` — login flow, dashboard,
+>   claim detail, mutation guards.
+> - **Phase 3a shipped in this batch** — session-claim helpers, RLS
+>   policies on 4 priority tables (claims / claim_field_values /
+>   claim_fsr_drafts / site_visit_photos), scoped Supabase client,
+>   insurer-portal routes migrated. Long-tail tables enumerated in §
+>   "Phase 3b — long-tail tables" below.
+> - Phase 4 (drop permissive baselines on the long tail) deferred.
+>
+> **Last updated:** 3 May 2026 (Phase 3a)
 
 ---
 
@@ -236,10 +244,121 @@ the actual security hardening already happened in Phase 3.
 
 ---
 
-## File list (this scaffolding commit)
+## File list (Phase 1 scaffolding commit `34ff778`)
 
 - `supabase/migrations/20260503030000_insurer_portal_scaffolding.sql`
 - `lib/auth/insurer.js`
 - `docs/insurer-portal-rls-spec.md` (this file)
 
-Phase 2 onwards — separate slices, separate PRs.
+---
+
+## Phase 3a — what shipped (this batch)
+
+**Migrations:**
+
+- `20260503040000_insurer_session_helpers.sql` — three SECURITY DEFINER
+  functions:
+  - `set_session_user(p_email TEXT)` — looks up `app_users` by email,
+    sets the `app.user_email` / `app.user_role` /
+    `app.user_insurer_id` GUCs at transaction-local scope, returns
+    the role string (or NULL on unknown / inactive).
+  - `current_user_role()` — read-side getter, returns NULL when no
+    session has been established (e.g. service-role connections).
+  - `current_user_insurer_id()` / `current_user_insurer_name()` —
+    convenience getters used in policy bodies.
+- `20260503050000_claims_rls.sql` — drops the permissive `Allow all
+  access to claims` (and three other tables) and adds conditional RLS
+  policies. Pattern:
+  - `SELECT`: surveyor / staff / admin → permissive; insurer →
+    scoped to `claims.insurer_name = current_user_insurer_name()`.
+  - `INSERT/UPDATE/DELETE`: refused when
+    `current_user_role() = 'insurer_readonly'`; permissive otherwise.
+
+  Tables migrated:
+  - `claims`
+  - `claim_field_values` (provenance — scoped via parent claim)
+  - `claim_fsr_drafts` (insurer sees only `status='approved'` rows)
+  - `site_visit_photos` (scoped via parent claim)
+
+**Server code:**
+
+- `lib/supabaseScoped.js` — anon-key client wrapper. Calls
+  `set_session_user(p_email)` at request start so subsequent SELECTs
+  on the same client see the GUCs. Two helpers:
+  - `scopedSupabaseFor({ email })` — returns `{ client, role, ok, error }`.
+  - `scopedSupabaseFromRequest(request)` — pulls the email from the
+    `X-User-Email` header (mirrors `requireSurveyorRequest`).
+- Migrated routes: `/api/insurer-portal/claims` and
+  `/api/insurer-portal/claims/[id]`. Both establish the scoped session
+  before any claim-data SELECTs. Belt-and-braces user-space filters
+  retained.
+
+**Tests:**
+
+- `tests/supabaseScoped.test.js` — 11 tests covering the wrapper's
+  branching (empty email, RPC error, null role, success cases) and
+  `scopedSupabaseFromRequest` header parsing.
+- `tests/insurerAuth.test.js` from Phase 2 still passes (22 tests).
+- Pre-existing `tests/executor.test.js` failures unchanged.
+
+**Why surveyor flows are unaffected:**
+
+- The portal's surveyor routes use `lib/supabaseAdmin` (service-role).
+  Service-role bypasses RLS entirely. So the new policies are invisible
+  to those routes.
+- The handful of routes that use the anon-key `lib/supabase` client
+  (`/api/auth/login`, surveyor lookups, etc.) don't call
+  `set_session_user`, so `current_user_role()` returns NULL inside
+  their RLS predicates — which falls into the permissive branch.
+- The only routes that activate the restrictive predicates are the
+  insurer-portal ones, where it's by design.
+
+---
+
+## Phase 3b — long-tail tables (deferred)
+
+These tables were NOT migrated in Phase 3a. Each gets its own forward
++ rollback migration in subsequent slices. Listed in priority order:
+
+| Table | Insurer-visible? | RLS policy strategy |
+|---|---|---|
+| `claim_messages` | ❌ No (internal NISLA chat) | Insurer SELECT refused; surveyor unrestricted |
+| `claim_chat_messages` | ❌ No (internal AI co-pilot) | Same as above |
+| `claim_ai_conversations` | ❌ No (global AI Analyst) | Same |
+| `survey_fee_bills` | ❌ No (separate accounts flow) | Same |
+| `marine_loss_sheets` + `_items` | ❌ No (working drafts) | Same |
+| `loss_sheets` + `_items` | ❌ No (working drafts) | Same |
+| `claim_documents` | 🟡 Partial — only docs linked to approved FSR | Per-row gate via parent claim + doc_type check |
+| `site_visits` (header) | 🟡 Yes (timeline-only fields) | Scoped via parent claim |
+| `claim_issues` | 🟡 Maybe (severity=error visible?) | Decision pending — deferred until insurer feedback |
+| `ila_drafts` + `ila_submissions` | 🟡 Submitted ones only | Scoped via parent claim, status filter |
+
+**Estimated effort:** 1-2 days for the full long-tail rollout (each
+table ~20 lines of policy SQL + per-table rollback migration). Best
+done after at least one real insurer user has been live on Phase 3a
+for a week so any edge cases surface in production logs first.
+
+---
+
+## Phase 3a → 3b → 4 verification gates
+
+Before promoting Phase 3b → Phase 4 (dropping the permissive baselines
+on the long tail):
+
+1. At least one real insurer user has logged into the portal and
+   exercised the dashboard + claim-detail flows for ≥ 7 days
+   without a "can't see my own claim" complaint.
+2. A pen-test (deliberate misuse via direct API calls / JWT
+   manipulation / body tampering) attempted from a non-portal client
+   and verified to fail closed.
+3. A cron-job that does a service-role read of `claims` confirmed
+   still working (RLS bypass for service-role validated end-to-end).
+4. Sentry / observability dashboard is clean of `INSURER_FORBIDDEN`
+   error spikes — those would indicate a route doesn't yet pass the
+   X-User-Email header.
+
+---
+
+Phase 4 — drop the remaining permissive `Allow all access` policies
+across the long tail and replace with role-aware ones. Until then,
+Phase 3a's defence-in-depth covers the highest-impact data surfaces.
