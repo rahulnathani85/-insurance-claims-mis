@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import FsrRenderPanel from '@/components/fsr/FsrRenderPanel';
+import IssuesPanel from '@/components/IssuesPanel';
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
@@ -35,6 +36,8 @@ export default function ClaimDetail() {
   const [aiLoading, setAiLoading] = useState(false);
   const [fsrDrafts, setFsrDrafts] = useState([]);
   const [fsrGenerating, setFsrGenerating] = useState(false);
+  const [openIssuesCount, setOpenIssuesCount] = useState(0);
+  const [issuesRefreshKey, setIssuesRefreshKey] = useState(0);
   const [ewFsrHtml, setEwFsrHtml] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -86,6 +89,8 @@ export default function ClaimDetail() {
     // Load AI data
     fetch(`/api/ai/conversations?claim_id=${id}`).then(r => r.json()).then(d => setAiConversations(Array.isArray(d) ? d : [])).catch(() => {});
     fetch(`/api/ai/fsr-drafts?claim_id=${id}`).then(r => r.json()).then(d => setFsrDrafts(Array.isArray(d) ? d : [])).catch(() => {});
+    // Slice 10 — open-issues count for the tab badge
+    fetch(`/api/claim-issues?claim_id=${id}&status=open`).then(r => r.json()).then(d => setOpenIssuesCount(Array.isArray(d) ? d.length : 0)).catch(() => {});
   }, [id]);
 
   async function loadAll() {
@@ -402,6 +407,7 @@ export default function ClaimDetail() {
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
+    { key: 'issues', label: 'Issues', icon: '⚠️', badge: openIssuesCount || null },
     { key: 'chat', label: 'Chat', icon: '💬', badge: chatMessages.length || null },
     { key: 'activity', label: 'Activity', icon: '📝' },
   ];
@@ -1317,6 +1323,23 @@ export default function ClaimDetail() {
               <FsrRenderPanel claim={claim} userEmail={user?.email} />
             )}
           </div>
+        )}
+
+        {/* TAB: Issues — Slice 10 */}
+        {activeTab === 'issues' && (
+          <IssuesPanel
+            claimId={parseInt(id)}
+            userEmail={user?.email}
+            refreshKey={issuesRefreshKey}
+            onChange={() => {
+              // Re-pull the open count so the tab badge updates after a resolve/dismiss/reopen.
+              fetch(`/api/claim-issues?claim_id=${id}&status=open`)
+                .then(r => r.json())
+                .then(d => setOpenIssuesCount(Array.isArray(d) ? d.length : 0))
+                .catch(() => {});
+              setIssuesRefreshKey((k) => k + 1);
+            }}
+          />
         )}
 
         {/* TAB: Activity Log */}
