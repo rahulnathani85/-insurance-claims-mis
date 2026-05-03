@@ -12,7 +12,6 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/comms/session';
 
@@ -32,12 +31,13 @@ export async function GET(request) {
   const isMultiCompany = MULTI_COMPANY_ROLES.has(userCompanyKey);
   const scopeCompany = isMultiCompany ? (companyParam || null) : user.company;
 
-  // Use the regular supabase client (matches /api/claims which is the
-  // known-working list endpoint). supabaseAdmin was returning 0 rows
-  // here despite the data being present and RLS being off — the root
-  // cause turned out to be unrelated to credentials, but mirroring the
-  // working endpoint sidesteps the issue.
-  let q = supabase
+  // Use the service-role client. requireUser() above is the auth gate;
+  // scopeCompany below is the tenant gate. RLS on `claims` (added in
+  // Phase 3b for the insurer-readonly role) was silently dropping rows
+  // for portal-internal callers that don't set the insurer GUC — using
+  // supabaseAdmin bypasses RLS so all 'intimation'-phase claims for the
+  // user's company come back.
+  let q = supabaseAdmin
     .from('claims')
     .select(
       `id, ref_number, lob, insured_name, policy_number, claim_number,
