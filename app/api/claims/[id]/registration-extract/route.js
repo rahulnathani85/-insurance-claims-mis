@@ -58,13 +58,14 @@ export async function POST(request, { params }) {
   // ---------------------------------------------------------------------------
   // 1. Load claim + scope check
   // ---------------------------------------------------------------------------
+  // Only the 5 fields actually used downstream (scope check + prompt's
+  // claim_context block). Earlier the SELECT pulled sum_insured and
+  // peril_type too, which are provenance-only ghost columns (CLAUDE.md
+  // §13a) — PostgREST rejected the whole SELECT with
+  // "column claims.sum_insured does not exist" and the agent never ran.
   const { data: claim, error: claimErr } = await supabaseAdmin
     .from('claims')
-    .select(
-      'id, ref_number, lob, company, intake_message_id, ' +
-      'insurer_name, insurer_branch, insured_name, policy_number, ' +
-      'date_loss, loss_location, sum_insured, peril_type, cause_of_loss'
-    )
+    .select('id, ref_number, lob, company, intake_message_id')
     .eq('id', id)
     .maybeSingle();
 
