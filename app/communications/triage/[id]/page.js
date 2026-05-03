@@ -30,6 +30,7 @@ export default function TriageDetailPage() {
   const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
 
   const [data, setData] = useState(null);
+  const [linkedClaim, setLinkedClaim] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -63,6 +64,25 @@ export default function TriageDetailPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setData(json);
+
+      // If the message has a linked claim, fetch its ref_number so the
+      // header can show "Ref: <ref_number>". Non-fatal — if it fails we
+      // just don't show the linked-claim line.
+      const linkedClaimId = json?.message?.claim_id;
+      if (linkedClaimId) {
+        try {
+          const cRes = await fetch(`/api/claims/${linkedClaimId}`, {
+            headers: { 'x-app-user-email': user.email },
+            cache: 'no-store',
+          });
+          if (cRes.ok) {
+            const claimJson = await cRes.json();
+            setLinkedClaim(claimJson || null);
+          }
+        } catch { /* ignore */ }
+      } else {
+        setLinkedClaim(null);
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -155,6 +175,20 @@ export default function TriageDetailPage() {
         </h2>
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
           {message.company} · {new Date(message.received_at).toLocaleString()}
+          {linkedClaim?.ref_number && (
+            <>
+              {' · '}
+              <span>
+                Linked claim:{' '}
+                <Link
+                  href={`/claim-detail/${encodeURIComponent(linkedClaim.id)}`}
+                  style={{ color: '#1e3a5f', fontWeight: 600, textDecoration: 'none', fontFamily: 'monospace' }}
+                >
+                  {linkedClaim.ref_number}
+                </Link>
+              </span>
+            </>
+          )}
         </div>
 
         {error && <Banner kind="err">{error}</Banner>}

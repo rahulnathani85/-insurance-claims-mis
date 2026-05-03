@@ -218,6 +218,24 @@ describe('validateRegistration', () => {
     expect(r.warnings.some(w => w.includes('reference number'))).toBe(true);
     expect(r.warnings.some(w => w.includes('insured name'))).toBe(true);
   });
+
+  it('blocks when ref_number is still the INTAKE/ placeholder', () => {
+    const claim = baseClaim();
+    claim.policy_period_to = '2026-12-31';
+    claim.ref_number = 'INTAKE/NISLA/3dae8108';
+    const r = validateRegistration(claim, { today });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some(e => e.includes('INTAKE/ placeholder'))).toBe(true);
+  });
+
+  it('passes when ref_number is a real surveyor reference', () => {
+    const claim = baseClaim();
+    claim.policy_period_to = '2026-12-31';
+    claim.ref_number = '4053/26-27/Marine Cargo';
+    const r = validateRegistration(claim, { today });
+    expect(r.ok).toBe(true);
+    expect(r.errors.some(e => e.includes('INTAKE/'))).toBe(false);
+  });
 });
 
 // -----------------------------------------------------------------------------
