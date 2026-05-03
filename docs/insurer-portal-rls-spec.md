@@ -8,14 +8,17 @@
 >   role enum, helper module, design freeze.
 > - Phase 2 shipped in `0549a57` + `7de3d82` — login flow, dashboard,
 >   claim detail, mutation guards.
-> - **Phase 3a shipped in this batch** — session-claim helpers, RLS
+> - Phase 3a shipped in `01566b5` — session-claim helpers, RLS
 >   policies on 4 priority tables (claims / claim_field_values /
 >   claim_fsr_drafts / site_visit_photos), scoped Supabase client,
->   insurer-portal routes migrated. Long-tail tables enumerated in §
->   "Phase 3b — long-tail tables" below.
-> - Phase 4 (drop permissive baselines on the long tail) deferred.
+>   insurer-portal routes migrated.
+> - **Phase 3b shipped in this batch** — long-tail RLS across 12 more
+>   tables (9 internal-only, 3 partially-visible). See §"Phase 3b —
+>   what shipped" below for the table-by-table breakdown.
+> - Phase 4 (replace remaining permissive baselines with role-aware
+>   policies on the surveyor-side tables) deferred.
 >
-> **Last updated:** 3 May 2026 (Phase 3a)
+> **Last updated:** 3 May 2026 (Phase 3b)
 
 ---
 
@@ -315,28 +318,66 @@ the actual security hardening already happened in Phase 3.
 
 ---
 
-## Phase 3b — long-tail tables (deferred)
+## Phase 3b — what shipped
 
-These tables were NOT migrated in Phase 3a. Each gets its own forward
-+ rollback migration in subsequent slices. Listed in priority order:
+Two migrations, 12 tables, ~320 lines of policy SQL + rollback comments.
+All policies use the same `IS DISTINCT FROM 'insurer_readonly'` predicate
+shape established in Phase 3a so the rollback story is uniform.
 
-| Table | Insurer-visible? | RLS policy strategy |
+### Migration 1 — `20260503060000_longtail_rls_internal.sql` (refuse-all)
+
+9 tables that the insurer should never see via direct query. One
+`FOR ALL` policy per table refusing insurer principals. Surveyor /
+service-role / unauthenticated traffic untouched.
+
+| Table | Pre-state | Action |
 |---|---|---|
-| `claim_messages` | ❌ No (internal NISLA chat) | Insurer SELECT refused; surveyor unrestricted |
-| `claim_chat_messages` | ❌ No (internal AI co-pilot) | Same as above |
-| `claim_ai_conversations` | ❌ No (global AI Analyst) | Same |
-| `survey_fee_bills` | ❌ No (separate accounts flow) | Same |
-| `marine_loss_sheets` + `_items` | ❌ No (working drafts) | Same |
-| `loss_sheets` + `_items` | ❌ No (working drafts) | Same |
-| `claim_documents` | 🟡 Partial — only docs linked to approved FSR | Per-row gate via parent claim + doc_type check |
-| `site_visits` (header) | 🟡 Yes (timeline-only fields) | Scoped via parent claim |
-| `claim_issues` | 🟡 Maybe (severity=error visible?) | Decision pending — deferred until insurer feedback |
-| `ila_drafts` + `ila_submissions` | 🟡 Submitted ones only | Scoped via parent claim, status filter |
+| `claim_chat_messages` | RLS on, "Allow all access" baseline | DROP baseline + add refuse-insurer policy |
+| `marine_loss_sheets` | Same | Same |
+| `marine_loss_sheet_items` | Same | Same |
+| `loss_sheets` | Same | Same |
+| `loss_sheet_items` | Same | Same |
+| `claim_messages` | RLS not enabled (older v11 table) | `ENABLE RLS` + add refuse-insurer policy |
+| `claim_ai_conversations` | RLS not enabled (older v14 table) | Same |
+| `survey_fee_bills` | RLS not enabled (older v3 table) | Same |
+| `claim_documents` | RLS not enabled (older v5 table) | Same — insurer never sees the legacy doc-status tracker; signed FSR PDF flows through `claim_fsr_drafts` only |
 
-**Estimated effort:** 1-2 days for the full long-tail rollout (each
-table ~20 lines of policy SQL + per-table rollback migration). Best
-done after at least one real insurer user has been live on Phase 3a
-for a week so any edge cases surface in production logs first.
+### Migration 2 — `20260503070000_longtail_rls_visible.sql` (parent-claim scoped)
+
+3 tables the insurer's claims-dealing officer can legitimately see for
+their own claims. 4 policies per table (SELECT scoped, INSERT/UPDATE/
+DELETE refused).
+
+| Table | Insurer-visible filter |
+|---|---|
+| `site_visits` | Header rows scoped via parent `claim_id` (timeline-only fields the insurer already sees in claim-detail) |
+| `ila_drafts` | Same scope **plus** `status = 'approved'` — works-in-progress drafts stay invisible (mirrors the `claim_fsr_drafts` pattern from Phase 3a) |
+| `ila_submissions` | Scoped via parent claim — every row is a final signed submission, no status filter needed |
+
+### Tables explicitly NOT in Phase 3b
+
+| Table | Why deferred |
+|---|---|
+| `claim_issues` | Decision pending — should the insurer see severity='error' issues, or are those internal-only? Defer until insurer feedback. |
+| `claim_drafts` | Surveyor-side intake working area; not insurer-relevant. Will be rolled in with surveyor-flow tightening (CLAUDE.md §9), not Phase 4. |
+
+### Tests
+
+`tests/longtailRls.test.js` — 32 static-shape checks that catch the
+"shipped before" mistakes:
+
+- Forgetting to DROP the permissive `Allow all access to X` baseline
+  (most-permissive policy wins; new restrictive policy would never bind)
+- Forgetting `WITH CHECK` on a write policy (Postgres allows the write
+  but blocks the read-back, leading to confusing route errors)
+- Typos in the role string ('insurer_read_only' vs canonical
+  'insurer_readonly') — would silently never match
+- Missing `ENABLE ROW LEVEL SECURITY` on the older tables that never
+  had RLS turned on
+
+`it.skip()` placeholders for live-Postgres assertions are not included
+yet — the static checks are the highest-value layer until we have an
+integration-test database.
 
 ---
 
