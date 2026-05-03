@@ -8,6 +8,52 @@ import { isPlaceholderRef } from '@/lib/refNumber';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+// Fields the registration form (FORM_FIELDS in lib/registrationDraft.js) and
+// the Registration Agent populate that have NO column on the live claims
+// table. Sending these via supabase.from('claims').update() returns 4xx with
+// "column ... does not exist in the schema cache".
+//
+// Three categories:
+//   1. PROVENANCE-ONLY (CLAUDE.md §13a) — values live only in
+//      claim_field_values via dualWriteClaimFields:
+//        sum_insured, claim_amount_intimated, peril_type
+//   2. FORM-ONLY (never migrated) — collected by the form but currently
+//      not persisted anywhere on submit. Awaiting either column migrations
+//      or extension of the provenance ledger:
+//        insurer_branch, dealing_officer_name|_email|_phone,
+//        insured_contact_phone|_email, insured_gstin, lob_subcategory,
+//        loss_location_pin|_state|_district|_lat|_lng,
+//        fee_basis|_amount|_notes
+//   3. (cause_of_loss is now a real column — added in
+//       20260413163204_claim_categories_text_fields.sql; not in this list.)
+//
+// Strip these from the body BEFORE the legacy update; they still travel
+// through to dualWriteClaimFields (category 1) which writes them to the
+// ledger.
+const FIELDS_WITHOUT_CLAIMS_COLUMN = new Set([
+  // provenance-only
+  'sum_insured',
+  'claim_amount_intimated',
+  'peril_type',
+  // form-only (no column, no provenance entry today)
+  'insurer_branch',
+  'dealing_officer_name',
+  'dealing_officer_email',
+  'dealing_officer_phone',
+  'insured_contact_phone',
+  'insured_contact_email',
+  'insured_gstin',
+  'lob_subcategory',
+  'loss_location_pin',
+  'loss_location_state',
+  'loss_location_district',
+  'loss_location_lat',
+  'loss_location_lng',
+  'fee_basis',
+  'fee_amount',
+  'fee_notes',
+]);
+
 // Fields that live in both claims and ew_vehicle_claims and should stay in sync.
 const SHARED_CLAIM_EW_FIELDS = [
   'insured_name',
@@ -197,7 +243,17 @@ export async function PUT(request, { params }) {
     }
   }
 
-  const { error } = await supabase.from('claims').update(body).eq('id', id);
+  // Strip fields that have no column on `claims` before the legacy update.
+  // These keep flowing to dualWriteClaimFields below — provenance fields
+  // (sum_insured, claim_amount_intimated, peril_type) land in the ledger;
+  // form-only fields (insurer_branch, dealing_officer_*, etc.) currently
+  // go nowhere — flagged for follow-up.
+  const legacyUpdateBody = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (!FIELDS_WITHOUT_CLAIMS_COLUMN.has(k)) legacyUpdateBody[k] = v;
+  }
+
+  const { error } = await supabase.from('claims').update(legacyUpdateBody).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Counter increment fires only after a successful update — so a failed
