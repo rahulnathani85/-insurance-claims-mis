@@ -323,6 +323,18 @@ export default function ClaimRegistrationPage({ params }) {
       showAlert('Assign a real surveyor reference number before submitting (use Auto-generate or type one).', 'error');
       return;
     }
+    if (!user?.email) {
+      showAlert('Sign-in not yet loaded — try again in a moment.', 'error');
+      return;
+    }
+    // Routes /api/claims/<id>/register and /team-assign use requireUser
+    // (lib/comms/session.js) which 401s without this header. The legacy PUT
+    // route doesn't strictly require it (uses requireSurveyorRequest, which
+    // is null-tolerant), but sending it keeps the auth context consistent.
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'x-app-user-email': user.email,
+    };
     setSubmitting(true);
     try {
       // Persist current draft as the source-of-truth claim row, then call register.
@@ -334,7 +346,7 @@ export default function ClaimRegistrationPage({ params }) {
       claimUpdates.phase = 'intimation';
       const updateRes = await fetch(`/api/claims/${claimId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify(claimUpdates),
       });
       if (!updateRes.ok) {
@@ -344,7 +356,7 @@ export default function ClaimRegistrationPage({ params }) {
 
       const regRes = await fetch(`/api/claims/${claimId}/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({ override_warnings: true, note: formState.remark || null }),
       });
       const regData = await regRes.json();
@@ -359,8 +371,8 @@ export default function ClaimRegistrationPage({ params }) {
       if (assignments.length > 0) {
         const assignRes = await fetch(`/api/claims/${claimId}/team-assign`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assignments, assigned_by: user?.email || null }),
+          headers: authHeaders,
+          body: JSON.stringify({ assignments, assigned_by: user.email }),
         });
         if (!assignRes.ok) {
           const err = await assignRes.json();
@@ -370,7 +382,10 @@ export default function ClaimRegistrationPage({ params }) {
       }
 
       // Drop the draft now that the claim is registered.
-      await fetch(`/api/claims/${claimId}/draft`, { method: 'DELETE' }).catch(() => {});
+      await fetch(`/api/claims/${claimId}/draft`, {
+        method: 'DELETE',
+        headers: { 'x-app-user-email': user.email },
+      }).catch(() => {});
 
       showAlert(`Registered ${regData.ref_number} (tier: ${regData.complexity_tier || 'n/a'})`, 'success');
       setTimeout(() => router.push(`/claim-detail/${claimId}`), 800);
