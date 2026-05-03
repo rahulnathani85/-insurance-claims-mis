@@ -92,8 +92,12 @@ export default function TriageQueuePage() {
   const { user, loading } = useAuth();
 
   // Initial category / tag come from URL so dashboard drilldowns land
-  // on the right pre-filtered view.
-  const urlCategory = searchParams?.get('category') || 'all';
+  // on the right pre-filtered view. Default landing is 'unattended' (the
+  // actionable filter for daily triage work) — clerks open this page to
+  // process unattended mail; an "All Mails" default would hide the queue
+  // behind already-handled noise. URL params still take precedence so
+  // direct links like ?category=all keep working.
+  const urlCategory = searchParams?.get('category') || 'unattended';
   const urlTag = searchParams?.get('tag') || '';
 
   const [data, setData] = useState(null);
