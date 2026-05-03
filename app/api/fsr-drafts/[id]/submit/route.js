@@ -119,6 +119,33 @@ export async function POST(request, { params }) {
     .neq('id', draftId)
     .in('status', ['draft', 'under_review']);
 
+  // Surface the FSR PDF on the claim's unified Documents tab. Non-fatal —
+  // the FSR is regulatory-signed-off whether or not this insert succeeds.
+  if (pdfMeta) {
+    try {
+      await supabaseAdmin.from('claim_documents').insert([{
+        claim_id: claim.id,
+        ref_number: claim.ref_number || null,
+        document_type: 'FSR',
+        document_name: `FSR ${claim.ref_number || claim.id} v${draft.version_number}`,
+        file_name: pdfMeta.filename || `FSR-${claim.ref_number || claim.id}-v${draft.version_number}.pdf`,
+        file_type: 'survey_report',
+        mime_type: 'application/pdf',
+        file_size: pdfMeta.size_bytes || null,
+        // pdfMeta.storage_path is a /api/file-proxy?path=... URL, not a
+        // Supabase bucket key — keep claim_documents.storage_path null and
+        // use file_url instead so the unified GET serves it via fallback.
+        file_url: pdfMeta.storage_path || null,
+        source: 'generated',
+        status: 'Submitted',
+        uploaded_by: signer.email,
+        company: claim.company || 'NISLA',
+      }]);
+    } catch (e) {
+      captureError(e, { area: 'fsr-submit-claim-doc', draft_id: draftId, claim_id: claim.id });
+    }
+  }
+
   // Enqueue insurer notification — reuses the ila_submitted template shape
   // (subject + body fields are claim-agnostic enough). A dedicated
   // fsr_submitted template lives in Phase 2.

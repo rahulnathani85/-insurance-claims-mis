@@ -31,6 +31,9 @@ export async function POST(request) {
       const fileType = formData.get('file_type') || 'other';
       const uploadedBy = formData.get('uploaded_by') || '';
       const company = formData.get('company') || 'NISLA';
+      // claim_documents.document_type is NOT NULL on the live schema; without
+      // a sensible default this insert 4xxs with a constraint violation.
+      const documentType = formData.get('document_type') || 'Uploaded';
 
       if (!file || !claimId) {
         return NextResponse.json({ error: 'File and claim_id are required' }, { status: 400 });
@@ -66,6 +69,7 @@ export async function POST(request) {
         .insert([{
           claim_id: claimId,
           ref_number: refNumber,
+          document_type: documentType,
           file_name: fileName,
           file_type: fileType,
           file_size: file.size,
@@ -99,8 +103,11 @@ export async function POST(request) {
       .insert([{
         claim_id: body.claim_id,
         ref_number: body.ref_number || '',
+        // document_type is NOT NULL — fall back to file_type or generic
+        // 'Uploaded' so the legacy tracking-without-file path doesn't crash.
+        document_type: body.document_type || body.file_type || 'Uploaded',
         file_name: body.file_name || body.document_name || 'Unknown',
-        file_type: body.file_type || body.document_type || 'other',
+        file_type: body.file_type || 'other',
         storage_path: body.storage_path || body.file_url || '',
         uploaded_by: body.uploaded_by || '',
         source: body.source || 'upload',

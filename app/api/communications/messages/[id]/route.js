@@ -92,17 +92,37 @@ export async function GET(request, { params }) {
       .order('executed_at', { ascending: true }),
   ]);
 
+  // If this message is linked to a claim, look up any user-applied
+  // renames stored on claim_documents (post-Documents-tab refactor).
+  // Override `filename` with the renamed value so triage UI + email
+  // reply UIs that consume this endpoint see the surveyor's preferred
+  // name. Original `filename` is preserved on `original_filename`.
+  let renames = new Map();
+  if (message.claim_id && (attachments || []).length > 0) {
+    const attachmentIds = attachments.map((a) => a.id);
+    const { data: claimDocs } = await supabaseAdmin
+      .from('claim_documents')
+      .select('attachment_id, file_name')
+      .eq('claim_id', message.claim_id)
+      .in('attachment_id', attachmentIds);
+    renames = new Map((claimDocs || []).map((cd) => [cd.attachment_id, cd.file_name]));
+  }
+
   // Mint signed download URLs for each attachment so the browser can
   // view/download them without ever needing the storage bucket to be public.
   const ATTACHMENT_BUCKET = 'comms-attachments';
   const SIGNED_URL_EXPIRY = 3600; // 1 hour
   const enrichedAttachments = await Promise.all(
     (attachments || []).map(async (a) => {
-      if (!a.storage_path) return { ...a, download_url: null };
+      const renamed = renames.get(a.id);
+      const out = renamed
+        ? { ...a, original_filename: a.filename, filename: renamed }
+        : { ...a };
+      if (!a.storage_path) return { ...out, download_url: null };
       const { data: signed } = await supabaseAdmin.storage
         .from(ATTACHMENT_BUCKET)
         .createSignedUrl(a.storage_path, SIGNED_URL_EXPIRY);
-      return { ...a, download_url: signed?.signedUrl || null };
+      return { ...out, download_url: signed?.signedUrl || null };
     })
   );
 

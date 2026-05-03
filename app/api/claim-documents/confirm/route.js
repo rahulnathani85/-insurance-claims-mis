@@ -33,6 +33,10 @@ export async function POST(request) {
       file_size,
       uploaded_by = '',
       company = 'NISLA',
+      // claim_documents.document_type is NOT NULL on the live schema; without
+      // a sensible default the upload INSERT 4xxs with
+      // "null value in column 'document_type' violates not-null constraint".
+      document_type = 'Uploaded',
     } = body;
 
     if (!path || !claim_id || !file_name) {
@@ -62,6 +66,7 @@ export async function POST(request) {
       .insert([{
         claim_id,
         ref_number,
+        document_type,
         file_name,
         file_type,
         file_size: file_size || null,
