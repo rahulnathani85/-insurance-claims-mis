@@ -1,0 +1,189 @@
+// =============================================================================
+// tests/registrationAgentPrompt.test.js
+// =============================================================================
+// Unit tests for lib/comms/prompts/registrationAgentPrompt.js
+//   - buildRegistrationPrompt: structural assertions on the produced prompt
+//   - parseRegistrationJson:   happy path + 4 malformed-input cases
+// =============================================================================
+
+import { describe, it, expect } from 'vitest';
+import {
+  REGISTRATION_AGENT_SCHEMA,
+  CRITICAL_FIELDS,
+  buildRegistrationPrompt,
+  parseRegistrationJson,
+} from '../lib/comms/prompts/registrationAgentPrompt.js';
+
+describe('REGISTRATION_AGENT_SCHEMA', () => {
+  it('contains the form-aligned fields the registration page expects', () => {
+    const keys = REGISTRATION_AGENT_SCHEMA.map((f) => f.key);
+    // Must-have form-mandatory fields:
+    for (const k of [
+      'insurer_name', 'policy_number', 'policy_period_from', 'policy_period_to',
+      'sum_insured', 'insured_name', 'lob', 'date_loss', 'date_of_intimation',
+      'loss_location', 'loss_location_pin',
+    ]) {
+      expect(keys).toContain(k);
+    }
+    // Must-have non-mandatory but valuable:
+    for (const k of [
+      'insurer_branch', 'dealing_officer_name', 'dealing_officer_email',
+      'dealing_officer_phone', 'peril_type', 'cause_of_loss',
+    ]) {
+      expect(keys).toContain(k);
+    }
+  });
+
+  it('does NOT include surveyor-judgment fields', () => {
+    const keys = REGISTRATION_AGENT_SCHEMA.map((f) => f.key);
+    for (const k of [
+      'ref_number', 'complexity_tier', 'is_catastrophe',
+      'fee_basis', 'fee_amount', 'fee_notes', 'remark',
+      'lob_subcategory', 'loss_location_lat', 'loss_location_lng',
+    ]) {
+      expect(keys).not.toContain(k);
+    }
+  });
+
+  it('marks the spec-listed critical fields', () => {
+    expect(CRITICAL_FIELDS).toEqual(expect.arrayContaining([
+      'policy_number', 'insured_name', 'date_loss',
+      'cause_of_loss', 'insurer_name', 'loss_location',
+    ]));
+  });
+});
+
+describe('buildRegistrationPrompt', () => {
+  const baseInput = {
+    claim: { id: 464, ref_number: 'INTAKE/NISLA/3dae8108', lob: 'Motor', company: 'NISLA' },
+    intimation: {
+      from_address: 'sahil.tandon@nic.co.in',
+      subject: 'GCH-26-45 || New Claim Intimation || Vehicle DD 01 C 9106',
+      received_at: '2026-04-28T10:30:00Z',
+      body_plain: 'Vehicle - DD 01 C 9106\nDOL - 24/04/2026\nLoss location - Nashik, MH\nInsured - Chifu Agritech Pvt Ltd\nPolicy No. - 460708212610000001',
+    },
+    attachments: [{ filename: 'Insurance_Policy.pdf', mime_type: 'application/pdf' }],
+    ocrText: 'NATIONAL INSURANCE COMPANY LIMITED ... Sum Insured Rs. 5,00,00,000 ... Period 04/04/2026 to 03/04/2027',
+    existingExtraction: { policy_no: '460708212610000001', insured_name: 'Chifu Agritech Pvt Ltd' },
+  };
+
+  it('returns systemPrompt + userMessage', () => {
+    const out = buildRegistrationPrompt(baseInput);
+    expect(out).toHaveProperty('systemPrompt');
+    expect(out).toHaveProperty('userMessage');
+    expect(typeof out.systemPrompt).toBe('string');
+    expect(typeof out.userMessage).toBe('string');
+  });
+
+  it('includes every schema field name in the system prompt', () => {
+    const { systemPrompt } = buildRegistrationPrompt(baseInput);
+    for (const f of REGISTRATION_AGENT_SCHEMA) {
+      expect(systemPrompt).toContain(f.key);
+    }
+  });
+
+  it('embeds the intimation email body in the user message', () => {
+    const { userMessage } = buildRegistrationPrompt(baseInput);
+    expect(userMessage).toContain('Chifu Agritech');
+    expect(userMessage).toContain('460708212610000001');
+  });
+
+  it('embeds the OCR text', () => {
+    const { userMessage } = buildRegistrationPrompt(baseInput);
+    expect(userMessage).toContain('NATIONAL INSURANCE COMPANY LIMITED');
+  });
+
+  it('embeds the existing JSON when provided', () => {
+    const { userMessage } = buildRegistrationPrompt(baseInput);
+    expect(userMessage).toContain('existing_json');
+  });
+
+  it('tolerates missing intimation / attachments / existingExtraction', () => {
+    const out = buildRegistrationPrompt({ claim: { lob: 'Fire' } });
+    expect(out.systemPrompt).toBeTruthy();
+    expect(out.userMessage).toContain('Fire');
+  });
+
+  it('truncates very long bodies and OCR text without throwing', () => {
+    const huge = 'x'.repeat(100_000);
+    const out = buildRegistrationPrompt({
+      claim: { lob: 'Fire' },
+      intimation: { body_plain: huge, from_address: 'x@y.z', subject: 's' },
+      ocrText: huge,
+    });
+    expect(out.userMessage).toContain('truncated');
+  });
+});
+
+describe('parseRegistrationJson', () => {
+  const happy = JSON.stringify({
+    fields: {
+      policy_number: { value: '460708212610000001', confidence: 0.98, source: 'cross_verified', raw_snippet: 'Policy No. - 460708212610000001' },
+      insured_name:  { value: 'Chifu Agritech Pvt Ltd', confidence: 0.95, source: 'email', raw_snippet: 'Insured - Chifu Agritech Pvt Ltd' },
+      date_loss:     { value: '24-04-2026', confidence: 0.92, source: 'email', raw_snippet: 'DOL - 24/04/2026' },
+      sum_insured:   { value: 50000000, confidence: 0.88, source: 'ocr_Insurance_Policy.pdf', raw_snippet: 'Sum Insured Rs. 5,00,00,000' },
+    },
+    conflicts: [],
+    missing_critical_fields: ['cause_of_loss'],
+    extraction_notes: 'cause_of_loss not stated in any source',
+  });
+
+  it('parses well-formed rich JSON', () => {
+    const out = parseRegistrationJson(happy);
+    expect(out.fields.policy_number.value).toBe('460708212610000001');
+    expect(out.fields.policy_number.confidence).toBe(0.98);
+    expect(out.fields.policy_number.source).toBe('cross_verified');
+    expect(out.fields.policy_number.raw_snippet).toMatch(/Policy No/);
+    expect(out.missing_critical_fields).toEqual(['cause_of_loss']);
+    expect(out.conflicts).toEqual([]);
+  });
+
+  it('strips markdown code fences', () => {
+    const wrapped = '```json\n' + happy + '\n```';
+    const out = parseRegistrationJson(wrapped);
+    expect(out.fields.insured_name.value).toBe('Chifu Agritech Pvt Ltd');
+  });
+
+  it('clamps confidence to [0, 1] and coerces non-numeric to null', () => {
+    const dirty = JSON.stringify({
+      fields: {
+        a: { value: 'X', confidence: 1.5,  source: 'email', raw_snippet: '' },
+        b: { value: 'Y', confidence: -0.3, source: 'email', raw_snippet: '' },
+        c: { value: 'Z', confidence: 'high', source: 'email', raw_snippet: '' },
+      },
+    });
+    const out = parseRegistrationJson(dirty);
+    expect(out.fields.a.confidence).toBe(1);
+    expect(out.fields.b.confidence).toBe(0);
+    expect(out.fields.c.confidence).toBe(null);
+  });
+
+  it('throws on non-object root', () => {
+    expect(() => parseRegistrationJson('[1,2,3]')).toThrow(/not an object/);
+  });
+
+  it('throws on missing fields object', () => {
+    expect(() => parseRegistrationJson('{"conflicts":[]}')).toThrow(/missing.*fields/);
+  });
+
+  it('throws on completely invalid JSON', () => {
+    expect(() => parseRegistrationJson('not json at all')).toThrow();
+  });
+
+  it('throws on empty input', () => {
+    expect(() => parseRegistrationJson('')).toThrow(/Empty/);
+    expect(() => parseRegistrationJson(null)).toThrow(/Empty/);
+  });
+
+  it('skips field entries that are not objects', () => {
+    const mixed = JSON.stringify({
+      fields: {
+        ok: { value: 'x', confidence: 0.9, source: 'email', raw_snippet: '' },
+        bad_string: 'just a string',
+        bad_array: [1, 2, 3],
+      },
+    });
+    const out = parseRegistrationJson(mixed);
+    expect(Object.keys(out.fields)).toEqual(['ok']);
+  });
+});
