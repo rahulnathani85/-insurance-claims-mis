@@ -8,50 +8,20 @@ import { isPlaceholderRef } from '@/lib/refNumber';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Fields the registration form (FORM_FIELDS in lib/registrationDraft.js) and
-// the Registration Agent populate that have NO column on the live claims
-// table. Sending these via supabase.from('claims').update() returns 4xx with
-// "column ... does not exist in the schema cache".
+// Provenance-only fields per CLAUDE.md §13a — values live ONLY in the
+// claim_field_values ledger via dualWriteClaimFields. They have no column
+// on the live claims table by design (multi-source authority requires the
+// ledger). Strip these from the body before supabase.from('claims').update()
+// or PostgREST returns "column ... does not exist in the schema cache".
 //
-// Three categories:
-//   1. PROVENANCE-ONLY (CLAUDE.md §13a) — values live only in
-//      claim_field_values via dualWriteClaimFields:
-//        sum_insured, claim_amount_intimated, peril_type
-//   2. FORM-ONLY (never migrated) — collected by the form but currently
-//      not persisted anywhere on submit. Awaiting either column migrations
-//      or extension of the provenance ledger:
-//        insurer_branch, dealing_officer_name|_email|_phone,
-//        insured_contact_phone|_email, insured_gstin, lob_subcategory,
-//        loss_location_pin|_state|_district|_lat|_lng,
-//        fee_basis|_amount|_notes
-//   3. (cause_of_loss is now a real column — added in
-//       20260413163204_claim_categories_text_fields.sql; not in this list.)
-//
-// Strip these from the body BEFORE the legacy update; they still travel
-// through to dualWriteClaimFields (category 1) which writes them to the
-// ledger.
+// The 16 form-only fields that previously lived here (insurer_branch,
+// dealing_officer_*, etc.) were given real columns in migration
+// 20260503114402_add_form_only_claim_columns.sql — those flow straight
+// through the legacy update now and don't need stripping.
 const FIELDS_WITHOUT_CLAIMS_COLUMN = new Set([
-  // provenance-only
   'sum_insured',
   'claim_amount_intimated',
   'peril_type',
-  // form-only (no column, no provenance entry today)
-  'insurer_branch',
-  'dealing_officer_name',
-  'dealing_officer_email',
-  'dealing_officer_phone',
-  'insured_contact_phone',
-  'insured_contact_email',
-  'insured_gstin',
-  'lob_subcategory',
-  'loss_location_pin',
-  'loss_location_state',
-  'loss_location_district',
-  'loss_location_lat',
-  'loss_location_lng',
-  'fee_basis',
-  'fee_amount',
-  'fee_notes',
 ]);
 
 // Fields that live in both claims and ew_vehicle_claims and should stay in sync.
