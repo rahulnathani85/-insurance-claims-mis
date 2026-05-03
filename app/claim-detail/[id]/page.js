@@ -44,6 +44,12 @@ export default function ClaimDetail() {
   const [history, setHistory] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [generatedDocs, setGeneratedDocs] = useState([]);
+  // Unified Documents tab: pulls from claim_documents (email + upload + generated).
+  const [allDocuments, setAllDocuments] = useState([]);
+  const [allDocumentsLoading, setAllDocumentsLoading] = useState(false);
+  const [editingDocId, setEditingDocId] = useState(null);
+  const [editingDocName, setEditingDocName] = useState('');
+  const [renameError, setRenameError] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [activityLogs, setActivityLogs] = useState([]);
   const [reminders, setReminders] = useState([]);
@@ -147,8 +153,73 @@ export default function ClaimDetail() {
     if (user?.email) {
       checkGmailStatus();
       loadClaimEmails();
+      loadAllDocuments();
     }
   }, [user, id]);
+
+  async function loadAllDocuments() {
+    if (!user?.email) return;
+    setAllDocumentsLoading(true);
+    try {
+      const res = await fetch(`/api/claims/${id}/documents`, {
+        headers: { 'x-app-user-email': user.email },
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setAllDocuments(Array.isArray(json.documents) ? json.documents : []);
+      } else {
+        console.warn('[claim-detail] all-documents load failed:', json?.error);
+      }
+    } catch (e) {
+      console.error('[claim-detail] all-documents fetch error:', e);
+    } finally {
+      setAllDocumentsLoading(false);
+    }
+  }
+
+  function startRename(doc) {
+    setRenameError(null);
+    setEditingDocId(doc.id);
+    setEditingDocName(doc.file_name || '');
+  }
+
+  function cancelRename() {
+    setEditingDocId(null);
+    setEditingDocName('');
+    setRenameError(null);
+  }
+
+  async function saveRename(doc) {
+    const newName = editingDocName.trim();
+    if (!newName) {
+      setRenameError('Name cannot be empty');
+      return;
+    }
+    if (newName === doc.file_name) {
+      cancelRename();
+      return;
+    }
+    try {
+      const res = await fetch(`/api/claims/${id}/documents/${doc.id}/rename`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-app-user-email': user?.email || '',
+        },
+        body: JSON.stringify({ file_name: newName }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      // Optimistic local update so the list reflects the new name immediately.
+      setAllDocuments((prev) =>
+        prev.map((d) => (d.id === doc.id ? { ...d, file_name: json.document?.file_name || newName } : d))
+      );
+      cancelRename();
+    } catch (e) {
+      setRenameError(e.message);
+    }
+  }
 
   async function checkGmailStatus() {
     try {
@@ -911,6 +982,131 @@ export default function ClaimDetail() {
         {/* TAB: Documents (LOR, ILA, etc.) */}
         {activeTab === 'documents' && (
           <div>
+            {/* Unified All Documents — email attachments + uploads + generated */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h4 style={{ margin: 0 }}>All Documents ({allDocuments.length})</h4>
+              <button
+                type="button"
+                onClick={loadAllDocuments}
+                disabled={allDocumentsLoading}
+                style={{ fontSize: 11, padding: '3px 10px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}
+              >
+                {allDocumentsLoading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+            {renameError && (
+              <div style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 6, fontSize: 12, marginBottom: 10 }}>
+                Rename failed: {renameError}
+              </div>
+            )}
+            {allDocuments.length === 0 ? (
+              <p style={{ color: '#999', fontSize: 13, marginBottom: 25 }}>
+                {allDocumentsLoading ? 'Loading documents…' : 'No documents on this claim yet.'}
+              </p>
+            ) : (
+              <div className="mis-table-container" style={{ marginBottom: 25 }}>
+                <table className="mis-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Source</th>
+                      <th>Type</th>
+                      <th>Size</th>
+                      <th>Date</th>
+                      <th style={{ width: 200 }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allDocuments.map((d) => {
+                      const editing = editingDocId === d.id;
+                      const sourceColor = d.source === 'gmail' ? { bg: '#dbeafe', fg: '#1e40af' }
+                        : d.source === 'generated' ? { bg: '#f3e8ff', fg: '#6b21a8' }
+                        : { bg: '#dcfce7', fg: '#166534' };
+                      return (
+                        <tr key={d.id}>
+                          <td style={{ fontWeight: 500, fontSize: 13 }}>
+                            {editing ? (
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                <input
+                                  value={editingDocName}
+                                  onChange={(e) => setEditingDocName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveRename(d);
+                                    if (e.key === 'Escape') cancelRename();
+                                  }}
+                                  autoFocus
+                                  style={{ flex: 1, padding: '4px 8px', fontSize: 13, border: '1px solid #2563eb', borderRadius: 4 }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => saveRename(d)}
+                                  style={{ fontSize: 11, padding: '3px 8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelRename}
+                                  style={{ fontSize: 11, padding: '3px 8px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer' }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <span>
+                                {d.file_name}
+                                <button
+                                  type="button"
+                                  onClick={() => startRename(d)}
+                                  title="Rename"
+                                  style={{ marginLeft: 6, fontSize: 11, padding: '0 4px', background: 'transparent', color: '#6b7280', border: 'none', cursor: 'pointer' }}
+                                >
+                                  ✏️
+                                </button>
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: sourceColor.bg, color: sourceColor.fg }}>
+                              {d.source_badge}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: 11, color: '#6b7280' }}>{d.mime_type || d.file_type || '—'}</td>
+                          <td style={{ fontSize: 11, color: '#6b7280' }}>
+                            {d.file_size ? `${(d.file_size / 1024).toFixed(1)} KB` : '—'}
+                          </td>
+                          <td style={{ fontSize: 11, color: '#6b7280' }}>
+                            {d.created_at ? new Date(d.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                            {d.gmail_from && (
+                              <div style={{ fontSize: 10, color: '#9ca3af' }}>
+                                from {d.gmail_from.replace(/^[^<]*</, '').replace(/>$/, '').slice(0, 30)}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {d.download_url ? (
+                                <a
+                                  href={d.download_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ fontSize: 11, padding: '3px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, textDecoration: 'none' }}
+                                >
+                                  Download
+                                </a>
+                              ) : (
+                                <span style={{ fontSize: 11, color: '#9ca3af' }}>—</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {/* Generated Documents (LOR/ILA) */}
             <h4 style={{ margin: '0 0 15px' }}>Generated Documents (LOR / ILA)</h4>
             {generatedDocs.length === 0 ? (

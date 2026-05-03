@@ -76,9 +76,28 @@ export async function GET(_request, { params }) {
       .maybeSingle(),
   ]);
 
+  // Apply user-facing renames: if the attachment was materialised into
+  // claim_documents (via the executor or the unify-claim-documents
+  // backfill) and the user renamed it on the Documents tab, prefer
+  // that name here so the registration form's Source pane stays in sync.
+  let renames = new Map();
+  const attachmentIds = (attachments || []).map((a) => a.id);
+  if (attachmentIds.length > 0) {
+    const { data: claimDocs } = await supabaseAdmin
+      .from('claim_documents')
+      .select('attachment_id, file_name')
+      .eq('claim_id', id)
+      .in('attachment_id', attachmentIds);
+    renames = new Map((claimDocs || []).map((cd) => [cd.attachment_id, cd.file_name]));
+  }
+  const renamedAttachments = (attachments || []).map((a) => ({
+    ...a,
+    file_name: renames.get(a.id) || a.file_name,
+  }));
+
   return NextResponse.json({
     source: message || null,
-    attachments: attachments || [],
+    attachments: renamedAttachments,
     extraction: extraction || null,
   });
 }
