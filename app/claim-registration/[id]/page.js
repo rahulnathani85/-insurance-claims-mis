@@ -158,11 +158,10 @@ export default function ClaimRegistrationPage({ params }) {
       }
       setFormState(initial);
       lastSavedRef.current = initial;
-
-      // Kick off the Registration Agent (rich extraction) in the background
-      // — don't block the form render. The 5-min idempotency on the server
-      // means this is free on rapid reloads.
-      fetchRegistrationExtract({ force: false });
+      // Note: the Registration Agent fires from a separate useEffect below
+      // because it requires the auth header (x-app-user-email) and the
+      // useAuth() hook may not have populated `user` by the time loadAll
+      // runs on first mount.
     } catch (e) {
       showAlert('Failed to load: ' + e.message, 'error');
     } finally {
@@ -170,18 +169,39 @@ export default function ClaimRegistrationPage({ params }) {
     }
   }
 
+  // Auto-fire the Registration Agent once both the form has loaded AND the
+  // user is signed in. The server-side 5-min idempotency means this is free
+  // on quick reloads. Re-runs if the user changes (rare) or claimId changes.
+  useEffect(() => {
+    if (loading) return;
+    if (!user?.email) return;
+    if (regExtract || regExtractLoading) return;
+    fetchRegistrationExtract({ force: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user?.email, claimId]);
+
   // Calls POST /api/claims/<id>/registration-extract. On success:
   //   - replaces extractedData with the rich {<field>: {value, confidence}}
   //     shape so ConfidenceBadge + Path 2 overlay get full info
   //   - pre-fills form fields that are still empty AND have confidence >= 0.5
   //   - stores conflicts + missing_critical for the Conflicts UI
   async function fetchRegistrationExtract({ force = false } = {}) {
+    if (!user?.email) {
+      // Auth header is mandatory upstream (requireUser in the API route).
+      // Surfacing a clear UI message rather than letting the 401 confuse
+      // the clerk into thinking the LLM failed.
+      setRegExtractError('Sign-in not yet loaded — try again in a moment.');
+      return;
+    }
     setRegExtractLoading(true);
     setRegExtractError(null);
     try {
       const res = await fetch(`/api/claims/${claimId}/registration-extract`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-app-user-email': user.email,
+        },
         body: JSON.stringify({ force }),
       });
       const data = await res.json();
