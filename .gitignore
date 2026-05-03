@@ -31,7 +31,12 @@ scripts/puppeteer-server/.env
 # Supabase local
 supabase/.branches/
 supabase/.temp/
-# Claude Code local scratch — never commit
+
+# pg_dump output files from one-off migrations (contain prod data)
+scripts/migration_helpers/old_data_dump*.sql
+scripts/migration_helpers/*.dump
+
+# Claude Code local scratch ï¿½ never commit
 .claude/worktrees/
 .claude/cache/
 .claude/logs/

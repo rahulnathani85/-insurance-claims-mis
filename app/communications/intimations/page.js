@@ -9,14 +9,18 @@
 // flips the claim to phase='registered'.
 // ============================================================
 
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
 
 export default function IntimationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const highlightId = searchParams?.get('highlight') || null;
+  const justApproved = searchParams?.get('just_approved') === '1';
+  const highlightRef = useRef(null);
   const { user, loading } = useAuth();
 
   const [data, setData] = useState(null);
@@ -82,10 +86,25 @@ export default function IntimationsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Scroll to + flash the highlighted row when arriving from review queue.
+  useEffect(() => {
+    if (!highlightId) return;
+    if (!data?.claims?.some((c) => String(c.id) === String(highlightId))) return;
+    const el = highlightRef.current;
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightId, data]);
+
   if (loading) return <PageLayout><div style={{ padding: 24 }}>Loading…</div></PageLayout>;
   if (!user) return null;
 
   const claims = data?.claims || [];
+
+  // Per-LOB breakdown (Item 4) — counts pending registration per LOB.
+  const byLob = claims.reduce((acc, c) => {
+    const k = c.lob || '(no LOB)';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <PageLayout>
@@ -100,6 +119,31 @@ export default function IntimationsPage() {
         <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#64748b', maxWidth: 720 }}>
           These claims were auto-created from inbound intimation emails. Review the details, then click <strong>Register</strong> to formally register the claim — that moves it from the Intimation phase to the Registration phase.
         </p>
+
+        {/* Just-approved banner — shown once arriving from review queue. */}
+        {justApproved && highlightId && claims.some((c) => String(c.id) === String(highlightId)) && (
+          <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>
+            <strong>✓ Approved.</strong> The intimation has been approved and the claim shell is now in the queue below. Click <strong>Register Claim →</strong> on that row to complete registration.
+          </div>
+        )}
+
+        {/* Count summary — total + per-LOB chips. Item 4. */}
+        {claims.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14, padding: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>
+              {claims.length} pending registration
+            </span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>·</span>
+            {Object.entries(byLob).sort((a, b) => b[1] - a[1]).map(([lob, count]) => (
+              <span key={lob} style={{ fontSize: 11, fontWeight: 600, background: '#fff', color: '#92400e', padding: '2px 8px', borderRadius: 999, border: '1px solid #fde68a' }}>
+                {lob}: {count}
+              </span>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#92400e' }}>
+              <em>Once a claim is intimated it stays here until registered.</em>
+            </span>
+          </div>
+        )}
 
         {error && <Banner kind="err">{error}</Banner>}
 
@@ -116,8 +160,17 @@ export default function IntimationsPage() {
               const v = (field) => (e[field] !== undefined ? e[field] : (c[field] ?? ''));
               const dirty = Object.keys(e).length > 0;
               const isSaving = savingId === c.id;
+              const isHighlighted = String(c.id) === String(highlightId);
               return (
-                <div key={c.id} style={cardStyle}>
+                <div
+                  key={c.id}
+                  ref={isHighlighted ? highlightRef : null}
+                  style={{
+                    ...cardStyle,
+                    border: isHighlighted ? '2px solid #f59e0b' : cardStyle.border,
+                    boxShadow: isHighlighted ? '0 0 0 4px rgba(245, 158, 11, 0.25)' : cardStyle.boxShadow,
+                  }}
+                >
                   {/* Header: Intake Ref + received timestamp + sender */}
                   <div style={cardHeaderStyle}>
                     <div>
@@ -204,10 +257,17 @@ export default function IntimationsPage() {
                         {isSaving ? 'Saving…' : 'Save changes'}
                       </button>
                       <Link
-                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                        href={`/claim-registration/${encodeURIComponent(c.id)}`}
                         style={{ ...btnStyle('primary', false), padding: '8px 14px', textDecoration: 'none', display: 'inline-block' }}
                       >
                         Register Claim →
+                      </Link>
+                      <Link
+                        href={`/claims/${encodeURIComponent(resolveLob(c.lob))}?editId=${encodeURIComponent(c.id)}&from=intimation`}
+                        style={{ ...btnStyle('secondary', false), padding: '8px 14px', textDecoration: 'none', display: 'inline-block', fontSize: 12 }}
+                        title="Legacy single-column form"
+                      >
+                        Legacy form
                       </Link>
                     </div>
                   </div>

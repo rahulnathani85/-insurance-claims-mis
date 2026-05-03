@@ -177,7 +177,7 @@ export default function CommsDashboardPage() {
           <KpiCard label="Unattended"         value={totals.received || 0}         color="#92400e" sub={totals.received > 0 ? 'Action needed' : 'All clear'} href="/communications/triage?category=unattended" />
           <KpiCard label="Auto-routed"        value={totals.auto_routed || 0}      color="#065f46" sub={`${autoRouteRate}% of total`} href="/communications/triage?category=auto_routed" />
           <KpiCard label="Pending review"     value={totals.pending_review || 0}   color="#5b21b6" href="/communications/review" />
-          <KpiCard label="Extracting"         value={totals.classifying || 0}      color="#1e40af" href="/communications/triage?category=classifying" />
+          <KpiCard label="Extracting"         value={totals.classifying || 0}      color="#1e40af" href="/communications/triage?category=classifying" sub="Awaiting AI extraction · clears every 5 min" />
           <KpiCard label="Dismissed"          value={totals.dismissed || 0}        color="#475569" href="/communications/triage?category=dismissed" />
         </div>
 

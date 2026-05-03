@@ -55,6 +55,35 @@ const CATEGORY_OPTIONS = [
 const EXTRACTION_TAG_SET = new Set(EXTRACTION_REQUIRED.map((t) => t.tag));
 const NON_EXTRACTION_TAG_SET = new Set(NON_EXTRACTION.map((t) => t.tag));
 
+// Quick-lookup map: workflow_tag -> human-readable label. Used by the per-row
+// tag badge so clerks can see at a glance what each email was categorised as
+// (vs the previous behaviour of just showing a generic "Categorised" pill).
+const TAG_LABEL_BY_KEY = (() => {
+  const m = new Map();
+  for (const t of EXTRACTION_REQUIRED) m.set(t.tag, t.label);
+  for (const t of NON_EXTRACTION)      m.set(t.tag, t.label);
+  return m;
+})();
+
+// Compact display labels — shorter than the full guidance labels above so
+// the row badge fits nicely. Falls back to TAG_LABEL_BY_KEY if no compact
+// override is defined for a tag.
+const TAG_COMPACT_LABEL = {
+  intimation:          'Intimation',
+  client_followup:     'Client Follow-up',
+  insurer_query:       'Insurer Query',
+  policy_doc:          'Policy Doc',
+  claim_documents:     'Claim Docs',
+  surveyor_photos:     'Surveyor Photos',
+  claim_registration:  'Claim Reg',
+  settlement_advice:   'Settlement',
+  consent_email:       'Consent',
+  internal_admin:      'Internal',
+  duplicate:           'Duplicate',
+  update_from_insurer: 'Insurer Update',
+  others:              'Others',
+};
+
 const ADMIN_ROLES = new Set(['admin', 'super_admin']);
 
 export default function TriageQueuePage() {
@@ -338,11 +367,7 @@ export default function TriageQueuePage() {
                     <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 500 }}>
                       {m.subject || '(no subject)'}
                     </span>
-                    {m.has_active_classification && (
-                      <span style={{ fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 999 }}>
-                        Categorised
-                      </span>
-                    )}
+                    {m.active_tag && <TagBadge tag={m.active_tag} />}
                   </div>
                   {/* Sender email + company */}
                   <div style={{ fontSize: 12, color: '#374151', marginTop: 3, fontWeight: 500 }}>
@@ -383,6 +408,40 @@ export default function TriageQueuePage() {
 }
 
 // ── Sub-components ─────────────────────────────────────────────
+
+// Renders the assigned workflow_tag (e.g. "Intimation", "Policy Doc") as a
+// compact pill so clerks can see at a glance what each row was categorised
+// as. Color follows the tag group: purple for extraction-required tags,
+// blue for non-extraction tags. Unknown tags fall back to slate.
+function TagBadge({ tag }) {
+  if (!tag) return null;
+  const label = TAG_COMPACT_LABEL[tag] || TAG_LABEL_BY_KEY.get(tag) || tag;
+  let bg = '#f1f5f9';
+  let fg = '#475569';
+  if (EXTRACTION_TAG_SET.has(tag)) {
+    bg = '#ede9fe';
+    fg = '#5b21b6';
+  } else if (NON_EXTRACTION_TAG_SET.has(tag)) {
+    bg = '#dbeafe';
+    fg = '#1e40af';
+  }
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        background: bg,
+        color: fg,
+        padding: '1px 6px',
+        borderRadius: 999,
+        letterSpacing: 0.2,
+      }}
+      title={`Categorised as: ${label}`}
+    >
+      {label}
+    </span>
+  );
+}
 
 // Renders an action-oriented label per row. The badge reflects what
 // has happened to the message rather than the raw inbox_messages.status.

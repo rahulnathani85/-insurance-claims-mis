@@ -2,6 +2,25 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
+import FsrRenderPanel from '@/components/fsr/FsrRenderPanel';
+import IssuesPanel from '@/components/IssuesPanel';
+import ClaimChatPanel from '@/components/ClaimChatPanel';
+import PhotoGrid from '@/components/PhotoGrid';
+import FieldWithProvenance, { useClaimProvenance } from '@/components/FieldWithProvenance';
+
+// Map an Overview-tab row label to the provenance field name it tracks.
+// Only labels in this map get the provenance dot; everything else
+// renders as plain text.
+const PROVENANCE_LABEL_MAP = {
+  'Policy Number': 'policy_number',
+  'Insured Name': 'insured_name',
+  'Insurer': 'insurer_name',
+  'LOB': 'lob',
+  'Date of Intimation': 'date_of_intimation',
+  'Date of Loss': 'date_loss',
+  'Loss Location': 'loss_location',
+  'Gross Loss': 'gross_loss',
+};
 import { useAuth } from '@/lib/AuthContext';
 import { LOB_ICONS } from '@/lib/constants';
 import { downloadAsPDF, downloadAsWord } from '@/lib/documentExport';
@@ -34,6 +53,13 @@ export default function ClaimDetail() {
   const [aiLoading, setAiLoading] = useState(false);
   const [fsrDrafts, setFsrDrafts] = useState([]);
   const [fsrGenerating, setFsrGenerating] = useState(false);
+  const [openIssuesCount, setOpenIssuesCount] = useState(0);
+  const [issuesRefreshKey, setIssuesRefreshKey] = useState(0);
+
+  // Fetch the provenance overlay so the Overview tab can show source
+  // dots next to fields that have ledger entries. Single fetch shared
+  // across every <FieldWithProvenance> on the page.
+  const { provenance: claimProvenance } = useClaimProvenance(id);
   const [ewFsrHtml, setEwFsrHtml] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -85,6 +111,8 @@ export default function ClaimDetail() {
     // Load AI data
     fetch(`/api/ai/conversations?claim_id=${id}`).then(r => r.json()).then(d => setAiConversations(Array.isArray(d) ? d : [])).catch(() => {});
     fetch(`/api/ai/fsr-drafts?claim_id=${id}`).then(r => r.json()).then(d => setFsrDrafts(Array.isArray(d) ? d : [])).catch(() => {});
+    // Slice 10 — open-issues count for the tab badge
+    fetch(`/api/claim-issues?claim_id=${id}&status=open`).then(r => r.json()).then(d => setOpenIssuesCount(Array.isArray(d) ? d.length : 0)).catch(() => {});
   }, [id]);
 
   async function loadAll() {
@@ -385,9 +413,25 @@ export default function ClaimDetail() {
     { key: 'lifecycle', label: 'Pipeline & Lifecycle', icon: '🔄' },
     { key: 'assignments', label: 'Team', icon: '👥' },
     { key: 'documents', label: 'Documents', icon: '📄' },
+    { key: 'site-visits', label: 'Site Visits', icon: '📍', href: `/site-visits/${id}` },
+    { key: 'ila', label: 'ILA', icon: '📑', href: `/ila/${id}` },
+    {
+      key: 'loss-sheet',
+      label: 'Loss Sheet',
+      icon: '📊',
+      // Marine Cargo claims use the Marine math flow (no depreciation; insurance% / GST / handling).
+      // Marine Hull = TBD (Phase 2 — uses neither the Fire nor Marine Cargo flow).
+      // Everything else (Fire / Engineering / Misc / LOP) defaults to the Fire-shaped page
+      // since they all share depreciation + underinsurance math.
+      href: claim.lob === 'Marine Cargo' ? `/marine-loss-sheet/${id}` : `/loss-sheet/${id}`,
+    },
+    { key: 'fsr-doc', label: 'FSR Doc', icon: '📜', href: `/fsr/${id}` },
     { key: 'emails', label: 'Emails', icon: '📧', badge: claimEmails.length || null },
     { key: 'ai', label: 'AI Analyst', icon: '🤖' },
     { key: 'fsr', label: 'FSR Draft', icon: '📑' },
+    { key: 'photos', label: 'Photos (AI)', icon: '📷' },
+    { key: 'ai-copilot', label: 'AI Co-pilot', icon: '🤖' },
+    { key: 'issues', label: 'Issues', icon: '⚠️', badge: openIssuesCount || null },
     { key: 'chat', label: 'Chat', icon: '💬', badge: chatMessages.length || null },
     { key: 'activity', label: 'Activity', icon: '📝' },
   ];
@@ -438,6 +482,7 @@ export default function ClaimDetail() {
             <div style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>{claim.assigned_to || 'Unassigned'}</div>
             <div style={{ fontSize: 11, color: '#6b7280' }}>Assigned To</div>
           </div>
+          <IlaTatWidget ilaDueAt={claim.ila_due_at} claimId={id} />
         </div>
 
         {/* 9-Stage Pipeline Stepper */}
@@ -506,7 +551,7 @@ export default function ClaimDetail() {
           overflowX: 'auto', WebkitOverflowScrolling: 'touch',
         }}>
           {tabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
+            <button key={t.key} onClick={() => t.href ? router.push(t.href) : setActiveTab(t.key)}
               style={{
                 padding: isMobile ? '10px 14px' : '10px 20px',
                 fontSize: 13, fontWeight: activeTab === t.key ? 700 : 400,
@@ -545,7 +590,17 @@ export default function ClaimDetail() {
                     ].map(([label, val]) => val ? (
                       <tr key={label}>
                         <td style={{ padding: '5px 0', color: '#6b7280', width: '40%' }}>{label}</td>
-                        <td style={{ padding: '5px 0', fontWeight: 500 }}>{val}</td>
+                        <td style={{ padding: '5px 0', fontWeight: 500 }}>
+                          {PROVENANCE_LABEL_MAP[label] ? (
+                            <FieldWithProvenance
+                              claimId={id}
+                              field={PROVENANCE_LABEL_MAP[label]}
+                              provenance={claimProvenance?.[PROVENANCE_LABEL_MAP[label]]}
+                            >
+                              {val}
+                            </FieldWithProvenance>
+                          ) : val}
+                        </td>
                       </tr>
                     ) : null)}
                   </tbody>
@@ -567,7 +622,17 @@ export default function ClaimDetail() {
                     ].map(([label, val]) => (
                       <tr key={label}>
                         <td style={{ padding: '5px 0', color: '#6b7280', width: '50%' }}>{label}</td>
-                        <td style={{ padding: '5px 0', fontWeight: 500 }}>{val || '-'}</td>
+                        <td style={{ padding: '5px 0', fontWeight: 500 }}>
+                          {val && PROVENANCE_LABEL_MAP[label] ? (
+                            <FieldWithProvenance
+                              claimId={id}
+                              field={PROVENANCE_LABEL_MAP[label]}
+                              provenance={claimProvenance?.[PROVENANCE_LABEL_MAP[label]]}
+                            >
+                              {val}
+                            </FieldWithProvenance>
+                          ) : (val || '-')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -587,7 +652,17 @@ export default function ClaimDetail() {
                     ].map(([label, val]) => (
                       <tr key={label}>
                         <td style={{ padding: '5px 0', color: '#6b7280', width: '50%' }}>{label}</td>
-                        <td style={{ padding: '5px 0', fontWeight: 500 }}>{val || '-'}</td>
+                        <td style={{ padding: '5px 0', fontWeight: 500 }}>
+                          {val && PROVENANCE_LABEL_MAP[label] ? (
+                            <FieldWithProvenance
+                              claimId={id}
+                              field={PROVENANCE_LABEL_MAP[label]}
+                              provenance={claimProvenance?.[PROVENANCE_LABEL_MAP[label]]}
+                            >
+                              {val}
+                            </FieldWithProvenance>
+                          ) : (val || '-')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1294,14 +1369,56 @@ export default function ClaimDetail() {
                 )}
               </div>
             ) : (
-              /* Non-EW Claims: AI-powered FSR (future) */
-              <div style={{ textAlign: 'center', padding: 50, color: '#94a3b8' }}>
-                <div style={{ fontSize: 40, marginBottom: 10 }}>📑</div>
-                <p>AI-powered FSR generation for {claim.lob} claims coming soon.</p>
-                <p style={{ fontSize: 12 }}>Currently available for Extended Warranty claims. Other LOBs will be added after AI integration is configured.</p>
-              </div>
+              /* Non-EW LOBs: template-based FSR via fsr_lob_templates.
+                 Slice 4 + 5: <FsrRenderPanel> wires the render endpoint
+                 (POST /api/fsr-drafts/render), the LOB-aware narrative
+                 editor (saves to claim_fsr_drafts.narrative_jsonb), and
+                 the missing-placeholders checklist into one panel. */
+              <FsrRenderPanel claim={claim} userEmail={user?.email} />
             )}
           </div>
+        )}
+
+        {/* TAB: Photos (AI-classified) — Slice 9 */}
+        {activeTab === 'photos' && (
+          <PhotoGrid
+            claimId={parseInt(id)}
+            userEmail={user?.email}
+            refreshKey={issuesRefreshKey}
+          />
+        )}
+
+        {/* TAB: AI Co-pilot — Slice 7 */}
+        {activeTab === 'ai-copilot' && (
+          <ClaimChatPanel
+            claimId={parseInt(id)}
+            userEmail={user?.email}
+            userName={user?.name}
+            onApplied={() => {
+              // After accepting a proposed change, the field / narrative /
+              // computation has been mutated. Refresh whichever data the
+              // panel might surface so the UI reflects it.
+              loadAll();
+              setIssuesRefreshKey((k) => k + 1);
+            }}
+          />
+        )}
+
+        {/* TAB: Issues — Slice 10 */}
+        {activeTab === 'issues' && (
+          <IssuesPanel
+            claimId={parseInt(id)}
+            userEmail={user?.email}
+            refreshKey={issuesRefreshKey}
+            onChange={() => {
+              // Re-pull the open count so the tab badge updates after a resolve/dismiss/reopen.
+              fetch(`/api/claim-issues?claim_id=${id}&status=open`)
+                .then(r => r.json())
+                .then(d => setOpenIssuesCount(Array.isArray(d) ? d.length : 0))
+                .catch(() => {});
+              setIssuesRefreshKey((k) => k + 1);
+            }}
+          />
         )}
 
         {/* TAB: Activity Log */}
@@ -1342,4 +1459,54 @@ export default function ClaimDetail() {
       </div>
     </PageLayout>
   );
+}
+
+// ILA TAT countdown widget — refreshes every minute. Shows nothing if the
+// claim doesn't have an ila_due_at set (e.g. still in intimation phase).
+function IlaTatWidget({ ilaDueAt, claimId }) {
+  const [tat, setTat] = useState(() => computeIlaTat(ilaDueAt));
+  useEffect(() => {
+    if (!ilaDueAt) return;
+    const tick = () => setTat(computeIlaTat(ilaDueAt));
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [ilaDueAt]);
+
+  if (!ilaDueAt || !tat) return null;
+  const cfg = {
+    green: { bg: '#f0fdf4', label: '#166534' },
+    amber: { bg: '#fefce8', label: '#92400e' },
+    red:   { bg: '#fef2f2', label: '#dc2626' },
+    breach:{ bg: '#fef2f2', label: '#7f1d1d' },
+  }[tat.severity] || { bg: '#f8fafc', label: '#475569' };
+
+  return (
+    <a href={`/ila/${claimId}`} style={{
+      padding: '10px 18px', background: cfg.bg, borderRadius: 8,
+      textDecoration: 'none', minWidth: 150, display: 'block',
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: cfg.label }}>{tat.label}</div>
+      <div style={{ fontSize: 11, color: '#6b7280' }}>ILA TAT</div>
+    </a>
+  );
+}
+
+function computeIlaTat(ilaDueAt) {
+  if (!ilaDueAt) return null;
+  const due = new Date(ilaDueAt);
+  if (Number.isNaN(due.getTime())) return null;
+  const ms = due.getTime() - Date.now();
+  const hours = ms / 3_600_000;
+  const fmt = (m) => {
+    const abs = Math.abs(m);
+    const h = Math.floor(abs / 3_600_000);
+    const min = Math.floor((abs % 3_600_000) / 60_000);
+    if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+    return `${h}h ${min}m`;
+  };
+  if (ms < 0) return { severity: 'breach', label: `OVERDUE ${fmt(ms)}` };
+  if (hours <= 6) return { severity: 'red', label: `${fmt(ms)} left` };
+  if (hours <= 24) return { severity: 'amber', label: `${fmt(ms)} left` };
+  return { severity: 'green', label: `${fmt(ms)} left` };
 }
