@@ -24,9 +24,13 @@ export async function GET(request, { params }) {
   // surveyor) in parallel.
   const today = new Date();
   const [claimRes, surveyorsRes, conflictsRes, workloadRes] = await Promise.all([
+    // Note: peril_type lives in the provenance ledger only (CLAUDE.md §13a),
+    // and loss_location_state has no backing column on `claims`. Dropping
+    // both from the SELECT — rankSurveyors falls back to `lob` for peril
+    // and skips the region bonus when state is absent.
     supabaseAdmin
       .from('claims')
-      .select('id, lob, peril_type, insurer_name, insured_name, broker_name, loss_location, loss_location_state')
+      .select('id, lob, insurer_name, insured_name, broker_name, loss_location')
       .eq('id', id)
       .single(),
     supabaseAdmin
