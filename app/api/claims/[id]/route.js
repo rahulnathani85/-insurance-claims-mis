@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 import { dualWriteClaimFields } from '@/lib/provenance';
 import { requireSurveyorRequest } from '@/lib/auth/insurer';
+import { isPlaceholderRef } from '@/lib/refNumber';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -64,6 +65,25 @@ async function decrementCounter(lob, clientCategory) {
   }
 }
 
+// Increment counter when an INTAKE/ placeholder is promoted to a real ref.
+// Mirrors the legacy POST /api/claims behavior in the parent route.js so
+// manual entries and auto-generated values both bump the counter.
+async function incrementCounter(lob, clientCategory) {
+  if (lob === 'Marine Cargo') {
+    if (clientCategory && clientCategory !== 'Others Domestic' && clientCategory !== 'Others Import') {
+      const { data } = await supabase.from('marine_counters').select('counter_value').eq('client_category', clientCategory).single();
+      await supabase.from('marine_counters').update({ counter_value: (data?.counter_value || 0) + 1 }).eq('client_category', clientCategory);
+      return;
+    }
+    const { data } = await supabase.from('ref_counters').select('counter_value').eq('lob', 'Marine').single();
+    await supabase.from('ref_counters').update({ counter_value: (data?.counter_value || 4000) + 1 }).eq('lob', 'Marine');
+    return;
+  }
+  const counterKey = UNIFIED_LOBS.includes(lob) ? UNIFIED_COUNTER_KEY : lob;
+  const { data } = await supabase.from('ref_counters').select('counter_value').eq('lob', counterKey).single();
+  await supabase.from('ref_counters').update({ counter_value: (data?.counter_value || 0) + 1 }).eq('lob', counterKey);
+}
+
 export async function PUT(request, { params }) {
   // Phase 2 mutation guard — refuse insurer_readonly principals.
   // The X-User-Email header is set by lib/api/authedFetch on every
@@ -106,11 +126,6 @@ export async function PUT(request, { params }) {
     // We allow the LOB change but keep the existing ref_number unless a new one is provided
   }
 
-  // Allow ref_number update if explicitly provided (for LOB change scenarios)
-  if (!body.ref_number) {
-    delete body.ref_number;
-  }
-
   // Clean empty estimated_loss_amount so Postgres numeric doesn't choke on ""
   if (body.estimated_loss_amount === '' || body.estimated_loss_amount === null) {
     delete body.estimated_loss_amount;
@@ -120,28 +135,80 @@ export async function PUT(request, { params }) {
     else body.estimated_loss_amount = n;
   }
 
+  // -----------------------------------------------------------------
+  // ref_number guards (CLAUDE.md §6 — ref_number is the source of truth)
+  // We need the existing row to enforce:
+  //   1. ref_number is immutable once phase != 'intimation'
+  //   2. the inbound ref_number cannot be an INTAKE/ placeholder
+  //      (only the comms executor sets those, never a client PUT)
+  //   3. the auto-promote phase-flip below must not fire while
+  //      ref_number is still an INTAKE/ placeholder
+  //   4. when ref_number transitions from INTAKE/... to a real value,
+  //      bump the LOB counter to match legacy POST /api/claims behavior
+  // The same fetch is reused by the phase-flip block.
+  // -----------------------------------------------------------------
+  let existing = null;
+  if (body.ref_number !== undefined || body.phase === undefined) {
+    const { data: row } = await supabase
+      .from('claims')
+      .select('phase, ref_number, lob, client_category')
+      .eq('id', id)
+      .single();
+    existing = row || null;
+  }
+
+  let promotedRefFromPlaceholder = false;
+  if (body.ref_number !== undefined) {
+    if (!body.ref_number) {
+      // Empty / null — drop the field, leave existing value alone.
+      delete body.ref_number;
+    } else if (isPlaceholderRef(body.ref_number)) {
+      return NextResponse.json(
+        { error: 'ref_number cannot be set to an INTAKE/ placeholder' },
+        { status: 400 }
+      );
+    } else if (existing && existing.phase !== 'intimation') {
+      return NextResponse.json(
+        { error: 'ref_number is immutable post-registration' },
+        { status: 409 }
+      );
+    } else if (existing && isPlaceholderRef(existing.ref_number)) {
+      promotedRefFromPlaceholder = true;
+    }
+  }
+
   // If the claim is currently in the 'intimation' phase, completing the
   // edit IS the registration act — flip phase to 'registered' and stamp
   // who/when. Caller may have explicitly set phase already (e.g. from a
   // dedicated register endpoint); preserve that.
-  if (body.phase === undefined) {
-    const { data: existing } = await supabase
-      .from('claims')
-      .select('phase')
-      .eq('id', id)
-      .single();
-    if (existing?.phase === 'intimation') {
-      body.phase = 'registered';
-      body.registered_at = new Date().toISOString();
-      const userEmail = request.headers.get('x-app-user-email');
-      if (userEmail && body.registered_by === undefined) {
-        body.registered_by = userEmail;
-      }
+  if (body.phase === undefined && existing?.phase === 'intimation') {
+    const finalRef = body.ref_number ?? existing.ref_number;
+    if (isPlaceholderRef(finalRef)) {
+      return NextResponse.json(
+        { error: 'cannot register: ref_number is still the INTAKE/ placeholder — assign a real surveyor reference first' },
+        { status: 422 }
+      );
+    }
+    body.phase = 'registered';
+    body.registered_at = new Date().toISOString();
+    const userEmail = request.headers.get('x-app-user-email');
+    if (userEmail && body.registered_by === undefined) {
+      body.registered_by = userEmail;
     }
   }
 
   const { error } = await supabase.from('claims').update(body).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Counter increment fires only after a successful update — so a failed
+  // update doesn't leave the counter ahead. Non-fatal on failure.
+  if (promotedRefFromPlaceholder && existing?.lob) {
+    try {
+      await incrementCounter(existing.lob, existing.client_category);
+    } catch (incErr) {
+      console.warn('[claims/PUT] counter increment after ref promotion failed:', incErr?.message || incErr);
+    }
+  }
 
   // Provenance Phase B (dual-write) — for any provenance-managed field in
   // the body, append a row to claim_field_values via the decision engine.

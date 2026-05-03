@@ -14,6 +14,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PageLayout from '@/components/PageLayout';
 import { useAuth } from '@/lib/AuthContext';
+import { isPlaceholderRef } from '@/lib/refNumber';
 
 export default function IntimationsPage() {
   const router = useRouter();
@@ -38,6 +39,10 @@ export default function IntimationsPage() {
   async function saveRow(claim) {
     const patch = edits[claim.id];
     if (!patch || Object.keys(patch).length === 0) return;
+    if (patch.ref_number && isPlaceholderRef(patch.ref_number)) {
+      setError('Ref # cannot start with INTAKE/ — type a real surveyor reference or click Auto-generate.');
+      return;
+    }
     setSavingId(claim.id);
     setError(null);
     try {
@@ -58,6 +63,34 @@ export default function IntimationsPage() {
       setError(`Save failed: ${err.message}`);
     } finally {
       setSavingId(null);
+    }
+  }
+
+  // Hits /api/tentative-ref/<lob> — read-only preview of the next
+  // available ref number for that LOB. The counter doesn't bump until
+  // the user clicks Save changes (and the PUT promotes the placeholder).
+  async function autoGenerateRef(claim) {
+    const lob = (edits[claim.id]?.lob ?? claim.lob ?? '').trim();
+    if (!lob) {
+      setError('Set LOB before auto-generating Ref #.');
+      return;
+    }
+    setError(null);
+    try {
+      const qs = claim.client_category
+        ? `?client_category=${encodeURIComponent(claim.client_category)}`
+        : '';
+      const res = await fetch(`/api/tentative-ref/${encodeURIComponent(lob)}${qs}`, {
+        headers: { 'x-app-user-email': user.email },
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.tentative_ref) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      patchEdit(claim.id, 'ref_number', json.tentative_ref);
+    } catch (err) {
+      setError(`Auto-generate failed: ${err.message}`);
     }
   }
 
@@ -157,7 +190,16 @@ export default function IntimationsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {claims.map((c) => {
               const e = edits[c.id] || {};
-              const v = (field) => (e[field] !== undefined ? e[field] : (c[field] ?? ''));
+              // For ref_number we deliberately blank the input when the
+              // saved value is still an INTAKE/ placeholder — the clerk
+              // should type or auto-generate, not edit the placeholder.
+              const v = (field) => {
+                if (e[field] !== undefined) return e[field];
+                if (field === 'ref_number' && isPlaceholderRef(c.ref_number)) return '';
+                return c[field] ?? '';
+              };
+              const refIsPlaceholder = isPlaceholderRef(c.ref_number);
+              const effectiveLob = e.lob ?? c.lob ?? '';
               const dirty = Object.keys(e).length > 0;
               const isSaving = savingId === c.id;
               const isHighlighted = String(c.id) === String(highlightId);
@@ -171,11 +213,12 @@ export default function IntimationsPage() {
                     boxShadow: isHighlighted ? '0 0 0 4px rgba(245, 158, 11, 0.25)' : cardStyle.boxShadow,
                   }}
                 >
-                  {/* Header: Intake Ref + received timestamp + sender */}
+                  {/* Header: caption switches from "Intake Ref" → "Ref"
+                      once the placeholder is replaced with a real value. */}
                   <div style={cardHeaderStyle}>
                     <div>
-                      <div style={miniLabelStyle}>Intake Ref</div>
-                      <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#78350f', fontWeight: 600 }}>
+                      <div style={miniLabelStyle}>{refIsPlaceholder ? 'Intake Ref' : 'Ref'}</div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 14, color: refIsPlaceholder ? '#78350f' : '#0f172a', fontWeight: 600 }}>
                         {c.ref_number || 'Pending'}
                       </div>
                     </div>
@@ -239,6 +282,25 @@ export default function IntimationsPage() {
                         placeholder="City, area, full address"
                         style={fullInputStyle}
                       />
+                    </Field>
+                    <Field label="Ref #">
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                        <input
+                          value={v('ref_number')}
+                          onChange={(ev) => patchEdit(c.id, 'ref_number', ev.target.value)}
+                          placeholder="e.g. 4053/26-27/Marine Cargo"
+                          style={{ ...fullInputStyle, flex: 1 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => autoGenerateRef(c)}
+                          disabled={!effectiveLob}
+                          title={effectiveLob ? `Generate next available ref for ${effectiveLob}` : 'Pick LOB first'}
+                          style={{ ...btnStyle('secondary', !effectiveLob), padding: '7px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
+                        >
+                          Auto-generate
+                        </button>
+                      </div>
                     </Field>
                   </div>
 

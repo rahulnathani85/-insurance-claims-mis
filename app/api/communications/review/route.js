@@ -56,9 +56,10 @@ export async function GET(request) {
   }
 
   const ids = messages.map((m) => m.id);
+  const linkedClaimIds = [...new Set(messages.map((m) => m.claim_id).filter(Boolean))];
 
-  // Fetch active classifications + extraction results in two queries.
-  const [{ data: clsRows }, { data: extRows }] = await Promise.all([
+  // Fetch active classifications + extraction results + linked claim refs.
+  const [{ data: clsRows }, { data: extRows }, { data: claimRows }] = await Promise.all([
     supabaseAdmin
       .from('message_classifications')
       .select('message_id, tag, confidence, classified_by')
@@ -69,7 +70,11 @@ export async function GET(request) {
       .select('message_id, tag, extracted_data, validation_errors, is_valid')
       .in('message_id', ids)
       .order('created_at', { ascending: false }),
+    linkedClaimIds.length > 0
+      ? supabaseAdmin.from('claims').select('id, ref_number').in('id', linkedClaimIds)
+      : Promise.resolve({ data: [] }),
   ]);
+  const claimRefMap = Object.fromEntries((claimRows || []).map((c) => [c.id, c.ref_number]));
 
   // Fetch auto_route_threshold for each tag.
   const tagSet = new Set((clsRows || []).map((c) => c.tag).filter(Boolean));
@@ -104,6 +109,7 @@ export async function GET(request) {
       tag_label: td?.display_label || cls?.tag || null,
       threshold,
       confidence,
+      linked_ref_number: m.claim_id ? (claimRefMap[m.claim_id] || null) : null,
       held_reason: belowThreshold
         ? `confidence ${confidence?.toFixed(2)} < threshold ${threshold}`
         : invalidExtraction

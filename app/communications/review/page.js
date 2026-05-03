@@ -283,6 +283,14 @@ function ReviewCard({ message: m, busy, onApprove, onReject, onLink, surveyors =
           </div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
             {m.from_address} · {formatTs(m.received_at)} · {m.company}
+            {m.linked_ref_number && (
+              <>
+                {' · '}
+                <span style={{ color: '#1e3a5f', fontWeight: 600, fontFamily: 'monospace' }}>
+                  Ref: {m.linked_ref_number}
+                </span>
+              </>
+            )}
           </div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, fontStyle: 'italic' }}>
             Held: {m.held_reason}
