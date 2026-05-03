@@ -12,7 +12,7 @@
 //   }
 //
 // PATCH - body:
-//   { scope: 'ingestion' | 'classification' | 'execution',
+//   { scope: 'ingestion' | 'classification' | 'execution' | 'auto_create_claim',
 //     paused: bool }
 //   Updates comms_config, busts the in-process cache, records
 //   an audit + activity-log entry, returns the updated config.
@@ -27,7 +27,7 @@ import { recordMailboxEvent } from '@/lib/comms/auditLog';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const SCOPES = ['ingestion', 'classification', 'execution'];
+const SCOPES = ['ingestion', 'classification', 'execution', 'auto_create_claim'];
 
 export async function GET(request) {
   const gate = await requireAdmin(request);

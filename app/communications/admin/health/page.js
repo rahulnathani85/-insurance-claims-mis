@@ -3,7 +3,7 @@
 // ============================================================
 // /communications/admin/health
 // ------------------------------------------------------------
-// Admin-only page surfacing the three kill-switch toggles plus
+// Admin-only page surfacing the four kill-switch toggles plus
 // recent ingest / classify runs and the mailbox_audit feed.
 //
 // All data flows through /api/communications/admin/health which
@@ -93,7 +93,7 @@ export default function CommsHealthAdminPage() {
           Communications &mdash; Health &amp; Kill Switch
         </h2>
         <p style={{ margin: '6px 0 18px', fontSize: 13, color: '#64748b', maxWidth: 760 }}>
-          Toggle the three pause flags. The very next cron tick (within ~60s of the
+          Toggle the four pause flags. The very next cron tick (within ~60s of the
           toggle) will honor the change. Pausing is non-destructive &mdash; un-pause to
           resume the feature exactly where it left off.
         </p>
@@ -130,6 +130,15 @@ export default function CommsHealthAdminPage() {
             paused={!!data?.config?.execution_paused}
             since={data?.config?.execution_paused_at}
             busy={busy === 'execution'}
+            onToggle={toggle}
+          />
+          <ScopeToggle
+            scope="auto_create_claim"
+            label="Auto-create claim from intimation"
+            description="When ON (paused), AI-classified intimation emails do NOT create claim shells automatically. Emails still classify and appear in /communications/triage with AI suggestions, but require manual human registration. When OFF, AI auto-creates INTAKE/* claim shells (legacy behavior)."
+            paused={!!data?.config?.auto_create_claim_paused}
+            since={data?.config?.auto_create_claim_paused_at}
+            busy={busy === 'auto_create_claim'}
             onToggle={toggle}
           />
         </div>
