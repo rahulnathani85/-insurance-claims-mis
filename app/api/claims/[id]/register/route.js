@@ -77,7 +77,7 @@ export async function POST(request, { params }) {
       id, ref_number, phase, company, lob, status,
       insured_name, insurer_name, policy_number,
       date_loss, policy_period_from, policy_period_to,
-      gross_loss, estimated_loss_amount, claim_amount_intimated,
+      gross_loss, estimated_loss_amount,
       is_catastrophe
     `)
     .eq('id', id)
@@ -149,7 +149,11 @@ export async function POST(request, { params }) {
   const complexityTier = computeComplexityTier({
     estimated_loss: claim.estimated_loss_amount,
     gross_loss: claim.gross_loss,
-    claim_amount_intimated: claim.claim_amount_intimated,
+    // claim_amount_intimated is the same operational concept as
+    // estimated_loss_amount in NISLA's flow — see registrationAgentPrompt
+    // schema notes. The helper still accepts it as a 3rd fallback signal
+    // for back-compat; we just don't have a separate column to read.
+    claim_amount_intimated: null,
     is_catastrophe: claim.is_catastrophe === true,
   });
 

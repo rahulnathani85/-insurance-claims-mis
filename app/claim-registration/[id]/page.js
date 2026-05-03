@@ -66,9 +66,8 @@ const SECTIONS = [
       { key: 'loss_location_pin', label: 'PIN', type: 'text', mandatory: true },
       { key: 'loss_location_state', label: 'State', type: 'text' },
       { key: 'loss_location_district', label: 'District', type: 'text' },
-      { key: 'estimated_loss_amount', label: 'Estimated loss (₹)', type: 'number' },
+      { key: 'estimated_loss_amount', label: 'Estimated loss (₹)', type: 'number', hint: 'Same as the claim amount intimated by the insurer' },
       { key: 'gross_loss', label: 'Gross loss (₹)', type: 'number' },
-      { key: 'claim_amount_intimated', label: 'Claim amount intimated (₹)', type: 'number' },
     ],
   },
   {
