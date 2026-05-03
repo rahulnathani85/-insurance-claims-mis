@@ -13,6 +13,7 @@ import {
   FORM_FIELDS,
 } from '@/lib/registrationDraft';
 import { IRDAI_LOBS, subcategoriesFor, suggestSubcategory } from '@/lib/lobSubcategories';
+import { isPlaceholderRef } from '@/lib/refNumber';
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
@@ -197,16 +198,52 @@ export default function ClaimRegistrationPage({ params }) {
     });
   }
 
+  // Hits /api/tentative-ref/<lob>?client_category= — read-only preview of the
+  // next available ref number for the current LOB. The counter only ticks
+  // when the form is submitted (the PUT route promotes the placeholder).
+  async function autoGenerateRef() {
+    const lob = (formState.lob || claim?.lob || '').trim();
+    if (!lob) {
+      showAlert('Set LOB before auto-generating Ref #.', 'error');
+      return;
+    }
+    try {
+      const qs = claim?.client_category
+        ? `?client_category=${encodeURIComponent(claim.client_category)}`
+        : '';
+      const res = await fetch(`/api/tentative-ref/${encodeURIComponent(lob)}${qs}`, {
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.tentative_ref) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      setField('ref_number', json.tentative_ref);
+    } catch (err) {
+      showAlert(`Auto-generate failed: ${err.message}`, 'error');
+    }
+  }
+
   async function submit() {
     if (submitting) return;
     if (!teamPicks.lead_surveyor) {
       showAlert('Pick a lead surveyor before submitting', 'error');
       return;
     }
+    const ref = (formState.ref_number || '').trim();
+    if (!ref || isPlaceholderRef(ref)) {
+      showAlert('Assign a real surveyor reference number before submitting (use Auto-generate or type one).', 'error');
+      return;
+    }
     setSubmitting(true);
     try {
       // Persist current draft as the source-of-truth claim row, then call register.
+      // Important: send phase='intimation' explicitly so the PUT route doesn't
+      // auto-flip phase (its sugar for inline edits). The dedicated POST
+      // /register call below handles the phase transition AND computes
+      // complexity tier + ILA/FSR TATs, which the auto-flip skips.
       const claimUpdates = mergeDraftWithClaim({}, formState);
+      claimUpdates.phase = 'intimation';
       const updateRes = await fetch(`/api/claims/${claimId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -282,6 +319,13 @@ export default function ClaimRegistrationPage({ params }) {
           <SaveBadge status={saveStatus} />
         </div>
 
+        <RefNumberEditor
+          formState={formState}
+          claim={claim}
+          setField={setField}
+          autoGenerateRef={autoGenerateRef}
+        />
+
         <div style={{
           display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(420px, 2fr) minmax(280px, 1fr)',
           gap: 16, marginTop: 16, alignItems: 'start',
@@ -311,6 +355,69 @@ export default function ClaimRegistrationPage({ params }) {
         </div>
       </div>
     </PageLayout>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// SURVEYOR REFERENCE EDITOR — sits above the 3-column grid because ref_number
+// is the canonical claim identifier. Empty until the clerk types or clicks
+// Auto-generate. INTAKE/<co>/<msgid> placeholders never appear in the input.
+// ----------------------------------------------------------------------------
+
+function RefNumberEditor({ formState, claim, setField, autoGenerateRef }) {
+  const raw = formState?.ref_number || '';
+  // Hide INTAKE/ placeholders from the input — the clerk should always
+  // explicitly assign a real ref before this form will submit.
+  const displayValue = isPlaceholderRef(raw) ? '' : raw;
+  const lobReady = !!(formState?.lob || claim?.lob);
+  const placeholderRef = isPlaceholderRef(claim?.ref_number) ? claim.ref_number : null;
+
+  return (
+    <div style={{
+      marginTop: 16, padding: 14, background: '#fffbeb',
+      border: '1px solid #fde68a', borderRadius: 8,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 180 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            Surveyor reference #
+          </div>
+          <div style={{ fontSize: 11, color: '#78350f', marginTop: 2 }}>
+            Required before registering · canonical claim identifier
+          </div>
+        </div>
+        <input
+          value={displayValue}
+          onChange={(e) => setField('ref_number', e.target.value)}
+          placeholder="e.g. 4053/26-27/Marine Cargo"
+          style={{
+            flex: 1, minWidth: 240, padding: '8px 10px', fontSize: 14,
+            fontFamily: 'monospace', border: '1px solid #cbd5e1',
+            borderRadius: 6, background: '#fff',
+          }}
+        />
+        <button
+          type="button"
+          onClick={autoGenerateRef}
+          disabled={!lobReady}
+          title={lobReady ? 'Generate next available ref for this LOB' : 'Pick LOB first'}
+          style={{
+            padding: '8px 14px', fontSize: 13, fontWeight: 600,
+            border: 'none', borderRadius: 6,
+            cursor: lobReady ? 'pointer' : 'not-allowed',
+            opacity: lobReady ? 1 : 0.5,
+            background: '#1e3a5f', color: '#fff',
+          }}
+        >
+          Auto-generate
+        </button>
+      </div>
+      {placeholderRef && (
+        <div style={{ marginTop: 8, fontSize: 11, color: '#78350f' }}>
+          Currently a stop-gap intake ref: <code style={{ fontFamily: 'monospace' }}>{placeholderRef}</code> — assign a real surveyor reference above to replace it on save.
+        </div>
+      )}
+    </div>
   );
 }
 
