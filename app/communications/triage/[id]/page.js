@@ -442,7 +442,17 @@ function ActivityTimeline({ message, classifications, extractions, routingExecut
       label: e.is_valid ? 'Data extracted' : 'Extraction had validation errors',
       who: e.tag ? `for tag "${e.tag}"` : null,
       detail: !e.is_valid && Array.isArray(e.validation_errors) && e.validation_errors.length > 0
-        ? e.validation_errors.slice(0, 2).join('; ')
+        ? e.validation_errors
+            .slice(0, 2)
+            .map((v) => {
+              if (v && typeof v === 'object') {
+                const field = v.field || v.path || '';
+                const err = v.error || v.message || v.code || JSON.stringify(v);
+                return field ? `${field}: ${err}` : String(err);
+              }
+              return String(v);
+            })
+            .join('; ')
         : null,
     });
   }
