@@ -46,6 +46,12 @@ export async function GET(request) {
       { count: 'exact' }
     )
     .eq('phase', 'intimation')
+    // Belt-and-braces: even if phase wasn't flipped due to a partial-failure
+    // during registration, the presence of registered_at means the claim
+    // has already been registered and shouldn't appear here. If any rows
+    // slip through both guards, that's a real bug worth investigating
+    // separately rather than papering over.
+    .is('registered_at', null)
     .order('created_at', { ascending: false })
     .limit(200);
 

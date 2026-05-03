@@ -160,21 +160,37 @@ export async function POST(request) {
   }
 
   if (action === 'reject') {
+    // Per user direction: Reject sends the message back to the triage inbox
+    // (status='received') rather than terminating it (the older 'rejected'
+    // status was a dead-end). Clears claim_id + triage stamps so the next
+    // pass starts clean. Also flips any active classification to inactive
+    // so the human-triage trigger doesn't see a stale active row.
     await supabaseAdmin
       .from('inbox_messages')
-      .update({ status: 'rejected' })
+      .update({
+        status: 'received',
+        claim_id: null,
+        triaged_by: null,
+        triaged_at: null,
+      })
       .eq('id', message_id);
+
+    await supabaseAdmin
+      .from('message_classifications')
+      .update({ is_active: false })
+      .eq('message_id', message_id)
+      .eq('is_active', true);
 
     await recordPortalActivity({
       user_email: user.email,
       user_name: user.name,
-      action: 'comms_message_rejected',
+      action: 'comms_message_returned_to_inbox',
       entity_type: 'inbox_message',
-      details: { message_id },
+      details: { message_id, prior_status: message.status },
       company: message.company || 'NISLA',
     });
 
-    return NextResponse.json({ ok: true, action: 'rejected', message_id });
+    return NextResponse.json({ ok: true, action: 'returned_to_inbox', message_id });
   }
 
   // M4: tag-to-existing-ref. Bypasses executor — directly link the message to

@@ -119,6 +119,11 @@ export default function ClaimRegistrationPage({ params }) {
   const [regExtractError, setRegExtractError] = useState(null);
   const lastSavedRef = useRef(null);
   const saveTimerRef = useRef(null);
+  // Tracks whether the page loaded an existing claim_drafts row. When true,
+  // we suppress the auto-trigger of the Registration Agent so reopening a
+  // saved draft doesn't burn LLM tokens — the clerk can still click
+  // Re-extract to fetch a fresh run when they actually want one.
+  const draftExistedOnLoadRef = useRef(false);
 
   useEffect(() => { loadAll(); }, [claimId]);
   useEffect(() => () => clearTimeout(saveTimerRef.current), []);
@@ -139,6 +144,14 @@ export default function ClaimRegistrationPage({ params }) {
       setSuggestLoading(false);
       const extracted = contextRes?.extraction?.extracted_data || {};
       setExtractedData(extracted);
+
+      // Stash whether a non-empty draft existed at load time. Read by the
+      // auto-extract useEffect below so we don't kick off the LLM when the
+      // clerk is just reopening a saved draft.
+      draftExistedOnLoadRef.current =
+        !!draftRes?.draft_data &&
+        typeof draftRes.draft_data === 'object' &&
+        Object.keys(draftRes.draft_data).length > 0;
 
       const initial = mergeDraftWithClaim(claimRes || {}, draftRes?.draft_data || {});
       // Pre-fill empty form fields from LLM extraction
@@ -176,6 +189,10 @@ export default function ClaimRegistrationPage({ params }) {
     if (loading) return;
     if (!user?.email) return;
     if (regExtract || regExtractLoading) return;
+    // Don't burn tokens auto-extracting when the clerk is reopening a
+    // saved draft — they presumably already have the data they want;
+    // they can click Re-extract if they need a fresh run.
+    if (draftExistedOnLoadRef.current) return;
     fetchRegistrationExtract({ force: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user?.email, claimId]);
@@ -419,7 +436,24 @@ export default function ClaimRegistrationPage({ params }) {
               Pre-filled from intimation email + AI extraction. Confidence cues per field. Auto-saves every {Math.round(AUTOSAVE_DEBOUNCE_MS / 1000)}s.
             </p>
           </div>
-          <SaveBadge status={saveStatus} />
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => doSave(formState)}
+              disabled={saveStatus === 'saving' || saveStatus === 'pending'}
+              title="Save the current form state as a draft now (bypasses the autosave debounce)"
+              style={{
+                padding: '5px 12px', fontSize: 12, fontWeight: 600,
+                border: '1px solid #cbd5e1', borderRadius: 6,
+                background: (saveStatus === 'saving' || saveStatus === 'pending') ? '#f1f5f9' : '#fff',
+                color: '#0f172a',
+                cursor: (saveStatus === 'saving' || saveStatus === 'pending') ? 'wait' : 'pointer',
+              }}
+            >
+              Save draft
+            </button>
+            <SaveBadge status={saveStatus} />
+          </div>
         </div>
 
         <ConflictsBanner conflicts={regExtract?.conflicts} />
@@ -461,6 +495,7 @@ export default function ClaimRegistrationPage({ params }) {
             regExtractLoading={regExtractLoading}
             regExtractError={regExtractError}
             onReExtract={runReExtract}
+            autoExtractSuppressed={draftExistedOnLoadRef.current && !regExtract}
           />
         </div>
       </div>
@@ -690,6 +725,7 @@ function SuggestionsPane({
   extracted, summary, onSubmit, submitting, saveStatus,
   suggestions, suggestLoading, teamPicks, setTeamPicks, teamMode, setTeamMode,
   regExtract, regExtractLoading, regExtractError, onReExtract,
+  autoExtractSuppressed = false,
 }) {
   const fieldsExtracted = Object.keys(extracted || {}).filter(k => !k.startsWith('_')).length;
   return (
@@ -732,6 +768,11 @@ function SuggestionsPane({
             </span>
           )}
         </div>
+        {autoExtractSuppressed && (
+          <div style={{ marginTop: 6, fontSize: 10, color: '#94a3b8' }}>
+            Auto-extract suppressed (saved draft loaded). Click Re-extract to refresh.
+          </div>
+        )}
         {regExtractError && (
           <div style={{ marginTop: 6, fontSize: 11, color: '#b91c1c' }}>
             Re-extract failed: {regExtractError}
