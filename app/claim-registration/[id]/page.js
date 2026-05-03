@@ -59,6 +59,7 @@ const SECTIONS = [
       { key: 'lob', label: 'LOB', type: 'select', mandatory: true, options: ['', ...IRDAI_LOBS] },
       { key: 'lob_subcategory', label: 'Sub-category', type: 'lob_subcategory' },
       { key: 'peril_type', label: 'Peril', type: 'text' },
+      { key: 'cause_of_loss', label: 'Cause of loss', type: 'text', hint: 'e.g. short circuit, machinery breakdown, road accident' },
       { key: 'date_loss', label: 'Date of loss', type: 'date', mandatory: true },
       { key: 'date_of_intimation', label: 'Date of intimation', type: 'date', mandatory: true },
       { key: 'loss_location', label: 'Loss location', type: 'textarea', mandatory: true },
@@ -113,6 +114,10 @@ export default function ClaimRegistrationPage({ params }) {
   const [suggestLoading, setSuggestLoading] = useState(true);
   const [teamPicks, setTeamPicks] = useState({}); // { lead_surveyor: surveyor_id, co_surveyor: id, ... }
   const [teamMode, setTeamMode] = useState(false);
+  // Registration Agent (rich on-demand extraction)
+  const [regExtract, setRegExtract] = useState(null);
+  const [regExtractLoading, setRegExtractLoading] = useState(false);
+  const [regExtractError, setRegExtractError] = useState(null);
   const lastSavedRef = useRef(null);
   const saveTimerRef = useRef(null);
 
@@ -154,11 +159,75 @@ export default function ClaimRegistrationPage({ params }) {
       }
       setFormState(initial);
       lastSavedRef.current = initial;
+
+      // Kick off the Registration Agent (rich extraction) in the background
+      // — don't block the form render. The 5-min idempotency on the server
+      // means this is free on rapid reloads.
+      fetchRegistrationExtract({ force: false });
     } catch (e) {
       showAlert('Failed to load: ' + e.message, 'error');
     } finally {
       setLoading(false);
     }
+  }
+
+  // Calls POST /api/claims/<id>/registration-extract. On success:
+  //   - replaces extractedData with the rich {<field>: {value, confidence}}
+  //     shape so ConfidenceBadge + Path 2 overlay get full info
+  //   - pre-fills form fields that are still empty AND have confidence >= 0.5
+  //   - stores conflicts + missing_critical for the Conflicts UI
+  async function fetchRegistrationExtract({ force = false } = {}) {
+    setRegExtractLoading(true);
+    setRegExtractError(null);
+    try {
+      const res = await fetch(`/api/claims/${claimId}/registration-extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      setRegExtract(data);
+
+      // Promote extractedData to the rich shape — fieldFromExtraction's Shape 1
+      // ({ field: { value, confidence } }) just works.
+      const richShape = {};
+      for (const [k, entry] of Object.entries(data.fields || {})) {
+        if (!entry || typeof entry !== 'object') continue;
+        richShape[k] = { value: entry.value, confidence: entry.confidence };
+      }
+      setExtractedData(richShape);
+
+      // Pre-fill empty form fields where confidence >= 0.5. Lower-confidence
+      // values still show via ConfidenceBadge (red band) but don't auto-populate
+      // — avoids polluting the form with bad LLM guesses.
+      setFormState((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const [key, entry] of Object.entries(data.fields || {})) {
+          if (!entry || typeof entry !== 'object') continue;
+          const val = entry.value;
+          const conf = entry.confidence;
+          if (val === null || val === undefined || val === '') continue;
+          if (conf !== null && conf !== undefined && conf < 0.5) continue;
+          if (next[key] !== undefined && next[key] !== null && next[key] !== '') continue;
+          next[key] = val;
+          changed = true;
+        }
+        if (changed) lastSavedRef.current = next;
+        return next;
+      });
+    } catch (err) {
+      setRegExtractError(err.message);
+    } finally {
+      setRegExtractLoading(false);
+    }
+  }
+
+  // Manual trigger: bypasses the 5-min server-side cache.
+  async function runReExtract() {
+    await fetchRegistrationExtract({ force: true });
   }
 
   function showAlert(msg, type) {
@@ -319,6 +388,8 @@ export default function ClaimRegistrationPage({ params }) {
           <SaveBadge status={saveStatus} />
         </div>
 
+        <ConflictsBanner conflicts={regExtract?.conflicts} />
+
         <RefNumberEditor
           formState={formState}
           claim={claim}
@@ -336,6 +407,7 @@ export default function ClaimRegistrationPage({ params }) {
             sections={SECTIONS}
             formState={formState}
             setField={setField}
+            conflictsByField={buildConflictsByField(regExtract?.conflicts)}
             fieldConfidences={fieldConfidences}
           />
 
@@ -351,6 +423,10 @@ export default function ClaimRegistrationPage({ params }) {
             setTeamPicks={setTeamPicks}
             teamMode={teamMode}
             setTeamMode={setTeamMode}
+            regExtract={regExtract}
+            regExtractLoading={regExtractLoading}
+            regExtractError={regExtractError}
+            onReExtract={runReExtract}
           />
         </div>
       </div>
@@ -483,7 +559,7 @@ function SourcePane({ intimation, claim }) {
 // CENTER PANE — registration form
 // ----------------------------------------------------------------------------
 
-function FormPane({ sections, formState, setField, fieldConfidences }) {
+function FormPane({ sections, formState, setField, fieldConfidences, conflictsByField = {} }) {
   return (
     <div style={paneStyle}>
       {sections.map(section => (
@@ -498,6 +574,7 @@ function FormPane({ sections, formState, setField, fieldConfidences }) {
               value={formState[f.key]}
               onChange={(v) => setField(f.key, v)}
               confidence={fieldConfidences[f.key]}
+              conflict={conflictsByField[f.key] || null}
               formState={formState}
             />
           ))}
@@ -507,7 +584,7 @@ function FormPane({ sections, formState, setField, fieldConfidences }) {
   );
 }
 
-function FormField({ field, value, onChange, confidence, formState }) {
+function FormField({ field, value, onChange, confidence, conflict, formState }) {
   const id = `f_${field.key}`;
   // Sub-category options depend on the currently-selected LOB.
   const subcatOptions = field.type === 'lob_subcategory'
@@ -519,6 +596,7 @@ function FormField({ field, value, onChange, confidence, formState }) {
         {field.label}
         {field.mandatory && <span style={{ color: '#dc2626' }}>*</span>}
         <ConfidenceBadge confidence={confidence} />
+        <FieldConflictIcon conflict={conflict} fieldLabel={field.label} />
       </label>
       {field.type === 'textarea' ? (
         <textarea
@@ -574,7 +652,11 @@ function FormField({ field, value, onChange, confidence, formState }) {
 // RIGHT PANE — AI summary + submit gate
 // ----------------------------------------------------------------------------
 
-function SuggestionsPane({ extracted, summary, onSubmit, submitting, saveStatus, suggestions, suggestLoading, teamPicks, setTeamPicks, teamMode, setTeamMode }) {
+function SuggestionsPane({
+  extracted, summary, onSubmit, submitting, saveStatus,
+  suggestions, suggestLoading, teamPicks, setTeamPicks, teamMode, setTeamMode,
+  regExtract, regExtractLoading, regExtractError, onReExtract,
+}) {
   const fieldsExtracted = Object.keys(extracted || {}).filter(k => !k.startsWith('_')).length;
   return (
     <aside style={paneStyle}>
@@ -587,8 +669,40 @@ function SuggestionsPane({ extracted, summary, onSubmit, submitting, saveStatus,
         <p style={{ fontSize: 12, color: '#475569', margin: 0 }}>
           {fieldsExtracted > 0
             ? `${fieldsExtracted} field${fieldsExtracted === 1 ? '' : 's'} pre-filled from the intimation email.`
-            : 'No AI extraction available — fill in manually from the source pane.'}
+            : (regExtractLoading
+                ? 'Running Registration Agent on email + attachments…'
+                : 'No AI extraction available — fill in manually from the source pane.')}
         </p>
+        <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={onReExtract}
+            disabled={regExtractLoading}
+            title="Run the Claim Registration Agent again from the source email and attachments"
+            style={{
+              padding: '5px 10px', fontSize: 11, fontWeight: 600,
+              border: '1px solid #cbd5e1', borderRadius: 4,
+              background: regExtractLoading ? '#f1f5f9' : '#fff',
+              color: '#0f172a',
+              cursor: regExtractLoading ? 'wait' : 'pointer',
+              opacity: regExtractLoading ? 0.7 : 1,
+            }}
+          >
+            {regExtractLoading ? 'Re-extracting…' : 'Re-extract'}
+          </button>
+          {regExtract?.created_at && (
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>
+              Last: {formatDateTime(regExtract.created_at)}
+              {regExtract.llm_provider ? ` · ${regExtract.llm_provider}` : ''}
+              {regExtract.cached ? ' · cached' : ''}
+            </span>
+          )}
+        </div>
+        {regExtractError && (
+          <div style={{ marginTop: 6, fontSize: 11, color: '#b91c1c' }}>
+            Re-extract failed: {regExtractError}
+          </div>
+        )}
       </div>
 
       <SurveyorSuggestionsBlock
@@ -696,6 +810,97 @@ function ConfidenceBadge({ confidence }) {
       {cfg.label}
     </span>
   );
+}
+
+// ----------------------------------------------------------------------------
+// CONFLICTS UI
+// ----------------------------------------------------------------------------
+//
+// The Registration Agent returns a `conflicts` array when the same field has
+// different values across sources (e.g. policy_pdf says 5000000 but email
+// says 4500000 for sum_insured). We surface these in two ways:
+//   - A yellow banner at the top of the page summarising the count + list
+//   - A small ⚠ icon next to each conflicted field's label
+//
+// Shape of each conflict entry (from the LLM):
+//   { field: "sum_insured", values: [{source: "policy_pdf", value: 5000000}, ...] }
+// ----------------------------------------------------------------------------
+
+function ConflictsBanner({ conflicts }) {
+  const list = Array.isArray(conflicts) ? conflicts : [];
+  const [open, setOpen] = useState(false);
+  if (list.length === 0) return null;
+
+  return (
+    <div style={{
+      marginTop: 12, padding: '10px 14px',
+      background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8,
+      fontSize: 13, color: '#78350f',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+           onClick={() => setOpen((v) => !v)}>
+        <span style={{ fontSize: 16 }}>⚠</span>
+        <strong>{list.length} conflict{list.length === 1 ? '' : 's'} found across sources</strong>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: '#92400e' }}>{open ? '▲ Hide' : '▼ Review'}</span>
+      </div>
+      {open && (
+        <div style={{ marginTop: 10, paddingLeft: 24 }}>
+          {list.map((c, i) => (
+            <div key={i} style={{ marginBottom: 6, fontSize: 12 }}>
+              <code style={{ fontFamily: 'monospace', color: '#0f172a', background: '#fff', padding: '1px 4px', borderRadius: 3 }}>
+                {c?.field || '(unknown field)'}
+              </code>
+              {' — '}
+              {(c?.values || []).map((v, j) => (
+                <span key={j} style={{ marginRight: 8 }}>
+                  <em style={{ color: '#92400e' }}>{v?.source || 'source?'}:</em>{' '}
+                  <span style={{ color: '#0f172a' }}>{stringifyConflictValue(v?.value)}</span>
+                  {j < (c.values?.length ?? 0) - 1 ? ' vs' : ''}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FieldConflictIcon({ conflict, fieldLabel }) {
+  if (!conflict || !Array.isArray(conflict.values) || conflict.values.length < 2) return null;
+  const tooltip = `Conflict on ${fieldLabel}:\n` +
+    conflict.values.map((v) => `  ${v?.source || 'source?'}: ${stringifyConflictValue(v?.value)}`).join('\n');
+  return (
+    <span
+      title={tooltip}
+      style={{
+        marginLeft: 4, fontSize: 12, color: '#b45309',
+        cursor: 'help', userSelect: 'none',
+      }}
+    >
+      ⚠
+    </span>
+  );
+}
+
+function buildConflictsByField(conflicts) {
+  const out = {};
+  if (!Array.isArray(conflicts)) return out;
+  for (const c of conflicts) {
+    if (c?.field && Array.isArray(c.values) && c.values.length >= 2) {
+      out[c.field] = c;
+    }
+  }
+  return out;
+}
+
+function stringifyConflictValue(v) {
+  if (v === null || v === undefined) return '(empty)';
+  if (typeof v === 'object') {
+    try { return JSON.stringify(v); } catch { return String(v); }
+  }
+  return String(v);
 }
 
 function SurveyorSuggestionsBlock({ loading, suggestions, teamPicks, setTeamPicks, teamMode, setTeamMode }) {
