@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import {
   OFFICE_CODE_LIST,
@@ -26,6 +27,8 @@ import {
 // ============================================================================
 
 export default function InsurerMaster() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [insurers, setInsurers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -40,6 +43,21 @@ export default function InsurerMaster() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => { loadInsurers(); }, []);
+
+  // Surface a one-shot success flash from the AI register flow:
+  //   /insurer-master?flash=<encoded message>
+  // Clear the param from the URL once shown so a refresh doesn't repeat it.
+  useEffect(() => {
+    const flash = searchParams?.get('flash');
+    if (!flash) return;
+    setAlert({ msg: flash, type: 'success' });
+    setTimeout(() => setAlert(null), 5000);
+    const usp = new URLSearchParams(searchParams.toString());
+    usp.delete('flash');
+    const next = usp.toString();
+    router.replace(`/insurer-master${next ? `?${next}` : ''}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function loadInsurers() {
     try {
@@ -287,6 +305,7 @@ export default function InsurerMaster() {
 
         <div className="button-group">
           <button className="success" onClick={openNewInsurer}>+ New Insurer</button>
+          <a className="btn" href="/insurer-master/register">+ Register with AI agent</a>
         </div>
 
         <div className="filter-section">

@@ -10,6 +10,10 @@
 //   - the bulk-import form's "resolve parent by name" flow
 //
 // Query params (all optional unless noted):
+//   id           - BIGINT. Single-row lookup by primary key. When set, all
+//                  other filters except active_only are ignored — used by
+//                  ThreeOfficePicker to refetch a previously-stored office
+//                  when a claim form boots and only has the id on hand.
 //   insurer_id   - BIGINT (required if you want the picker scoped to one
 //                  insurer; in practice all callers pass it)
 //   q            - free-text search; ILIKE on name OR city, case-insensitive
@@ -17,12 +21,17 @@
 //                  Only rows whose office_code is in the list are returned.
 //                  If omitted, all 7 codes are eligible.
 //   active_only  - '1' (default) or '0'. When 1, hides is_active=false rows.
+//                  Note: when id is set, active_only=0 is implicit so the
+//                  picker can still re-display an office that has since
+//                  been deactivated (UI shows it as a chip with a warning
+//                  rather than silently dropping it).
 //   limit        - default 25, capped at 100. Larger values are clamped down.
 //
 // Response (200):
 //   { offices: Array<{
 //       id, insurer_id, office_code, name, hierarchy_path, depth,
-//       parent_office_id, city, state, is_active, office_short_code
+//       parent_office_id, city, state, address, pin, is_active,
+//       office_short_code
 //     }> }
 // =============================================================================
 
@@ -49,11 +58,38 @@ const MAX_LIMIT = 100;
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
 
+  const idRaw        = searchParams.get('id');
   const insurerIdRaw = searchParams.get('insurer_id');
   const q            = searchParams.get('q')?.trim() || '';
   const officeCodeQ  = searchParams.get('office_code');
   const activeOnlyQ  = searchParams.get('active_only');
   const limitQ       = searchParams.get('limit');
+
+  // Single-row lookup short-circuit. When the picker boots a form with an
+  // existing *_office_id but no cached row, this is how it fetches the chip
+  // label without a second round-trip to /api/offices/[id]. We deliberately
+  // skip active_only here — see header comment.
+  if (idRaw) {
+    const idNum = Number.parseInt(idRaw, 10);
+    if (!Number.isFinite(idNum) || idNum <= 0) {
+      return NextResponse.json(
+        { error: 'id must be a positive integer' },
+        { status: 400 }
+      );
+    }
+    const { data, error } = await supabaseAdmin
+      .from('v_insurer_offices_with_path')
+      .select(
+        'id, insurer_id, office_code, name, hierarchy_path, depth, ' +
+        'parent_office_id, city, state, address, pin, is_active, office_short_code'
+      )
+      .eq('id', idNum)
+      .maybeSingle();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ offices: data ? [data] : [] });
+  }
 
   // Parse insurer_id — required if provided, must be a positive integer.
   let insurerId = null;
@@ -99,7 +135,7 @@ export async function GET(request) {
     .from('v_insurer_offices_with_path')
     .select(
       'id, insurer_id, office_code, name, hierarchy_path, depth, ' +
-      'parent_office_id, city, state, is_active, office_short_code'
+      'parent_office_id, city, state, address, pin, is_active, office_short_code'
     )
     .order('depth', { ascending: true })
     .order('name',  { ascending: true })

@@ -6,6 +6,7 @@ import { requireSurveyorRequest } from '@/lib/auth/insurer';
 import { isPlaceholderRef } from '@/lib/refNumber';
 import { generateFolderPath } from '@/lib/folderPath';
 import { applyPolicyDecision } from '@/lib/comms/applyPolicyDecision';
+import { validateAndHydrateOffices } from '@/lib/officeValidation';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -137,6 +138,8 @@ export async function PUT(request, { params }) {
   delete body.created_at;
   delete body._tentative_ref;
   delete body._manual_ref_number;
+  // Transient form-side scope hint — claims has no insurer_id column.
+  delete body._insurer_id;
 
   // If LOB changed, we may need to regenerate ref number and folder path
   if (lobChanged && oldLob !== newLob) {
@@ -215,6 +218,31 @@ export async function PUT(request, { params }) {
     if (userEmail && body.registered_by === undefined) {
       body.registered_by = userEmail;
     }
+  }
+
+  // 3-office FK validation + name/address hydration. When the body carries
+  // any *_office_id, ensure the office exists, is_active, and belongs to
+  // the same insurer as the rest of the claim. The validator looks up
+  // insurer_id by body.insurer_name — but the client may send only office
+  // edits without re-stating the insurer. Backfill from the existing row
+  // so cross-insurer mismatches are still caught.
+  const ROLE_KEYS = ['appointing_office_id', 'policy_office_id', 'fsr_office_id'];
+  const officesTouched = ROLE_KEYS.some((k) => body[k] !== undefined && body[k] !== null && body[k] !== '');
+  if (officesTouched && !body.insurer_name) {
+    const { data: nameRow } = await supabase
+      .from('claims')
+      .select('insurer_name')
+      .eq('id', id)
+      .maybeSingle();
+    if (nameRow?.insurer_name) {
+      // Inject for validation only; the legacy update will skip it (it's
+      // already on the row) but we don't want to clear it either.
+      body.insurer_name = nameRow.insurer_name;
+    }
+  }
+  const officeCheck = await validateAndHydrateOffices(supabaseAdmin, body);
+  if (!officeCheck.ok) {
+    return NextResponse.json({ error: officeCheck.error }, { status: officeCheck.status });
   }
 
   // Strip fields that have no column on `claims` before the legacy update.
