@@ -119,6 +119,36 @@ export default function IntimationsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Per-row discard state for MANUAL/ drafts. Keyed by claim id so the
+  // user can see which row is being discarded, and a confirm dialog gates
+  // the destructive call.
+  const [discardingId, setDiscardingId] = useState(null);
+
+  async function discardManualDraft(claim) {
+    const ref = claim.ref_number || '';
+    if (!ref.startsWith('MANUAL/')) return; // belt-and-braces — UI only shows the button on MANUAL/
+    if (claim.phase && claim.phase !== 'intimation') return;
+    const ok = window.confirm(
+      `Discard this manual draft?\n\n${ref}\n\nThis cannot be undone — the claim shell, any uploaded documents, and the AI extraction for it will be deleted.`
+    );
+    if (!ok) return;
+    setDiscardingId(claim.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/claims/${encodeURIComponent(claim.id)}/discard-draft`, {
+        method: 'DELETE',
+        headers: { 'x-app-user-email': user.email },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      await load();
+    } catch (err) {
+      setError(`Discard failed: ${err.message}`);
+    } finally {
+      setDiscardingId(null);
+    }
+  }
+
   // Creates a manual claim shell (ref_number='MANUAL/<co>/<8-char-uuid>',
   // phase='intimation', no intake_message_id) and redirects to the
   // registration page where the clerk uploads documents + submits.
@@ -375,6 +405,27 @@ export default function IntimationsPage() {
                       >
                         Legacy form
                       </Link>
+                      {/* Discard — only shown for MANUAL/ drafts. INTAKE/
+                          placeholders trace back to a real email and shouldn't
+                          be deleted from this page. */}
+                      {String(c.ref_number || '').startsWith('MANUAL/') && (
+                        <button
+                          type="button"
+                          onClick={() => discardManualDraft(c)}
+                          disabled={discardingId === c.id}
+                          title="Delete this empty manual draft. Cannot be undone."
+                          style={{
+                            ...btnStyle('secondary', discardingId === c.id),
+                            padding: '8px 14px',
+                            fontSize: 12,
+                            color: discardingId === c.id ? '#94a3b8' : '#b91c1c',
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                          }}
+                        >
+                          {discardingId === c.id ? 'Discarding…' : 'Discard draft'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
