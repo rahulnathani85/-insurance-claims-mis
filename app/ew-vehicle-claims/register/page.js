@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
+import ThreeOfficePicker from '@/components/ThreeOfficePicker';
 import { useCompany } from '@/lib/CompanyContext';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -54,6 +55,9 @@ export default function EWRegisterPage() {
   // Master data for auto-fetch
   const [policies, setPolicies] = useState([]);
   const [insurers, setInsurers] = useState([]);
+  // Local-only state — scopes the ThreeOfficePicker. Not persisted; the
+  // ew_vehicle_claims row gets office_id FKs that already imply the insurer.
+  const [selectedInsurerId, setSelectedInsurerId] = useState(null);
 
   // Lifecycle engine — optional picker at registration
   const [lifecycleTemplates, setLifecycleTemplates] = useState([]);
@@ -132,25 +136,36 @@ export default function EWRegisterPage() {
     }
   }
 
-  // When user selects an insurer office for a role, auto-fill name + address
-  function selectOfficeForRole(role, officeId) {
-    if (!officeId) {
-      setForm(prev => ({ ...prev, [`${role}_office_id`]: null, [`${role}_office_name`]: '', [`${role}_office_address`]: '' }));
+  // Picker-driven role updates. The picker hands us the full office row
+  // from /api/offices/search (or null on clear); we copy the fields the
+  // ew_vehicle_claims row needs.
+  function onOfficeRoleChange(role, office) {
+    if (!office) {
+      setForm(prev => ({ ...prev,
+        [`${role}_office_id`]: null,
+        [`${role}_office_name`]: '',
+        [`${role}_office_address`]: '',
+      }));
       return;
     }
-    for (const ins of insurers) {
-      const office = (ins.insurer_offices || []).find(o => String(o.id) === String(officeId));
-      if (office) {
-        const parts = [office.address, office.city, office.state, office.pin].filter(Boolean);
-        setForm(prev => ({ ...prev,
-          [`${role}_office_id`]: office.id,
-          [`${role}_office_name`]: `${ins.company_name} - ${office.name || office.type || 'Office'}`,
-          [`${role}_office_address`]: parts.join(', '),
-        }));
-        showAlertMsg(`${role.charAt(0).toUpperCase() + role.slice(1)} office set`, 'success');
-        return;
-      }
-    }
+    const parts = [office.address, office.city, office.state, office.pin].filter(Boolean);
+    setForm(prev => ({ ...prev,
+      [`${role}_office_id`]: office.id,
+      [`${role}_office_name`]: office.name,
+      [`${role}_office_address`]: parts.join(', '),
+    }));
+  }
+
+  function onInsurerSelect(e) {
+    const id = e.target.value ? Number(e.target.value) : null;
+    setSelectedInsurerId(id);
+    // If insurer changed, drop any existing office picks — they'd belong
+    // to the previous insurer and the server validator would reject them.
+    setForm(prev => ({ ...prev,
+      appointing_office_id: null, appointing_office_name: '', appointing_office_address: '',
+      policy_office_id:     null, policy_office_name:     '', policy_office_address:     '',
+      fsr_office_id:        null, fsr_office_name:        '', fsr_office_address:        '',
+    }));
   }
 
   async function handleSubmit() {
@@ -298,31 +313,34 @@ export default function EWRegisterPage() {
                 <Field label="Date of Intimation" field="date_of_intimation" type="date" {...fp} />
                 <Field label="Report Date" field="report_date" type="date" {...fp} />
 
-                {/* 3-Office Insurer Roles */}
-                {[
-                  { role: 'appointing', label: 'Appointing Office', textColor: '#92400e' },
-                  { role: 'policy', label: 'Underwriting / Policy Issuing Office', textColor: '#1e40af' },
-                  { role: 'fsr', label: 'Report Submission Office', textColor: '#166534' },
-                ].map(({ role, label, textColor }) => (
-                  <div key={role} style={{ gridColumn: 'span 2', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, background: '#fafafa' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: textColor, marginBottom: 8 }}>{label}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
-                      <div>
-                        <label style={LABEL_STYLE}>Select Office</label>
-                        <select value={form[`${role}_office_id`] || ''} onChange={e => selectOfficeForRole(role, e.target.value)} style={FIELD_STYLE}>
-                          <option value="">-- Select Office --</option>
-                          {insurers.flatMap(ins => (ins.insurer_offices || []).map(o => (
-                            <option key={o.id} value={o.id}>{ins.company_name} - {o.name || o.type || 'Office'} ({o.city || ''})</option>
-                          )))}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={LABEL_STYLE}>Office Name (auto-filled)</label>
-                        <input type="text" value={form[`${role}_office_name`] || ''} onChange={e => updateField(`${role}_office_name`, e.target.value)} style={FIELD_STYLE} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {/* Insurer scope + 3-office picker (canonical input — see CLAUDE.md §17) */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label style={LABEL_STYLE}>Insurer <span style={{ color: '#dc2626' }}>*</span></label>
+                  <select
+                    value={selectedInsurerId || ''}
+                    onChange={onInsurerSelect}
+                    style={FIELD_STYLE}
+                  >
+                    <option value="">-- Select Insurer --</option>
+                    {insurers.map(ins => (
+                      <option key={ins.id} value={ins.id}>{ins.company_name}</option>
+                    ))}
+                  </select>
+                  <p style={{ fontSize: 10, color: '#94a3b8', margin: '4px 0 0' }}>
+                    Add a new insurer in /insurer-master before registering an EW claim.
+                  </p>
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <ThreeOfficePicker
+                    insurerId={selectedInsurerId}
+                    values={{
+                      appointing: form.appointing_office_id || null,
+                      policy: form.policy_office_id || null,
+                      fsr: form.fsr_office_id || null,
+                    }}
+                    onChange={onOfficeRoleChange}
+                  />
+                </div>
               </div>
             </div>
           )}

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
+import ThreeOfficePicker from '@/components/ThreeOfficePicker';
 import { useAuth } from '@/lib/AuthContext';
 import {
   CONFIDENCE_BANDS,
@@ -22,8 +23,9 @@ const SECTIONS = [
   {
     key: 'insurer',
     title: 'Insurer',
+    // insurer_name is owned by InsurerBlock above the form (drives the
+    // ThreeOfficePicker scope); the rest stay here as plain inputs.
     fields: [
-      { key: 'insurer_name', label: 'Insurer', type: 'text' },
       { key: 'insurer_branch', label: 'Branch', type: 'text' },
       { key: 'dealing_officer_name', label: 'Dealing officer', type: 'text' },
       { key: 'dealing_officer_email', label: 'Officer email', type: 'email' },
@@ -111,6 +113,9 @@ export default function ClaimRegistrationPage({ params }) {
   const [alert, setAlert] = useState(null);
   const [suggestions, setSuggestions] = useState({ eligible: [], blocked: [] });
   const [suggestLoading, setSuggestLoading] = useState(true);
+  // Master list of insurers — drives the InsurerBlock dropdown and lets us
+  // resolve insurer_name <-> insurer_id without adding a column on claims.
+  const [insurers, setInsurers] = useState([]);
   const [teamPicks, setTeamPicks] = useState({}); // { lead_surveyor: surveyor_id, co_surveyor: id, ... }
   const [teamMode, setTeamMode] = useState(false);
   // Registration Agent (rich on-demand extraction)
@@ -127,6 +132,16 @@ export default function ClaimRegistrationPage({ params }) {
 
   useEffect(() => { loadAll(); }, [claimId]);
   useEffect(() => () => clearTimeout(saveTimerRef.current), []);
+
+  // Load the insurers master once. Used by InsurerBlock to render the
+  // dropdown and to resolve insurer_name -> insurer_id when an existing
+  // claim is opened.
+  useEffect(() => {
+    fetch('/api/insurers')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setInsurers(Array.isArray(data) ? data : []))
+      .catch(() => setInsurers([]));
+  }, []);
 
   async function loadAll() {
     try {
@@ -361,6 +376,9 @@ export default function ClaimRegistrationPage({ params }) {
       // complexity tier + ILA/FSR TATs, which the auto-flip skips.
       const claimUpdates = mergeDraftWithClaim({}, formState);
       claimUpdates.phase = 'intimation';
+      // _insurer_id is a transient form field used to scope the office
+      // picker — claims has no insurer_id column, so strip before PUT.
+      delete claimUpdates._insurer_id;
       const updateRes = await fetch(`/api/claims/${claimId}`, {
         method: 'PUT',
         headers: authHeaders,
@@ -465,6 +483,12 @@ export default function ClaimRegistrationPage({ params }) {
           autoGenerateRef={autoGenerateRef}
         />
 
+        <InsurerBlock
+          insurers={insurers}
+          formState={formState}
+          setField={setField}
+        />
+
         <div style={{
           display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(420px, 2fr) minmax(280px, 1fr)',
           gap: 16, marginTop: 16, alignItems: 'start',
@@ -562,6 +586,137 @@ function RefNumberEditor({ formState, claim, setField, autoGenerateRef }) {
           Currently a stop-gap intake ref: <code style={{ fontFamily: 'monospace' }}>{placeholderRef}</code> — assign a real surveyor reference above to replace it on save.
         </div>
       )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// INSURER BLOCK — sits below RefNumberEditor and above the 3-column grid.
+// Owns the insurer dropdown (replaces the legacy insurer_name text input)
+// and the 3-office picker. Picker is disabled until an insurer is chosen.
+// ----------------------------------------------------------------------------
+
+function InsurerBlock({ insurers, formState, setField }) {
+  // Resolve the form's _insurer_id from the chosen insurer_name. We don't
+  // persist _insurer_id (claims has no such column) — it's a transient
+  // scope hint for the picker. If the form already carries it (e.g. a
+  // saved draft), trust it; otherwise derive from insurer_name.
+  let resolvedInsurerId = formState?._insurer_id || null;
+  if (!resolvedInsurerId && formState?.insurer_name && insurers.length > 0) {
+    const target = formState.insurer_name.trim().toLowerCase();
+    const match = insurers.find(
+      (i) => (i.company_name || '').trim().toLowerCase() === target
+    );
+    if (match) resolvedInsurerId = match.id;
+  }
+
+  function onInsurerChange(e) {
+    const id = e.target.value ? Number(e.target.value) : null;
+    if (id == null) {
+      setField('insurer_name', '');
+      setField('_insurer_id', null);
+      // Clear any stale office FKs since they'd belong to a different insurer.
+      ['appointing', 'policy', 'fsr'].forEach((role) => {
+        setField(`${role}_office_id`, null);
+        setField(`${role}_office_name`, '');
+        setField(`${role}_office_address`, '');
+      });
+      return;
+    }
+    const ins = insurers.find((i) => i.id === id);
+    if (!ins) return;
+    setField('insurer_name', ins.company_name || '');
+    setField('_insurer_id', id);
+    // If switching insurers, drop existing office picks — they belong to
+    // the previous insurer and the server-side validator would reject them.
+    if (formState?._insurer_id && formState._insurer_id !== id) {
+      ['appointing', 'policy', 'fsr'].forEach((role) => {
+        setField(`${role}_office_id`, null);
+        setField(`${role}_office_name`, '');
+        setField(`${role}_office_address`, '');
+      });
+    }
+  }
+
+  function onOfficeChange(role, office) {
+    setField(`${role}_office_id`, office?.id ?? null);
+    setField(`${role}_office_name`, office?.name || '');
+    if (office) {
+      const parts = [office.address, office.city, office.state, office.pin].filter(Boolean);
+      setField(`${role}_office_address`, parts.join(', '));
+    } else {
+      setField(`${role}_office_address`, '');
+    }
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 14,
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: 8,
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(220px, 320px) 1fr',
+          gap: 16,
+          alignItems: 'start',
+        }}
+      >
+        <div>
+          <label
+            style={{
+              display: 'block',
+              fontSize: 11,
+              fontWeight: 700,
+              color: '#1e40af',
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+              marginBottom: 6,
+            }}
+          >
+            Insurer <span style={{ color: '#dc2626' }}>*</span>
+          </label>
+          <select
+            value={resolvedInsurerId || ''}
+            onChange={onInsurerChange}
+            style={{
+              width: '100%',
+              padding: '7px 10px',
+              fontSize: 13,
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              background: '#fff',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          >
+            <option value="">— Select insurer —</option>
+            {insurers.map((ins) => (
+              <option key={ins.id} value={ins.id}>
+                {ins.company_name}
+              </option>
+            ))}
+          </select>
+          <p style={{ fontSize: 10, color: '#94a3b8', marginTop: 6 }}>
+            Picks scope the 3 office searches. Add a new insurer in /insurer-master before registering.
+          </p>
+        </div>
+
+        <ThreeOfficePicker
+          insurerId={resolvedInsurerId}
+          values={{
+            appointing: formState?.appointing_office_id || null,
+            policy: formState?.policy_office_id || null,
+            fsr: formState?.fsr_office_id || null,
+          }}
+          onChange={onOfficeChange}
+        />
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 import { MARINE_CLIENT_FORMATS } from '@/lib/constants';
 import { generateFolderPath } from '@/lib/folderPath';
+import { validateAndHydrateOffices } from '@/lib/officeValidation';
 
 // LOBs that share a unified counter (cross-company)
 const UNIFIED_LOBS = ['Fire', 'Engineering', 'Business Interruption', 'Miscellaneous'];
@@ -151,6 +152,17 @@ export async function POST(request) {
   const manualRef = body._manual_ref_number || null;
   delete body._manual_ref_number;
   delete body._tentative_ref;
+  // _insurer_id is a transient form-side scope hint — claims has no
+  // such column. Strip before insert.
+  delete body._insurer_id;
+
+  // Validate the 3-office FKs and hydrate *_office_name / *_office_address
+  // from the insurer_offices row. Rejects 400 on cross-insurer / inactive
+  // / missing offices. No-op when no office_id is provided.
+  const officeCheck = await validateAndHydrateOffices(supabaseAdmin, body);
+  if (!officeCheck.ok) {
+    return NextResponse.json({ error: officeCheck.error }, { status: officeCheck.status });
+  }
 
   const refNumber = await generateRefNumber(body.lob, body.client_category, manualRef);
   const company = body.company || 'NISLA';
