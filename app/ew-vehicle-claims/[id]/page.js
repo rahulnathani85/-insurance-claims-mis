@@ -861,8 +861,8 @@ export default function EWClaimDetailPage() {
                 {/* 3-Office Insurer Roles */}
                 {[
                   { role: 'appointing', label: 'Appointing Office', textColor: '#92400e' },
-                  { role: 'policy', label: 'Policy Issuing Office', textColor: '#1e40af' },
-                  { role: 'fsr', label: 'FSR Submitting Office', textColor: '#166534' },
+                  { role: 'policy', label: 'Underwriting / Policy Issuing Office', textColor: '#1e40af' },
+                  { role: 'fsr', label: 'Report Submission Office', textColor: '#166534' },
                 ].map(({ role, label, textColor }) => (
                   <div key={role} style={{ gridColumn: 'span 2', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, background: '#fafafa' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: textColor, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
