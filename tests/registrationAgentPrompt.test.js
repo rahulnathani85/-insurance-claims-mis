@@ -104,6 +104,22 @@ describe('buildRegistrationPrompt', () => {
     expect(out.userMessage).toContain('Fire');
   });
 
+  it('manual-claim shape: only OCR text + claim_context, no intimation_email', () => {
+    // Manual claims have no intake_message_id, so no email body to feed in.
+    // The prompt should still produce a valid input doc, with the
+    // intimation_email field set to null and the rest of the structure
+    // intact so the LLM relies on attachments_ocr_text.
+    const out = buildRegistrationPrompt({
+      claim: { id: 480, ref_number: 'MANUAL/NISLA/aabbccdd', lob: 'Fire', company: 'NISLA' },
+      intimation: null,
+      attachments: [{ filename: 'policy.pdf', mime_type: 'application/pdf' }],
+      ocrText: 'Sum Insured Rs. 10,00,000\nInsured: Acme Industries\nPolicy No. POL-9876',
+    });
+    expect(out.userMessage).toContain('"intimation_email": null');
+    expect(out.userMessage).toContain('Sum Insured');
+    expect(out.userMessage).toContain('MANUAL/NISLA/aabbccdd');
+  });
+
   it('truncates very long bodies and OCR text without throwing', () => {
     const huge = 'x'.repeat(100_000);
     const out = buildRegistrationPrompt({
