@@ -916,6 +916,8 @@ function SuggestionsPane({
         setTeamMode={setTeamMode}
       />
 
+      <PolicyDecisionPanel decision={regExtract?.policy_decision} />
+
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
           Mandatory fields
@@ -1212,6 +1214,161 @@ function SurveyorSuggestionsBlock({ loading, suggestions, teamPicks, setTeamPick
           </ul>
         </details>
       )}
+    </div>
+  );
+}
+
+// =============================================================================
+// PolicyDecisionPanel — renders the Policy Registration Agent's decision
+// (lib/comms/prompts/policyRegistrationAgentPrompt.js). Reads the
+// `policy_decision_json` row stored on claim_registration_extractions and
+// returned as `regExtract.policy_decision` from /api/claims/[id]/registration-extract.
+//
+// States:
+//   match_existing         — green: matched master row + optional conflicts list
+//   create_new             — blue:  preview of new_policy_payload that will be inserted on submit
+//   ambiguous_needs_review — amber: review_reasons + candidates summary (clerk resolves manually)
+//   null/no decision       — grey:  "Policy decision pending"
+// =============================================================================
+function PolicyDecisionPanel({ decision }) {
+  const wrap = {
+    marginBottom: 14,
+    padding: 10,
+    borderRadius: 6,
+    border: '1px solid',
+    fontSize: 12,
+  };
+  const head = {
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  };
+
+  if (!decision || typeof decision !== 'object' || !decision.decision) {
+    return (
+      <div style={{ ...wrap, background: '#f8fafc', borderColor: '#e2e8f0' }}>
+        <div style={{ ...head, color: '#475569' }}>Policy decision</div>
+        <div style={{ color: '#94a3b8' }}>Pending — agent has not run or returned no decision.</div>
+      </div>
+    );
+  }
+
+  if (decision.decision === 'match_existing') {
+    const mid = decision.matched_policy_id;
+    const merged = decision.merged_policy_fields || {};
+    const masterPolicy = merged?.policy_number?.value || '(no policy_number)';
+    const conflicts = Array.isArray(decision.conflicts) ? decision.conflicts : [];
+    return (
+      <div style={{ ...wrap, background: '#f0fdf4', borderColor: '#86efac' }}>
+        <div style={{ ...head, color: '#15803d' }}>✓ Matched existing policy</div>
+        <div style={{ color: '#166534' }}>
+          Policy <strong>{masterPolicy}</strong>
+          {' '}
+          {mid != null && (
+            <a
+              href={`/policy-master/${mid}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: '#15803d', textDecoration: 'underline' }}
+            >
+              (view master #{mid})
+            </a>
+          )}
+        </div>
+        {conflicts.length > 0 && (
+          <div style={{ marginTop: 8, padding: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#b45309', marginBottom: 4 }}>
+              ⚠ Master differs on {conflicts.length} field{conflicts.length > 1 ? 's' : ''}
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 16, color: '#92400e' }}>
+              {conflicts.map((c, i) => (
+                <li key={i} style={{ marginBottom: 2 }}>
+                  <strong>{c.field}</strong>: master = {stringifyConflictValue(c.master_value)} · extracted = {stringifyConflictValue(c.extracted_value)}
+                  {c.reason && <span style={{ color: '#b45309' }}> — {c.reason}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (decision.decision === 'create_new') {
+    const payload = decision.new_policy_payload || {};
+    return (
+      <div style={{ ...wrap, background: '#eff6ff', borderColor: '#93c5fd' }}>
+        <div style={{ ...head, color: '#1d4ed8' }}>＋ Will create new policy on submit</div>
+        <div style={{ color: '#1e40af' }}>
+          Policy <strong>{payload.policy_number || '(no policy_number)'}</strong>
+          {payload.insurer && <span> · {payload.insurer}</span>}
+        </div>
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ fontSize: 11, color: '#1d4ed8', cursor: 'pointer' }}>Show full payload</summary>
+          <pre style={{
+            margin: '6px 0 0',
+            padding: 8,
+            background: '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: 4,
+            fontSize: 11,
+            color: '#334155',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}>
+            {JSON.stringify(payload, null, 2)}
+          </pre>
+        </details>
+      </div>
+    );
+  }
+
+  if (decision.decision === 'ambiguous_needs_review') {
+    const reasons = Array.isArray(decision.review_reasons) ? decision.review_reasons : [];
+    const candidates = Array.isArray(decision.candidate_matches_seen) ? decision.candidate_matches_seen : [];
+    return (
+      <div style={{ ...wrap, background: '#fffbeb', borderColor: '#fde68a' }}>
+        <div style={{ ...head, color: '#b45309' }}>⚠ Needs manual review</div>
+        {reasons.length > 0 && (
+          <ul style={{ margin: '0 0 6px', paddingLeft: 16, color: '#92400e' }}>
+            {reasons.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        )}
+        {candidates.length > 0 && (
+          <details>
+            <summary style={{ fontSize: 11, color: '#b45309', cursor: 'pointer' }}>
+              {candidates.length} candidate{candidates.length > 1 ? 's' : ''} considered
+            </summary>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 16, color: '#78350f', fontSize: 11 }}>
+              {candidates.map((c, i) => (
+                <li key={i}>
+                  #{c.id} · {c.policy_number || '(no policy_number)'} · {c.insurer || '?'} · {c.insured_name || '?'}
+                  {c.id != null && (
+                    <>
+                      {' · '}
+                      <a href={`/policy-master/${c.id}`} target="_blank" rel="noreferrer" style={{ color: '#b45309' }}>
+                        view
+                      </a>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        <div style={{ marginTop: 6, fontSize: 11, color: '#92400e' }}>
+          Resolve via <a href="/policy-master" target="_blank" rel="noreferrer" style={{ color: '#b45309', textDecoration: 'underline' }}>Policy Master</a> before submitting.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...wrap, background: '#f8fafc', borderColor: '#e2e8f0' }}>
+      <div style={{ ...head, color: '#475569' }}>Policy decision</div>
+      <div style={{ color: '#94a3b8' }}>Unknown decision: {String(decision.decision)}</div>
     </div>
   );
 }
