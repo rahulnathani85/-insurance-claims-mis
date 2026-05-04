@@ -50,6 +50,10 @@ import {
   parsePolicyAgentJson,
 } from '@/lib/comms/prompts/policyRegistrationAgentPrompt';
 import { findCandidatePolicies } from '@/lib/comms/policyCandidateLookup';
+import {
+  derivePinFromLocation,
+  bridgePolicyDecisionIntoFields,
+} from '@/lib/registrationFieldBridge';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -202,6 +206,12 @@ export async function POST(request, { params }) {
     });
   }
 
+  // Cheap deterministic enrichment: if the LLM extracted a loss_location
+  // address that includes a 6-digit PIN but didn't pull it into a separate
+  // loss_location_pin field, derive it via regex. Confidence 0.7, source
+  // "derived_from_loss_location".
+  parsed.fields = derivePinFromLocation(parsed.fields);
+
   // ---------------------------------------------------------------------------
   // 6. Persist successful extraction
   // ---------------------------------------------------------------------------
@@ -273,10 +283,23 @@ export async function POST(request, { params }) {
     });
     policyDecision = parsePolicyAgentJson(policyLlm.text);
 
-    // Persist the decision on the same row.
+    // Bridge the Policy Agent's matched master facts back into the claim
+    // form's field map. Only overwrites fields the Claim Agent left null
+    // or extracted with confidence < 0.5 — the policy master is treated
+    // as a high-trust corroborator for policy_number / period / sum_insured
+    // / policy_type, but not aggressive enough to clobber a confident LLM
+    // extraction. See lib/registrationFieldBridge.js for the merge rules.
+    parsed.fields = bridgePolicyDecisionIntoFields(parsed.fields, policyDecision);
+
+    // Persist the decision AND the bridged fields on the same row, so a
+    // later GET returns the merged shape (the form reads fields_json, not
+    // re-runs the bridge).
     await supabaseAdmin
       .from('claim_registration_extractions')
-      .update({ policy_decision_json: policyDecision })
+      .update({
+        policy_decision_json: policyDecision,
+        fields_json: parsed.fields,
+      })
       .eq('id', inserted.id);
   } catch (err) {
     console.warn('[registration-extract] Policy Agent failed:', err?.message || err);
@@ -310,7 +333,14 @@ export async function POST(request, { params }) {
   });
 
   return NextResponse.json({
-    ...formatRow({ ...inserted, policy_decision_json: policyDecision }),
+    ...formatRow({
+      ...inserted,
+      // The row in `inserted` carries the pre-bridge fields_json (insert
+      // happened before the policy agent ran). Override with the post-bridge
+      // map so the response matches the persisted state.
+      fields_json: parsed.fields,
+      policy_decision_json: policyDecision,
+    }),
     cached: false,
   });
 }

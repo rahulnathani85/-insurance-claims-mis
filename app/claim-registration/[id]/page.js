@@ -198,16 +198,14 @@ export default function ClaimRegistrationPage({ params }) {
   }
 
   // Auto-fire the Registration Agent once both the form has loaded AND the
-  // user is signed in. The server-side 5-min idempotency means this is free
-  // on quick reloads. Re-runs if the user changes (rare) or claimId changes.
+  // user is signed in. The server-side 5-min idempotency window already
+  // returns the cached extraction without an LLM call, so re-opens stay
+  // free even when a draft exists; only after 5 min does a fresh run fire,
+  // which is the desired behaviour.
   useEffect(() => {
     if (loading) return;
     if (!user?.email) return;
     if (regExtract || regExtractLoading) return;
-    // Don't burn tokens auto-extracting when the clerk is reopening a
-    // saved draft — they presumably already have the data they want;
-    // they can click Re-extract if they need a fresh run.
-    if (draftExistedOnLoadRef.current) return;
     fetchRegistrationExtract({ force: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user?.email, claimId]);
@@ -250,18 +248,18 @@ export default function ClaimRegistrationPage({ params }) {
       }
       setExtractedData(richShape);
 
-      // Pre-fill empty form fields where confidence >= 0.5. Lower-confidence
-      // values still show via ConfidenceBadge (red band) but don't auto-populate
-      // — avoids polluting the form with bad LLM guesses.
+      // Pre-fill empty form fields with whatever the agent extracted. The
+      // ConfidenceBadge (high/medium/low chip rendered next to the label by
+      // FormField) communicates trust to the clerk — the value still goes
+      // into the input either way, so a low-confidence extraction is visible
+      // and reviewable instead of silently dropped.
       setFormState((prev) => {
         const next = { ...prev };
         let changed = false;
         for (const [key, entry] of Object.entries(data.fields || {})) {
           if (!entry || typeof entry !== 'object') continue;
           const val = entry.value;
-          const conf = entry.confidence;
           if (val === null || val === undefined || val === '') continue;
-          if (conf !== null && conf !== undefined && conf < 0.5) continue;
           if (next[key] !== undefined && next[key] !== null && next[key] !== '') continue;
           next[key] = val;
           changed = true;
@@ -519,7 +517,7 @@ export default function ClaimRegistrationPage({ params }) {
             regExtractLoading={regExtractLoading}
             regExtractError={regExtractError}
             onReExtract={runReExtract}
-            autoExtractSuppressed={draftExistedOnLoadRef.current && !regExtract}
+            autoExtractSuppressed={false}
           />
         </div>
       </div>
