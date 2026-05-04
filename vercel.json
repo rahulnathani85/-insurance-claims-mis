@@ -20,6 +20,10 @@
     {
       "path": "/api/comms-cron/send-notifications",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/comms-cron/cleanup-abandoned-manual-claims",
+      "schedule": "0 4 * * *"
     }
   ]
 }
