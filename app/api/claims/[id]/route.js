@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { dualWriteClaimFields } from '@/lib/provenance';
 import { requireSurveyorRequest } from '@/lib/auth/insurer';
 import { isPlaceholderRef } from '@/lib/refNumber';
+import { generateFolderPath } from '@/lib/folderPath';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -165,9 +166,11 @@ export async function PUT(request, { params }) {
   // -----------------------------------------------------------------
   let existing = null;
   if (body.ref_number !== undefined || body.phase === undefined) {
+    // company + insured_name added so the ref-promotion block below can
+    // compute folder_path with the same convention legacy POST uses.
     const { data: row } = await supabase
       .from('claims')
-      .select('phase, ref_number, lob, client_category')
+      .select('phase, ref_number, lob, client_category, company, insured_name')
       .eq('id', id)
       .single();
     existing = row || null;
@@ -233,6 +236,28 @@ export async function PUT(request, { params }) {
       await incrementCounter(existing.lob, existing.client_category);
     } catch (incErr) {
       console.warn('[claims/PUT] counter increment after ref promotion failed:', incErr?.message || incErr);
+    }
+
+    // Compute + persist folder_path now that ref_number is finally a real
+    // value. Matches the convention legacy POST /api/claims uses, so files
+    // uploaded via the Documents tab land in the same on-disk layout.
+    // The folder itself is created lazily by the file-server's mkdirSync
+    // on first upload (scripts/file-server/server.js multer setup) — we
+    // just need the path string on the DB row. Non-fatal on failure; the
+    // backfill migration will cover any row that slips through.
+    try {
+      const folderPath = generateFolderPath({
+        company:    existing.company,
+        lob:        body.lob || existing.lob,
+        refNumber:  body.ref_number,
+        insuredName: body.insured_name || existing.insured_name,
+      });
+      await supabaseAdmin
+        .from('claims')
+        .update({ folder_path: folderPath })
+        .eq('id', id);
+    } catch (fpErr) {
+      console.warn('[claims/PUT] folder_path write after ref promotion failed:', fpErr?.message || fpErr);
     }
   }
 
