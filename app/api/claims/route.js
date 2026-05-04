@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 import { MARINE_CLIENT_FORMATS } from '@/lib/constants';
+import { generateFolderPath } from '@/lib/folderPath';
 
 // LOBs that share a unified counter (cross-company)
 const UNIFIED_LOBS = ['Fire', 'Engineering', 'Business Interruption', 'Miscellaneous'];
@@ -118,12 +119,8 @@ async function decrementCounter(lob, clientCategory) {
   }
 }
 
-// Generate folder path for claim
-function generateFolderPath(company, lob, refNumber, insuredName) {
-  const safeName = (insuredName || 'Unknown').replace(/[<>:"/\\|?*]/g, '_').substring(0, 50);
-  const safeRef = (refNumber || '').replace(/[<>:"/\\|?*]/g, '_');
-  return `D:\\2026-27\\${company}\\${lob}\\${safeRef} - ${safeName}`;
-}
+// generateFolderPath now lives in lib/folderPath.js so the new ref-promotion
+// path in PUT /api/claims/[id] uses the same convention. Imported above.
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -157,7 +154,12 @@ export async function POST(request) {
 
   const refNumber = await generateRefNumber(body.lob, body.client_category, manualRef);
   const company = body.company || 'NISLA';
-  const folderPath = generateFolderPath(company, body.lob, refNumber, body.insured_name);
+  const folderPath = generateFolderPath({
+    company,
+    lob: body.lob,
+    refNumber,
+    insuredName: body.insured_name,
+  });
 
   const { data, error } = await supabase
     .from('claims')
