@@ -5,6 +5,7 @@ import { dualWriteClaimFields } from '@/lib/provenance';
 import { requireSurveyorRequest } from '@/lib/auth/insurer';
 import { isPlaceholderRef } from '@/lib/refNumber';
 import { generateFolderPath } from '@/lib/folderPath';
+import { applyPolicyDecision } from '@/lib/comms/applyPolicyDecision';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -258,6 +259,32 @@ export async function PUT(request, { params }) {
         .eq('id', id);
     } catch (fpErr) {
       console.warn('[claims/PUT] folder_path write after ref promotion failed:', fpErr?.message || fpErr);
+    }
+
+    // Apply the Policy Registration Agent's decision (if one was produced
+    // during registration-extract). match_existing -> normalise +
+    // claims.policy_id FK; create_new -> insert new policies row + FK;
+    // ambiguous -> no-op (clerk resolves via policy-master UI). Non-fatal
+    // on failure — registration succeeds either way.
+    try {
+      const { data: latestExt } = await supabaseAdmin
+        .from('claim_registration_extractions')
+        .select('policy_decision_json')
+        .eq('claim_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const decision = latestExt?.policy_decision_json || null;
+      if (decision) {
+        await applyPolicyDecision({
+          supabase: supabaseAdmin,
+          claimId: id,
+          claimRow: existing,
+          decision,
+        });
+      }
+    } catch (pdErr) {
+      console.warn('[claims/PUT] applyPolicyDecision after ref promotion failed:', pdErr?.message || pdErr);
     }
   }
 

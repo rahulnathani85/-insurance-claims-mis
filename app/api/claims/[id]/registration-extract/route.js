@@ -45,6 +45,11 @@ import {
   buildRegistrationPrompt,
   parseRegistrationJson,
 } from '@/lib/comms/prompts/registrationAgentPrompt';
+import {
+  buildPolicyAgentPrompt,
+  parsePolicyAgentJson,
+} from '@/lib/comms/prompts/policyRegistrationAgentPrompt';
+import { findCandidatePolicies } from '@/lib/comms/policyCandidateLookup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -227,7 +232,60 @@ export async function POST(request, { params }) {
     );
   }
 
-  // 7. Audit (non-fatal)
+  // ---------------------------------------------------------------------------
+  // 7. Chain the Policy Registration Agent
+  // ---------------------------------------------------------------------------
+  // Inputs: the policy-shaped subset of the Claim Agent's just-parsed fields
+  // + a deterministic candidate-list lookup against the `policies` master.
+  // Output is persisted on the SAME row we just inserted (policy_decision_json
+  // column from migration 20260504093654). Failures here are non-fatal — the
+  // Claim Agent's output is the primary product; the policy decision is an
+  // enrichment.
+  let policyDecision = null;
+  let policyLlm = null;
+  try {
+    const extractedPolicy = extractPolicyFieldsFrom(parsed.fields || {});
+    const candidates = await findCandidatePolicies({
+      supabase: supabaseAdmin,
+      policyNumber: extractedPolicy.policy_number?.value,
+      insurer:      extractedPolicy.insurer?.value,
+      insuredName:  extractedPolicy.insured_name?.value,
+      company:      claim.company,
+    });
+
+    const policyPrompt = buildPolicyAgentPrompt({
+      extractedPolicy,
+      candidateMatches: candidates,
+      claimContext: {
+        claim_id:    claim.id,
+        ref_number:  claim.ref_number,
+        lob:         claim.lob,
+        company:     claim.company,
+      },
+    });
+
+    policyLlm = await wrapCallLLM({
+      systemPrompt: policyPrompt.systemPrompt,
+      messages: [{ role: 'user', content: policyPrompt.userMessage }],
+      maxTokens: 1024,
+      messageId: claim.intake_message_id || null,
+      triggeredBy,
+    });
+    policyDecision = parsePolicyAgentJson(policyLlm.text);
+
+    // Persist the decision on the same row.
+    await supabaseAdmin
+      .from('claim_registration_extractions')
+      .update({ policy_decision_json: policyDecision })
+      .eq('id', inserted.id);
+  } catch (err) {
+    console.warn('[registration-extract] Policy Agent failed:', err?.message || err);
+    // Leave policy_decision_json NULL on the row; UI shows "decision pending".
+  }
+
+  // ---------------------------------------------------------------------------
+  // 8. Audit (non-fatal)
+  // ---------------------------------------------------------------------------
   await recordPortalActivity({
     user_email: user.email,
     user_name: user.name || user.email,
@@ -246,13 +304,50 @@ export async function POST(request, { params }) {
       missing_critical_count: (parsed.missing_critical_fields || []).length,
       source_kind: claim.intake_message_id ? 'email' : 'manual',
       docs_ocr_pages: ocrSummary?.totalPages || 0,
+      policy_decision: policyDecision?.decision || null,
+      policy_llm_cost_inr: policyLlm?.costInr || null,
     },
   });
 
   return NextResponse.json({
-    ...formatRow(inserted),
+    ...formatRow({ ...inserted, policy_decision_json: policyDecision }),
     cached: false,
   });
+}
+
+// -----------------------------------------------------------------------------
+// extractPolicyFieldsFrom — projects the Claim Agent's `fields` map onto
+// the policy-shaped slice the Policy Agent consumes. Only the keys the
+// Policy Agent's prompt expects are forwarded; missing keys stay missing.
+// -----------------------------------------------------------------------------
+function extractPolicyFieldsFrom(claimFields) {
+  const POLICY_KEYS = [
+    'policy_number',
+    'insurer_name',     // we'll re-key below
+    'insurer_branch',
+    'insured_name',
+    'insured_address',
+    'insured_contact_phone',
+    'insured_contact_email',
+    'lob',
+    'policy_type',
+    'sum_insured',
+    'policy_period_from',
+    'policy_period_to',
+  ];
+  const out = {};
+  for (const k of POLICY_KEYS) {
+    if (claimFields[k]) out[k] = claimFields[k];
+  }
+  // Rename for the Policy Agent's vocabulary (which uses 'insurer' not
+  // 'insurer_name', 'start_date' not 'policy_period_from', etc.).
+  if (out.insurer_name)      { out.insurer    = out.insurer_name;      delete out.insurer_name; }
+  if (out.insurer_branch)    { out.insurer_office = out.insurer_branch; delete out.insurer_branch; }
+  if (out.insured_contact_phone) { out.phone = out.insured_contact_phone; delete out.insured_contact_phone; }
+  if (out.insured_contact_email) { out.email = out.insured_contact_email; delete out.insured_contact_email; }
+  if (out.policy_period_from){ out.start_date = out.policy_period_from; delete out.policy_period_from; }
+  if (out.policy_period_to)  { out.end_date   = out.policy_period_to;   delete out.policy_period_to; }
+  return out;
 }
 
 // -----------------------------------------------------------------------------
@@ -271,6 +366,9 @@ function formatRow(row) {
     llm_cost_inr: row.llm_cost_inr,
     created_at: row.created_at,
     triggered_by: row.triggered_by,
+    // Policy Registration Agent output (may be null — agent failed, hadn't
+    // run yet, or this row predates the chained-agent migration).
+    policy_decision: row.policy_decision_json || null,
   };
 }
 
