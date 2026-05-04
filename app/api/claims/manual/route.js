@@ -72,7 +72,12 @@ export async function POST(request) {
     .from('claims')
     .insert([{
       ref_number: refNumber,
-      lob: null,                // clerk fills via the registration form
+      // claims.lob is NOT NULL on the live schema. Default to
+      // 'Miscellaneous' (matches the catch-all the comms pipeline's
+      // actionCreateClaim falls back to via normaliseLob). The clerk
+      // picks the real LOB on the registration form; submit
+      // (PUT /api/claims/[id]) updates it.
+      lob: 'Miscellaneous',
       phase: 'intimation',
       status: 'Open',
       company,
