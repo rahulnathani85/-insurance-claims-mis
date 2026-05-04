@@ -39,10 +39,14 @@ describe('REGISTRATION_AGENT_SCHEMA', () => {
     for (const k of [
       'ref_number', 'complexity_tier', 'is_catastrophe',
       'fee_basis', 'fee_amount', 'fee_notes', 'remark',
-      'lob_subcategory', 'loss_location_lat', 'loss_location_lng',
+      'loss_location_lat', 'loss_location_lng',
     ]) {
       expect(keys).not.toContain(k);
     }
+    // lob_subcategory IS now extracted by the agent (was previously a
+    // surveyor-only pick); it must be present and constrained via the
+    // per-LOB option list injected into the user message.
+    expect(keys).toContain('lob_subcategory');
   });
 
   it('marks the spec-listed critical fields', () => {
