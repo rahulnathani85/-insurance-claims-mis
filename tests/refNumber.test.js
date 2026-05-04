@@ -9,12 +9,18 @@ import {
   isPlaceholderRef,
   extractIntakeShortId,
   PLACEHOLDER_PREFIX,
+  PLACEHOLDER_PREFIXES,
 } from '../lib/refNumber.js';
 
 describe('isPlaceholderRef', () => {
   it('returns true for INTAKE/<co>/<id> shape', () => {
     expect(isPlaceholderRef('INTAKE/NISLA/3dae8108')).toBe(true);
     expect(isPlaceholderRef('INTAKE/ACUERE/abc12345')).toBe(true);
+  });
+
+  it('returns true for MANUAL/<co>/<id> shape', () => {
+    expect(isPlaceholderRef('MANUAL/NISLA/aabbccdd')).toBe(true);
+    expect(isPlaceholderRef('MANUAL/ACUERE/12345678')).toBe(true);
   });
 
   it('returns false for real surveyor refs', () => {
@@ -36,15 +42,24 @@ describe('isPlaceholderRef', () => {
     expect(isPlaceholderRef('Intake/NISLA/abc')).toBe(false);
   });
 
-  it('exports PLACEHOLDER_PREFIX as INTAKE/', () => {
+  it('exports PLACEHOLDER_PREFIX as INTAKE/ (legacy single-prefix export)', () => {
     expect(PLACEHOLDER_PREFIX).toBe('INTAKE/');
+  });
+
+  it('exports PLACEHOLDER_PREFIXES with both INTAKE/ and MANUAL/', () => {
+    expect(PLACEHOLDER_PREFIXES).toEqual(['INTAKE/', 'MANUAL/']);
   });
 });
 
 describe('extractIntakeShortId', () => {
-  it('returns the short id for a placeholder ref', () => {
+  it('returns the short id for an INTAKE/-prefix placeholder ref', () => {
     expect(extractIntakeShortId('INTAKE/NISLA/3dae8108')).toBe('3dae8108');
     expect(extractIntakeShortId('INTAKE/ACUERE/abcdef12')).toBe('abcdef12');
+  });
+
+  it('returns null for MANUAL/ refs (manual claims have no source-message back-link)', () => {
+    expect(extractIntakeShortId('MANUAL/NISLA/aabbccdd')).toBe(null);
+    expect(extractIntakeShortId('MANUAL/ACUERE/12345678')).toBe(null);
   });
 
   it('returns null for non-placeholder values', () => {

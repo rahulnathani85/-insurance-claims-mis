@@ -119,6 +119,34 @@ export default function IntimationsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Creates a manual claim shell (ref_number='MANUAL/<co>/<8-char-uuid>',
+  // phase='intimation', no intake_message_id) and redirects to the
+  // registration page where the clerk uploads documents + submits.
+  const [creatingManual, setCreatingManual] = useState(false);
+  async function createManualClaim() {
+    if (creatingManual) return;
+    setCreatingManual(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/claims/manual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-app-user-email': user.email,
+        },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.id) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      router.push(`/claim-registration/${encodeURIComponent(json.id)}`);
+    } catch (err) {
+      setError(`Could not create manual claim: ${err.message}`);
+      setCreatingManual(false);
+    }
+  }
+
   // Scroll to + flash the highlighted row when arriving from review queue.
   useEffect(() => {
     if (!highlightId) return;
@@ -144,9 +172,25 @@ export default function IntimationsPage() {
       <div style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
           <h2 style={{ margin: 0, fontSize: 22, color: '#1e293b' }}>Intimations — Pending Registration</h2>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <Link href="/communications/dashboard" style={navLinkStyle}>Dashboard →</Link>
             <Link href="/communications/triage" style={navLinkStyle}>Triage queue →</Link>
+            <button
+              type="button"
+              onClick={createManualClaim}
+              disabled={creatingManual}
+              title="Start a fresh registration for a claim that didn't come in by email"
+              style={{
+                padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                border: 'none', borderRadius: 6,
+                background: creatingManual ? '#cbd5e1' : '#1e3a5f',
+                color: '#fff',
+                cursor: creatingManual ? 'wait' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {creatingManual ? 'Creating…' : '+ New Manual Claim'}
+            </button>
           </div>
         </div>
         <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#64748b', maxWidth: 720 }}>

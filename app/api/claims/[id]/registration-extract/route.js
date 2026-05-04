@@ -2,9 +2,22 @@
 // /api/claims/[id]/registration-extract
 // =============================================================================
 // POST — runs the Claim Registration Agent (rich on-demand LLM extraction)
-// against the claim's source intimation email + OCR'd attachments + existing
-// extraction JSON. Persists the result to claim_registration_extractions and
-// returns the rich shape the registration form consumes.
+// against the claim's documents (claim_documents) plus, when present, the
+// originating intimation email body. Persists the result to
+// claim_registration_extractions and returns the rich shape the registration
+// form consumes.
+//
+// Source:
+//   claim_documents  — always (unified document store post-PR #38).
+//                      Email attachments are materialised here; manual-claim
+//                      uploads land here too. OCR cached on
+//                      claim_documents.ocr_text (post-migration
+//                      20260504073537).
+//   inbox_messages   — only when claim.intake_message_id is set (email-
+//                      sourced claims). Body is passed to the prompt as
+//                      intimation_email context.
+//   extraction_results — only when intake_message_id is set; the lean-pass
+//                      extraction is fed in as "existing JSON" priority.
 //
 // Body / query: { force?: boolean } | ?force=true
 //
@@ -18,16 +31,15 @@
 //     created_at, cached: boolean
 //   }
 //
-// 404 — claim has no intake_message_id (manual claim, no source to extract from)
-// 502 — LLM call or JSON parse failed (a row is still persisted with the error
-//       so the next /force=true retry has a baseline)
+// 502 — LLM call or JSON parse failed (a row is still persisted with the
+//       error so the next force=true retry has a baseline)
 // =============================================================================
 
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireUser } from '@/lib/comms/session';
 import { wrapCallLLM } from '@/lib/comms/piiMasker';
-import { readAttachmentsForMessage } from '@/lib/comms/attachmentReader';
+import { readClaimDocuments } from '@/lib/comms/claimDocumentReader';
 import { recordPortalActivity } from '@/lib/comms/auditLog';
 import {
   buildRegistrationPrompt,
@@ -58,11 +70,6 @@ export async function POST(request, { params }) {
   // ---------------------------------------------------------------------------
   // 1. Load claim + scope check
   // ---------------------------------------------------------------------------
-  // Only the 5 fields actually used downstream (scope check + prompt's
-  // claim_context block). Earlier the SELECT pulled sum_insured and
-  // peril_type too, which are provenance-only ghost columns (CLAUDE.md
-  // §13a) — PostgREST rejected the whole SELECT with
-  // "column claims.sum_insured does not exist" and the agent never ran.
   const { data: claim, error: claimErr } = await supabaseAdmin
     .from('claims')
     .select('id, ref_number, lob, company, intake_message_id')
@@ -80,13 +87,6 @@ export async function POST(request, { params }) {
   const isMultiCompany = MULTI_COMPANY_ROLES.has(userCompanyKey);
   if (!isMultiCompany && user.company !== claim.company) {
     return NextResponse.json({ error: 'forbidden: cross-company access' }, { status: 403 });
-  }
-
-  if (!claim.intake_message_id) {
-    return NextResponse.json(
-      { error: 'no source intimation linked to this claim — extraction requires an originating email' },
-      { status: 404 }
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -111,37 +111,46 @@ export async function POST(request, { params }) {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Load message + OCR + existing lean-pass extraction
+  // 3. Load OCR + (when applicable) email body + lean-pass extraction
   // ---------------------------------------------------------------------------
-  const [{ data: message }, ocrSummary, { data: existingExt }] = await Promise.all([
-    supabaseAdmin
-      .from('inbox_messages')
-      .select('id, subject, body_plain, from_address, received_at, company')
-      .eq('id', claim.intake_message_id)
-      .maybeSingle(),
-    readAttachmentsForMessage({
-      messageId: claim.intake_message_id,
-      triggeredBy: force ? 'manual' : 'auto',
-    }).catch((err) => {
-      // Non-fatal — fall through with empty OCR
-      console.warn('[registration-extract] OCR read failed:', err?.message || err);
-      return { combinedText: '', perAttachment: [], totalPages: 0, totalCostInr: 0 };
-    }),
-    supabaseAdmin
-      .from('extraction_results')
-      .select('extracted_data, validation_errors, is_valid')
-      .eq('message_id', claim.intake_message_id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  // claim_documents is always the source of truth for documents (PR #38
+  // unified email attachments + uploads + generated artifacts). The
+  // inbox_messages body and the lean-pass extraction_results are only
+  // available for email-sourced claims; manual claims skip those reads.
+  const triggeredBy = force ? 'manual' : 'auto';
 
-  if (!message) {
-    return NextResponse.json(
-      { error: 'intake message not found despite intake_message_id being set' },
-      { status: 404 }
+  const tasks = [
+    readClaimDocuments({ claimId: claim.id, triggeredBy }).catch((err) => {
+      console.warn('[registration-extract] OCR read failed:', err?.message || err);
+      return { combinedText: '', perDocument: [], totalPages: 0, totalCostInr: 0 };
+    }),
+  ];
+
+  if (claim.intake_message_id) {
+    tasks.push(
+      supabaseAdmin
+        .from('inbox_messages')
+        .select('id, subject, body_plain, from_address, received_at, company')
+        .eq('id', claim.intake_message_id)
+        .maybeSingle()
+    );
+    tasks.push(
+      supabaseAdmin
+        .from('extraction_results')
+        .select('extracted_data, validation_errors, is_valid')
+        .eq('message_id', claim.intake_message_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
     );
   }
+
+  const results = await Promise.all(tasks);
+  const ocrSummary = results[0];
+  const messageRes = claim.intake_message_id ? results[1] : null;
+  const existingExtRes = claim.intake_message_id ? results[2] : null;
+  const message = messageRes?.data || null;
+  const existingExt = existingExtRes?.data || null;
 
   // ---------------------------------------------------------------------------
   // 4. Build prompt + call LLM
@@ -149,25 +158,23 @@ export async function POST(request, { params }) {
   const { systemPrompt, userMessage } = buildRegistrationPrompt({
     claim,
     intimation: message,
-    attachments: ocrSummary?.perAttachment || [],
+    attachments: ocrSummary?.perDocument || [],
     ocrText: ocrSummary?.combinedText || '',
     existingExtraction: existingExt?.extracted_data || null,
   });
 
-  const triggeredBy = force ? 'manual' : 'auto';
   let llmResult;
   try {
     llmResult = await wrapCallLLM({
       systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
       maxTokens: 2048,
-      messageId: claim.intake_message_id,
+      messageId: claim.intake_message_id || null,
       triggeredBy,
     });
   } catch (err) {
     return persistAndReturnError({
       claim,
-      message,
       err: `LLM call failed: ${err?.message || err}`,
       triggeredBy,
       user,
@@ -183,7 +190,6 @@ export async function POST(request, { params }) {
   } catch (err) {
     return persistAndReturnError({
       claim,
-      message,
       err: `parse failed: ${err?.message || err}`,
       triggeredBy,
       user,
@@ -198,7 +204,7 @@ export async function POST(request, { params }) {
     .from('claim_registration_extractions')
     .insert([{
       claim_id: claim.id,
-      message_id: claim.intake_message_id,
+      message_id: claim.intake_message_id || null,
       fields_json: parsed.fields,
       conflicts_json: parsed.conflicts,
       missing_critical: parsed.missing_critical_fields,
@@ -238,6 +244,8 @@ export async function POST(request, { params }) {
       llm_cost_inr: llmResult.costInr,
       conflicts_count: (parsed.conflicts || []).length,
       missing_critical_count: (parsed.missing_critical_fields || []).length,
+      source_kind: claim.intake_message_id ? 'email' : 'manual',
+      docs_ocr_pages: ocrSummary?.totalPages || 0,
     },
   });
 
@@ -270,12 +278,12 @@ function formatRow(row) {
 // persistAndReturnError — write a row capturing the failure so the next
 // retry has a baseline + audit trail. Returns 502.
 // -----------------------------------------------------------------------------
-async function persistAndReturnError({ claim, message, err, triggeredBy, user, llmResult = null }) {
+async function persistAndReturnError({ claim, err, triggeredBy, user, llmResult = null }) {
   await supabaseAdmin
     .from('claim_registration_extractions')
     .insert([{
       claim_id: claim.id,
-      message_id: claim.intake_message_id,
+      message_id: claim.intake_message_id || null,
       fields_json: {},
       conflicts_json: [],
       missing_critical: [],

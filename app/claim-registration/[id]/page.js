@@ -469,7 +469,7 @@ export default function ClaimRegistrationPage({ params }) {
           display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(420px, 2fr) minmax(280px, 1fr)',
           gap: 16, marginTop: 16, alignItems: 'start',
         }}>
-          <SourcePane intimation={intimation} claim={claim} />
+          <SourcePane intimation={intimation} claim={claim} user={user} />
 
           <FormPane
             sections={SECTIONS}
@@ -570,16 +570,120 @@ function RefNumberEditor({ formState, claim, setField, autoGenerateRef }) {
 // LEFT PANE — source email + attachments + OCR
 // ----------------------------------------------------------------------------
 
-function SourcePane({ intimation, claim }) {
+function SourcePane({ intimation, claim, user }) {
   const source = intimation?.source;
-  const attachments = intimation?.attachments || [];
+  const isManual = !source;  // no intimation email = manual claim or non-email source
+
+  // Fetch claim_documents for this claim. For email claims we already have
+  // attachments via intimation-context; for manual claims this is the only
+  // place documents come from. Always fetching keeps the upload UX consistent.
+  const [docs, setDocs] = useState([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+
+  const refreshDocs = useCallback(async () => {
+    if (!claim?.id) return;
+    setDocsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/claim-documents?claim_id=${encodeURIComponent(claim.id)}`,
+        { cache: 'no-store' }
+      );
+      if (res.ok) {
+        const arr = await res.json();
+        setDocs(Array.isArray(arr) ? arr : []);
+      }
+    } catch { /* non-fatal */ }
+    finally {
+      setDocsLoading(false);
+    }
+  }, [claim?.id]);
+
+  useEffect(() => { refreshDocs(); }, [refreshDocs]);
+
+  async function uploadOne(file) {
+    if (!file || !claim?.id) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      // 1. Presign
+      const presignRes = await fetch('/api/claim-documents/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          claim_id: claim.id,
+          ref_number: claim.ref_number || '',
+          file_name: file.name,
+          mime_type: file.type || 'application/octet-stream',
+          file_size: file.size,
+          company: claim.company || 'NISLA',
+        }),
+      });
+      const presign = await presignRes.json();
+      if (!presignRes.ok || !presign?.signedUrl) {
+        throw new Error(presign?.error || 'presign failed');
+      }
+
+      // 2. Direct PUT to Supabase
+      const putRes = await fetch(presign.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`Storage upload failed (${putRes.status})`);
+      }
+
+      // 3. Confirm
+      const confirmRes = await fetch('/api/claim-documents/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: presign.path,
+          claim_id: claim.id,
+          ref_number: claim.ref_number || '',
+          file_name: file.name,
+          file_type: 'other',
+          mime_type: file.type || null,
+          file_size: file.size,
+          uploaded_by: user?.email || '',
+          company: claim.company || 'NISLA',
+        }),
+      });
+      const confirmJson = await confirmRes.json();
+      if (!confirmRes.ok) {
+        throw new Error(confirmJson?.error || 'confirm failed');
+      }
+
+      await refreshDocs();
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function onPickFiles(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';  // allow re-selecting the same file
+    (async () => {
+      for (const f of files) {
+        // Sequential to keep UX deterministic and avoid concurrent presign races.
+        // eslint-disable-next-line no-await-in-loop
+        await uploadOne(f);
+      }
+    })();
+  }
+
   return (
     <aside style={paneStyle}>
-      <PaneHeader icon="📧" label="Source" />
+      <PaneHeader icon={isManual ? '📁' : '📧'} label="Source" />
       {!source ? (
         <p style={{ color: '#94a3b8', fontSize: 12 }}>
-          No intimation email linked to this claim.
-          {claim && <> Claim was created manually or from a non-email source.</>}
+          {claim && isPlaceholderRef(claim?.ref_number) && claim.ref_number?.startsWith('MANUAL/')
+            ? 'Manual claim — upload the policy / intimation / supporting documents below, then click Re-extract on the right rail to fill the form from them.'
+            : 'No intimation email linked to this claim. Claim was created manually or from a non-email source.'}
         </p>
       ) : (
         <>
@@ -596,30 +700,53 @@ function SourcePane({ intimation, claim }) {
         </>
       )}
 
-      {attachments.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
-            Attachments ({attachments.length})
-          </div>
-          {attachments.map(a => (
-            <div key={a.id} style={{ padding: 8, borderRadius: 4, background: '#f8fafc', marginBottom: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 500 }}>{a.file_name}</div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>
-                {a.mime_type} · {(a.size_bytes / 1024).toFixed(1)} KB
-                {a.ocr_text ? ` · ${a.ocr_text.length} chars OCR'd` : ' · no OCR'}
-              </div>
-              {a.ocr_text && (
-                <details>
-                  <summary style={{ cursor: 'pointer', fontSize: 11, color: '#475569', marginTop: 4 }}>OCR text</summary>
-                  <pre style={{ fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 160, overflow: 'auto', marginTop: 4 }}>
-                    {a.ocr_text.slice(0, 2000)}
-                  </pre>
-                </details>
-              )}
-            </div>
-          ))}
+      {/* Upload widget — always available so manual claims can add files
+          and email claims can attach extras (FIRs, photos, supplementary
+          policy docs) that didn't come in via the original email. */}
+      <div style={{ marginTop: 14, padding: 10, background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+          Upload documents
         </div>
-      )}
+        <input
+          type="file"
+          multiple
+          onChange={onPickFiles}
+          disabled={uploading}
+          style={{ fontSize: 12 }}
+        />
+        {uploading && (
+          <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 4 }}>Uploading…</div>
+        )}
+        {uploadError && (
+          <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 4 }}>
+            Upload failed: {uploadError}
+          </div>
+        )}
+      </div>
+
+      {/* Documents list (claim_documents). Includes email attachments
+          materialised at intimation time + uploads + generated artifacts. */}
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+          Documents ({docs.length}){docsLoading ? ' · loading…' : ''}
+        </div>
+        {docs.length === 0 && !docsLoading && (
+          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>
+            No documents yet. Upload above to attach files.
+          </p>
+        )}
+        {docs.map((d) => (
+          <div key={d.id} style={{ padding: 8, borderRadius: 4, background: '#fff', border: '1px solid #e2e8f0', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: '#0f172a', wordBreak: 'break-all' }}>{d.file_name}</div>
+            <div style={{ fontSize: 10, color: '#64748b' }}>
+              {d.source === 'gmail' ? 'Email' : d.source === 'generated' ? 'Generated' : 'Upload'}
+              {d.mime_type ? ` · ${d.mime_type}` : ''}
+              {d.file_size ? ` · ${(d.file_size / 1024).toFixed(1)} KB` : ''}
+              {d.ocr_text ? ` · ${d.ocr_text.length} chars OCR'd` : ' · no OCR'}
+            </div>
+          </div>
+        ))}
+      </div>
     </aside>
   );
 }
