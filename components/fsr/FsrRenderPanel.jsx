@@ -135,6 +135,19 @@ export default function FsrRenderPanel({ claim, userEmail }) {
       setMissingPlaceholders(data.missing_placeholders || []);
       setRenderTemplateMeta(data.template);
       setSavedAt(new Date());
+      // When the lifecycle resolver chose a template that differs from what
+      // we sent (the common case for new Ultratech / Tata Motors / etc.
+      // claims whose first render comes in with default 'Production'), align
+      // the editor's templateName state so the right narrative field set
+      // shows. Don't overwrite when the user explicitly switched templates
+      // (source='override') — their pick is the source of truth.
+      if (
+        data.template?.source === 'lifecycle' &&
+        data.template?.name &&
+        data.template.name !== templateName
+      ) {
+        setTemplateName(data.template.name);
+      }
     } catch (e) {
       setError(e.message || 'Render failed');
     } finally {

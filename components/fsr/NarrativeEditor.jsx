@@ -28,6 +28,11 @@
 
 import { useState, useMemo } from 'react';
 import { fieldsForLob } from '@/lib/fsr/narrativeFields';
+import {
+  applyArrayRowChange,
+  insertArrayRow,
+  deleteArrayRow,
+} from '@/lib/fsr/arrayFieldEditor';
 
 export default function NarrativeEditor({
   lob,
@@ -69,7 +74,13 @@ export default function NarrativeEditor({
       {sections.map((section) => {
         const isOpen = !!openSections[section.title];
         const sectionMissing = section.fields.filter((f) => missingSet.has(f.key)).length;
-        const sectionFilled = section.fields.filter((f) => !!value[f.key]).length;
+        // Count an array field as "filled" only when it has at least one row.
+        // Plain text/textarea fields fall back to truthiness as before.
+        const sectionFilled = section.fields.filter((f) => {
+          const v = value[f.key];
+          if (f.type === 'array') return Array.isArray(v) && v.length > 0;
+          return !!v;
+        }).length;
 
         return (
           <div key={section.title} style={sectionWrapStyle}>
@@ -121,11 +132,25 @@ export default function NarrativeEditor({
 }
 
 // -----------------------------------------------------------------------------
-// FieldInput — single labelled input. Picks textarea / text based on type.
+// FieldInput — single labelled input. Picks textarea / text / array based on type.
 // -----------------------------------------------------------------------------
 function FieldInput({ field, value, onChange, missing, disabled, onAiDraft, aiDrafting, aiBlocked }) {
   const isTextarea = field.type === 'textarea';
+  const isArray = field.type === 'array';
   const aiDisabled = disabled || aiDrafting || aiBlocked;
+
+  // Arrays render their own labelled block (different layout — table editor).
+  if (isArray) {
+    return (
+      <ArrayFieldInput
+        field={field}
+        value={value}
+        onChange={onChange}
+        missing={missing}
+        disabled={disabled}
+      />
+    );
+  }
 
   return (
     <label style={fieldWrapStyle(field.wide || isTextarea)}>
@@ -177,6 +202,108 @@ function FieldInput({ field, value, onChange, missing, disabled, onAiDraft, aiDr
         </span>
       )}
     </label>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// ArrayFieldInput — editable mini-table for fields with type='array'.
+// Shape declared by field.itemSchema = [{ key, label, type, colWidth }].
+// Mutation logic lives in lib/fsr/arrayFieldEditor.js (pure, unit-tested).
+// -----------------------------------------------------------------------------
+function ArrayFieldInput({ field, value, onChange, disabled }) {
+  const rows = Array.isArray(value) ? value : [];
+  const cols = Array.isArray(field.itemSchema) ? field.itemSchema : [];
+
+  function setCell(rowIndex, colKey, next) {
+    if (disabled || !onChange) return;
+    onChange(applyArrayRowChange(rows, rowIndex, colKey, next));
+  }
+  function addRow() {
+    if (disabled || !onChange) return;
+    onChange(insertArrayRow(rows, cols));
+  }
+  function removeRow(rowIndex) {
+    if (disabled || !onChange) return;
+    onChange(deleteArrayRow(rows, rowIndex));
+  }
+
+  return (
+    <div style={{ ...fieldWrapStyle(true), gap: 6 }}>
+      <div style={labelRowStyle}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
+          {field.label}
+          {rows.length > 0 && (
+            <span style={{ marginLeft: 6, color: '#64748b', fontWeight: 500 }}>
+              · {rows.length} row{rows.length === 1 ? '' : 's'}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={addRow}
+          disabled={disabled}
+          style={addRowButtonStyle(disabled)}
+        >
+          + Add row
+        </button>
+      </div>
+
+      {rows.length === 0 ? (
+        <div style={emptyArrayStateStyle}>
+          No rows yet — click <strong>+ Add row</strong> to add the first damaged-item line.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+            <thead>
+              <tr>
+                {cols.map((col) => (
+                  <th key={col.key} style={{ ...arrayThStyle, width: col.colWidth }}>
+                    {col.label}
+                  </th>
+                ))}
+                <th style={{ ...arrayThStyle, width: 40 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rIdx) => (
+                <tr key={rIdx}>
+                  {cols.map((col) => (
+                    <td key={col.key} style={arrayTdStyle}>
+                      <input
+                        type={col.type === 'number' ? 'number' : 'text'}
+                        value={row?.[col.key] ?? ''}
+                        onChange={(e) => setCell(rIdx, col.key, e.target.value)}
+                        disabled={disabled}
+                        step={col.type === 'number' ? 'any' : undefined}
+                        style={arrayCellInputStyle(disabled)}
+                      />
+                    </td>
+                  ))}
+                  <td style={arrayTdStyle}>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(rIdx)}
+                      disabled={disabled}
+                      title="Delete row"
+                      style={deleteRowButtonStyle(disabled)}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {field.help && (
+        <span style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+          {field.help}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -250,6 +377,53 @@ function aiButtonStyle(disabled) {
     background: disabled ? '#e2e8f0' : 'linear-gradient(180deg, #6366f1, #4f46e5)',
     color: disabled ? '#94a3b8' : '#fff',
     border: 'none', borderRadius: 6,
+    cursor: disabled ? 'default' : 'pointer',
+  };
+}
+
+// ----- Array-field (damaged_items table editor) styles ---------------------
+
+function addRowButtonStyle(disabled) {
+  return {
+    padding: '3px 10px', fontSize: 11, fontWeight: 600,
+    background: disabled ? '#e2e8f0' : '#10b981',
+    color: disabled ? '#94a3b8' : '#fff',
+    border: 'none', borderRadius: 6,
+    cursor: disabled ? 'default' : 'pointer',
+  };
+}
+
+const emptyArrayStateStyle = {
+  padding: 14, textAlign: 'center', color: '#94a3b8', fontSize: 12,
+  background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 6,
+};
+
+const arrayThStyle = {
+  padding: '6px 8px', fontSize: 11, fontWeight: 600,
+  background: '#f1f5f9', color: '#475569', textAlign: 'left',
+  borderBottom: '1px solid #e2e8f0',
+};
+
+const arrayTdStyle = {
+  padding: 4, borderBottom: '1px solid #f1f5f9',
+};
+
+function arrayCellInputStyle(disabled) {
+  return {
+    width: '100%', padding: '4px 6px', fontSize: 12,
+    border: '1px solid #cbd5e1', borderRadius: 4,
+    background: disabled ? '#f1f5f9' : '#fff',
+    boxSizing: 'border-box',
+  };
+}
+
+function deleteRowButtonStyle(disabled) {
+  return {
+    width: 24, height: 24,
+    fontSize: 14, fontWeight: 700,
+    background: 'transparent',
+    color: disabled ? '#94a3b8' : '#dc2626',
+    border: 'none', borderRadius: 4,
     cursor: disabled ? 'default' : 'pointer',
   };
 }
