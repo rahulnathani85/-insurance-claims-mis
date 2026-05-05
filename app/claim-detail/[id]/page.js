@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import PageLayout from '@/components/PageLayout';
 import FsrRenderPanel from '@/components/fsr/FsrRenderPanel';
+import ClaimDetailsEditor from '@/components/ClaimDetailsEditor';
 import IssuesPanel from '@/components/IssuesPanel';
 import ClaimChatPanel from '@/components/ClaimChatPanel';
 import PhotoGrid from '@/components/PhotoGrid';
@@ -481,6 +482,7 @@ export default function ClaimDetail() {
 
   const tabs = [
     { key: 'overview', label: 'Overview', icon: '📋' },
+    { key: 'registration', label: 'Registration', icon: '📝' },
     { key: 'lifecycle', label: 'Pipeline & Lifecycle', icon: '🔄' },
     { key: 'assignments', label: 'Team', icon: '👥' },
     { key: 'documents', label: 'Documents', icon: '📄' },
@@ -928,6 +930,22 @@ export default function ClaimDetail() {
               <p style={{ fontSize: 10, color: '#9ca3af', margin: '6px 0 0' }}>Press Enter to send, Shift+Enter for new line, type @ to tag users</p>
             </div>
           </div>
+        )}
+
+        {/* TAB: Registration details — editable mirror of /claim-registration/[id]
+            so surveyors can fix any field that wasn't filled at registration
+            without leaving the FSR flow. Identity fields (ref_number, id,
+            timestamps, registered_by) are locked. Saves go through PUT
+            /api/claims/[id], which already does dual-write to provenance
+            and EW sync. The Overview tab continues to show the read-only
+            summary; both tabs read the same claim row, so any save here
+            is reflected on Overview after `loadAll()` re-fetches. */}
+        {activeTab === 'registration' && (
+          <ClaimDetailsEditor
+            claim={claim}
+            userEmail={user?.email}
+            onSaved={loadAll}
+          />
         )}
 
         {/* TAB: Lifecycle Timeline */}
