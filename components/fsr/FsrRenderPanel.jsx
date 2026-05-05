@@ -49,6 +49,12 @@ export default function FsrRenderPanel({ claim, userEmail }) {
   const [error, setError] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
   const [aiDraftingKey, setAiDraftingKey] = useState(null);  // section key being drafted, or null
+  // 'Prepare with AI' (auto-prepare) — manual button. Reads everything tagged
+  // to the claim (claim_documents OCR + intimation body + claim row + loss
+  // sheet + lifecycle template) and asks the LLM to populate the narrative
+  // form's fields. Backed by /api/fsr-drafts/auto-prepare.
+  const [autoPreparing, setAutoPreparing] = useState(false);
+  const [autoPrepareResult, setAutoPrepareResult] = useState(null); // last run's stats
 
   // Keep a ref so the debounce closure always sees the latest narrative
   const narrativeRef = useRef(narrative);
@@ -201,6 +207,52 @@ export default function FsrRenderPanel({ claim, userEmail }) {
     }
   }
 
+  // -- 'Prepare with AI' — manual button that asks the LLM to compile
+  // every input the portal has against this claim into the narrative form.
+  // See /api/fsr-drafts/auto-prepare and lib/fsr/narrativeAutoPreparePrompt.
+  async function autoPrepareWithAi() {
+    if (!claimId || autoPreparing) return;
+    setAutoPreparing(true);
+    setError(null);
+    setAutoPrepareResult(null);
+    try {
+      const res = await fetch('/api/fsr-drafts/auto-prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(userEmail ? { 'x-app-user-email': userEmail } : {}),
+        },
+        body: JSON.stringify({ claim_id: claimId, user_email: userEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        // Surface the resolver's machine-readable codes (LIFECYCLE_NOT_INITIALIZED,
+        // FSR_TEMPLATE_NOT_CONFIGURED, NARRATIVE_SCHEMA_NOT_CONFIGURED) so the
+        // surveyor sees actionable copy, not a raw HTTP error.
+        if (data?.code === 'LIFECYCLE_NOT_INITIALIZED') {
+          throw new Error('Initialize the lifecycle workflow before AI auto-prepare. Open the claim, attach a lifecycle template, then try again.');
+        }
+        if (data?.code === 'FSR_TEMPLATE_NOT_CONFIGURED' || data?.code === 'NARRATIVE_SCHEMA_NOT_CONFIGURED') {
+          throw new Error("This claim's lifecycle template isn't wired to a known FSR template — AI auto-prepare can't run. Type fields manually.");
+        }
+        throw new Error(data?.error || `Auto-prepare failed (HTTP ${res.status})`);
+      }
+      // Update local state so the form + preview refresh immediately.
+      setNarrative(data.narrative);
+      narrativeRef.current = data.narrative;
+      setRenderedHtml(data.html);
+      setLatestDraft(data.draft);
+      setRenderTemplateMeta(data.template);
+      setMissingPlaceholders([]); // server returns a fresh draft; let next renderNow refresh missing list
+      setAutoPrepareResult(data.stats || null);
+      setSavedAt(new Date());
+    } catch (e) {
+      setError(e.message || 'Auto-prepare failed');
+    } finally {
+      setAutoPreparing(false);
+    }
+  }
+
   // -- PDF / Word download via puppeteer-server proxy ---------------------
   async function downloadPdf() {
     if (!renderedHtml) return;
@@ -341,6 +393,38 @@ export default function FsrRenderPanel({ claim, userEmail }) {
             Edit any section below. The preview re-renders automatically a second after you stop typing.
             Empty fields render as <code style={inlineCodeStyle}>(blank)</code> in the FSR.
           </p>
+
+          {/* AI auto-prepare — manual button. Reads everything already tagged
+              to this claim (documents, intimation email, claim row, loss
+              sheet) and asks the LLM to compile the narrative form. */}
+          <div style={autoPrepareBannerStyle(autoPreparing, draftIsFinal)}>
+            <button
+              type="button"
+              onClick={autoPrepareWithAi}
+              disabled={autoPreparing || draftIsFinal}
+              style={autoPrepareButtonStyle(autoPreparing || draftIsFinal)}
+              title={
+                draftIsFinal
+                  ? 'Draft is locked. Create a new version before re-running AI auto-prepare.'
+                  : 'Reads documents + intimation + claim row and pre-fills this form'
+              }
+            >
+              {autoPreparing ? '⏳ Reading documents and drafting…' : '🪄 Prepare with AI'}
+            </button>
+            <div style={{ flex: 1, fontSize: 11, color: '#475569', lineHeight: 1.4 }}>
+              Reads every document tagged to this claim (RR, JIRs, invoices, policy copy, intimation email)
+              along with the manual fields you&rsquo;ve entered, and pre-fills the narrative below.
+              Your already-typed values are preserved.
+            </div>
+            {autoPrepareResult && (
+              <div style={autoPrepareResultStyle}>
+                <strong>{autoPrepareResult.filled}</strong>/{autoPrepareResult.total_fields} filled
+                {autoPrepareResult.skipped > 0 && <> · {autoPrepareResult.skipped} skipped (already filled)</>}
+                {autoPrepareResult.dropped > 0 && <> · {autoPrepareResult.dropped} unknown keys dropped</>}
+                {' '}· {autoPrepareResult.ocr_docs_used} doc{autoPrepareResult.ocr_docs_used === 1 ? '' : 's'} read
+              </div>
+            )}
+          </div>
 
           {narrativeMissing.length > 0 && (
             <div style={missingChipBarStyle}>
@@ -512,6 +596,35 @@ const sectionSubtitleStyle = {
 const inlineCodeStyle = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
   background: '#f1f5f9', padding: '0 4px', borderRadius: 3,
+};
+
+// 'Prepare with AI' banner — sits above the missing-chips bar so it's the
+// first thing surveyors see in the narrative column. Calm purple/indigo so
+// it doesn't compete with the red missing-fields chip bar.
+function autoPrepareBannerStyle(busy, locked) {
+  return {
+    display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+    padding: '10px 14px',
+    background: locked ? '#f1f5f9' : (busy ? '#eef2ff' : '#f5f3ff'),
+    border: '1px solid ' + (locked ? '#cbd5e1' : (busy ? '#a5b4fc' : '#c4b5fd')),
+    borderRadius: 8, marginBottom: 12,
+  };
+}
+function autoPrepareButtonStyle(disabled) {
+  return {
+    padding: '8px 14px', fontSize: 13, fontWeight: 700,
+    background: disabled ? '#e2e8f0' : 'linear-gradient(180deg, #8b5cf6, #6d28d9)',
+    color: disabled ? '#94a3b8' : '#fff',
+    border: 'none', borderRadius: 8,
+    cursor: disabled ? 'default' : 'pointer',
+    whiteSpace: 'nowrap',
+    boxShadow: disabled ? 'none' : '0 1px 0 rgba(0,0,0,0.05), 0 0 0 1px rgba(124,58,237,0.2)',
+  };
+}
+const autoPrepareResultStyle = {
+  fontSize: 11, padding: '4px 10px',
+  background: '#fff', border: '1px solid #c4b5fd', borderRadius: 999,
+  color: '#5b21b6',
 };
 
 const missingChipBarStyle = {
