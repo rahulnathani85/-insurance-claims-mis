@@ -110,11 +110,34 @@ export async function POST(request) {
     if (/not found/i.test(e.message)) {
       return NextResponse.json({ error: e.message }, { status: 404 });
     }
+    // Lifecycle-gate failures (post-cutoff claim with no lifecycle, or
+    // a lifecycle template missing fsr_template_name) come up as 409s
+    // tagged with .code so the UI can render an inline CTA instead of a
+    // generic error toast. See lib/fsr/draft.js.resolveFsrTemplateName.
+    if (e?.statusCode === 409 && e?.code) {
+      return NextResponse.json(
+        { error: e.message, code: e.code },
+        { status: 409 }
+      );
+    }
     captureError(e, { area: 'fsr-render-load', claim_id: claimId });
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 
-  const { claim, lossSheet, lossItems, marineSheet, marineItems, ewClaim, ila, narrative: savedNarrative, template } = ctx;
+  const {
+    claim, lossSheet, lossItems, marineSheet, marineItems, ewClaim,
+    ila, narrative: savedNarrative, template,
+    templateSource, templateWarning, lifecycleTemplateId, lifecycleTemplateCode,
+  } = ctx;
+
+  // Soft-transition warning — log to Sentry so we can see how many claims
+  // are still on the legacy path during the rollout. Non-fatal.
+  if (templateSource === 'legacy' && templateWarning) {
+    captureError(new Error(templateWarning), {
+      area: 'fsr-render-legacy-fallback',
+      claim_id: claim.id,
+    });
+  }
 
   // Caller-supplied narrative wins over the persisted one for this render.
   const narrative = body?.narrative_jsonb && typeof body.narrative_jsonb === 'object'
@@ -199,7 +222,16 @@ export async function POST(request) {
       version: template.version,
       company: template.company,
       lob: template.lob,
+      // Provenance of the template selection.
+      //   'lifecycle' — picked via the resolved lifecycle template's fsr_template_name
+      //   'legacy'    — pre-cutoff claim; fell back to (company, lob, 'Production')
+      //   'override'  — caller passed an explicit template_name in the request body
+      source: templateSource || 'override',
+      lifecycle_template_id: lifecycleTemplateId || null,
+      lifecycle_template_code: lifecycleTemplateCode || null,
     },
+    legacy_fallback: templateSource === 'legacy',
+    template_warning: templateWarning || null,
     missing_placeholders: missing,
   });
 }
