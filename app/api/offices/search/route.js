@@ -14,8 +14,12 @@
 //                  other filters except active_only are ignored — used by
 //                  ThreeOfficePicker to refetch a previously-stored office
 //                  when a claim form boots and only has the id on hand.
-//   insurer_id   - BIGINT (required if you want the picker scoped to one
-//                  insurer; in practice all callers pass it)
+//   insurer_id   - BIGINT (REQUIRED on the search path; returns 400 if
+//                  missing). Office search must always be scoped to a
+//                  single insurer — the picker UI gates the user, but the
+//                  API enforces too so a buggy code path can never leak
+//                  cross-insurer offices. NOT required on the `id=` path
+//                  (single-row primary-key lookup).
 //   q            - free-text search; ILIKE on name OR city, case-insensitive
 //   office_code  - comma-separated whitelist of codes, e.g. 'HO,RO,LCBO'
 //                  Only rows whose office_code is in the list are returned.
@@ -91,18 +95,25 @@ export async function GET(request) {
     return NextResponse.json({ offices: data ? [data] : [] });
   }
 
-  // Parse insurer_id — required if provided, must be a positive integer.
-  let insurerId = null;
-  if (insurerIdRaw != null && insurerIdRaw !== '') {
-    const n = Number.parseInt(insurerIdRaw, 10);
-    if (!Number.isFinite(n) || n <= 0) {
-      return NextResponse.json(
-        { error: 'insurer_id must be a positive integer' },
-        { status: 400 }
-      );
-    }
-    insurerId = n;
+  // Parse insurer_id — REQUIRED for the search path (the `id=` short-circuit
+  // above doesn't need it; that path is strictly a single-row by primary key).
+  // Defence-in-depth for the cross-insurer leak: even if a UI bug somewhere
+  // ever passes a request with no insurer scope, the API refuses rather than
+  // silently returning every insurer's offices.
+  if (!insurerIdRaw || String(insurerIdRaw).trim() === '') {
+    return NextResponse.json(
+      { error: 'insurer_id is required — office search must be scoped to an insurer' },
+      { status: 400 }
+    );
   }
+  const insurerIdNum = Number.parseInt(insurerIdRaw, 10);
+  if (!Number.isFinite(insurerIdNum) || insurerIdNum <= 0) {
+    return NextResponse.json(
+      { error: 'insurer_id must be a positive integer' },
+      { status: 400 }
+    );
+  }
+  const insurerId = insurerIdNum;
 
   // Parse + validate office_code list. Anything not in OFFICE_CODE_LIST is
   // dropped so a typo doesn't 500 the request.
@@ -141,9 +152,9 @@ export async function GET(request) {
     .order('name',  { ascending: true })
     .limit(limit);
 
-  if (insurerId != null) {
-    query = query.eq('insurer_id', insurerId);
-  }
+  // insurerId is guaranteed non-null at this point — we 400'd above if
+  // missing — so always apply the scope filter.
+  query = query.eq('insurer_id', insurerId);
   if (officeCodes && officeCodes.length > 0) {
     query = query.in('office_code', officeCodes);
   }

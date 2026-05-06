@@ -162,6 +162,41 @@ export async function POST(request, { params }) {
   const existingExt = existingExtRes?.data || null;
 
   // ---------------------------------------------------------------------------
+  // 3.5. Fetch the insurer's offices so the agent can pick the 3 office FKs.
+  //      The agent's prompt enumerates this list; any id it emits outside
+  //      this list is rejected post-parse (see step 5).
+  //
+  //      Resolution: claim.insurer_name -> insurers.company_name (ILIKE,
+  //      trimmed) -> insurer_offices (active only, ordered by code then name).
+  //      A miss here means the form will simply not get office IDs back —
+  //      the surveyor types them in via the picker, same as today.
+  // ---------------------------------------------------------------------------
+  let insurerOffices = [];
+  if (claim.insurer_name && typeof claim.insurer_name === 'string' && claim.insurer_name.trim()) {
+    try {
+      const { data: insurerRow } = await supabaseAdmin
+        .from('insurers')
+        .select('id, company_name')
+        .ilike('company_name', claim.insurer_name.trim())
+        .maybeSingle();
+      if (insurerRow?.id) {
+        const { data: offices } = await supabaseAdmin
+          .from('insurer_offices')
+          .select('id, office_code, name, city, state, address')
+          .eq('insurer_id', insurerRow.id)
+          .eq('is_active', true)
+          .order('office_code', { ascending: true })
+          .order('name', { ascending: true });
+        insurerOffices = Array.isArray(offices) ? offices : [];
+      }
+    } catch (err) {
+      // Non-fatal — extraction proceeds without the offices block; the
+      // agent will simply leave the 3 office fields null.
+      console.warn('[registration-extract] insurer-offices fetch failed:', err?.message || err);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 4. Build prompt + call LLM
   // ---------------------------------------------------------------------------
   const { systemPrompt, userMessage } = buildRegistrationPrompt({
@@ -170,6 +205,7 @@ export async function POST(request, { params }) {
     attachments: ocrSummary?.perDocument || [],
     ocrText: ocrSummary?.combinedText || '',
     existingExtraction: existingExt?.extracted_data || null,
+    insurerOffices,
   });
 
   let llmResult;
@@ -211,6 +247,37 @@ export async function POST(request, { params }) {
   // loss_location_pin field, derive it via regex. Confidence 0.7, source
   // "derived_from_loss_location".
   parsed.fields = derivePinFromLocation(parsed.fields);
+
+  // Defence-in-depth for the 3 office_id fields: any id the agent emits
+  // MUST belong to the insurer's office set we just sent it. If the agent
+  // hallucinates an id (or somehow picks one from a different insurer),
+  // drop it before persisting — otherwise the form would silently pre-fill
+  // the picker with an office that doesn't belong to this insurer.
+  if (insurerOffices.length > 0) {
+    const allowedIds = new Set(insurerOffices.map((o) => Number(o.id)));
+    for (const k of ['appointing_office_id', 'policy_office_id', 'fsr_office_id']) {
+      const f = parsed.fields?.[k];
+      if (f && f.value != null && !allowedIds.has(Number(f.value))) {
+        console.warn(
+          `[registration-extract] dropping out-of-insurer office id for ${k}: ${f.value} (insurer has ${insurerOffices.length} active offices)`
+        );
+        f.value = null;
+        f.confidence = 0;
+        f.source = 'rejected_outside_insurer';
+      }
+    }
+  } else if (parsed.fields) {
+    // No offices available for this insurer — clear any IDs the agent
+    // emitted (it shouldn't have, but belt + braces).
+    for (const k of ['appointing_office_id', 'policy_office_id', 'fsr_office_id']) {
+      const f = parsed.fields[k];
+      if (f && f.value != null) {
+        f.value = null;
+        f.confidence = 0;
+        f.source = 'no_offices_for_insurer';
+      }
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // 6. Persist successful extraction

@@ -12,6 +12,7 @@ import {
   CRITICAL_FIELDS,
   buildRegistrationPrompt,
   parseRegistrationJson,
+  formatOfficesForPrompt,
 } from '../lib/comms/prompts/registrationAgentPrompt.js';
 
 describe('REGISTRATION_AGENT_SCHEMA', () => {
@@ -54,6 +55,112 @@ describe('REGISTRATION_AGENT_SCHEMA', () => {
       'policy_number', 'insured_name', 'date_loss',
       'cause_of_loss', 'insurer_name', 'loss_location',
     ]));
+  });
+
+  it('declares the 3 office_id fields the agent picks from the insurer office table', () => {
+    const byKey = Object.fromEntries(REGISTRATION_AGENT_SCHEMA.map((f) => [f.key, f]));
+    for (const key of ['appointing_office_id', 'policy_office_id', 'fsr_office_id']) {
+      expect(byKey).toHaveProperty(key);
+      expect(byKey[key].type).toBe('number');
+      expect(byKey[key].required).toBe(false);
+      // Hint must steer the agent to PICK FROM THE LIST and not invent IDs.
+      expect(byKey[key].hint).toMatch(/list|pick from|do not guess/i);
+    }
+  });
+});
+
+// ============================================================================
+// formatOfficesForPrompt — table generator for the agent's office list
+// ============================================================================
+
+describe('formatOfficesForPrompt', () => {
+  const sample = [
+    { id: 47, office_code: 'HO',  name: 'Head Office',                  city: 'Mumbai',    state: 'MH', address: '5th Floor, ICICI Towers, BKC' },
+    { id: 48, office_code: 'RO',  name: 'Mumbai Regional Office',       city: 'Mumbai',    state: 'MH', address: 'Andheri East' },
+    { id: 49, office_code: 'RO',  name: 'Ahmedabad Regional Office',    city: 'Ahmedabad', state: 'GJ', address: 'Navrangpura' },
+  ];
+
+  it('returns a markdown-style table with header, separator, and one row per office', () => {
+    const out = formatOfficesForPrompt(sample);
+    const lines = out.split('\n');
+    expect(lines.length).toBe(2 + sample.length);             // header + separator + rows
+    expect(lines[0]).toMatch(/id\b.*\bcode\b.*\bname\b.*\bcity\b.*\bstate\b/);
+    expect(lines[1]).toMatch(/^\|----/);                       // separator row
+    for (const o of sample) {
+      expect(out).toContain(String(o.id));
+      expect(out).toContain(o.office_code);
+      expect(out).toContain(o.name);
+    }
+  });
+
+  it('returns "" for empty / non-array input', () => {
+    expect(formatOfficesForPrompt([])).toBe('');
+    expect(formatOfficesForPrompt(null)).toBe('');
+    expect(formatOfficesForPrompt(undefined)).toBe('');
+    expect(formatOfficesForPrompt('not an array')).toBe('');
+  });
+
+  it('truncates long names + addresses without throwing', () => {
+    const long = formatOfficesForPrompt([
+      { id: 1, office_code: 'BO', name: 'A'.repeat(200), city: 'X', state: 'YY', address: 'B'.repeat(500) },
+    ]);
+    expect(long).toContain('AAAAA');
+    // String length is bounded — no exception, no runaway row.
+    expect(long.split('\n').length).toBe(3);
+  });
+});
+
+// ============================================================================
+// buildRegistrationPrompt — office list integration
+// ============================================================================
+
+describe('buildRegistrationPrompt — insurerOffices integration', () => {
+  const baseClaim = { id: 487, ref_number: 'UTCL-002/26-27', lob: 'Marine Cargo', company: 'NISLA', insurer_name: 'HDFC ERGO General Insurance Co. Ltd.' };
+  const offices = [
+    { id: 47, office_code: 'HO', name: 'Head Office',            city: 'Mumbai',    state: 'MH', address: 'BKC' },
+    { id: 48, office_code: 'RO', name: 'Mumbai Regional Office', city: 'Mumbai',    state: 'MH', address: 'Andheri' },
+    { id: 49, office_code: 'RO', name: 'Ahmedabad Regional',     city: 'Ahmedabad', state: 'GJ', address: 'Navrangpura' },
+  ];
+
+  it('embeds the offices table when a non-empty insurerOffices array is supplied', () => {
+    const { userMessage } = buildRegistrationPrompt({
+      claim: baseClaim,
+      insurerOffices: offices,
+    });
+    expect(userMessage).toContain('Available offices for this insurer');
+    expect(userMessage).toContain('HDFC ERGO');
+    expect(userMessage).toContain('Mumbai Regional Office');
+    expect(userMessage).toContain('Ahmedabad Regional');
+    // The table header must be present with a recognisable column row.
+    expect(userMessage).toMatch(/\| id\s+\| code\s+\| name/);
+  });
+
+  it('omits the offices section when insurerOffices is empty / missing', () => {
+    const { userMessage: a } = buildRegistrationPrompt({ claim: baseClaim, insurerOffices: [] });
+    const { userMessage: b } = buildRegistrationPrompt({ claim: baseClaim });
+    expect(a).not.toContain('Available offices for this insurer');
+    expect(b).not.toContain('Available offices for this insurer');
+  });
+
+  it("system prompt includes the office-role definitions and the matching policy", () => {
+    const { systemPrompt } = buildRegistrationPrompt({ claim: baseClaim, insurerOffices: offices });
+    // Role definitions present.
+    expect(systemPrompt).toMatch(/appointing_office_id/);
+    expect(systemPrompt).toMatch(/policy_office_id/);
+    expect(systemPrompt).toMatch(/fsr_office_id/);
+    // Hierarchy glossary present.
+    expect(systemPrompt).toMatch(/\bHO\b.*Head Office/);
+    expect(systemPrompt).toMatch(/\bRO\b.*Regional Office/);
+    expect(systemPrompt).toMatch(/\bLCBO\b/);
+    // Matching-policy rules present.
+    expect(systemPrompt).toMatch(/MRO|Mumbai Regional Office|Mumbai R\.O\./);
+    expect(systemPrompt).toMatch(/HO > RO > ZO/);
+    expect(systemPrompt).toMatch(/Do NOT match across insurers|not in the supplied table/i);
+  });
+
+  it("system prompt forbids hallucinating IDs", () => {
+    const { systemPrompt } = buildRegistrationPrompt({ claim: baseClaim, insurerOffices: offices });
+    expect(systemPrompt).toMatch(/NEVER invent an id|NEVER pick an id from a different insurer|NEVER guess/i);
   });
 });
 

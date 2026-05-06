@@ -189,6 +189,43 @@ export default function ClaimRegistrationPage({ params }) {
           next[key] = val;
           changed = true;
         }
+
+        // Hydrate the 3-office picker labels: when the agent returned a
+        // confident *_office_id (validated server-side to belong to the
+        // resolved insurer), also fill the matching *_office_name and
+        // *_office_address by looking up the insurer's office list. The
+        // picker fetches its own chip via /api/offices/search?id=N too, but
+        // those text columns are persisted on the claim row, so we set them
+        // here for the eventual PUT.
+        const ROLES = ['appointing', 'policy', 'fsr'];
+        for (const role of ROLES) {
+          const idKey      = `${role}_office_id`;
+          const nameKey    = `${role}_office_name`;
+          const addressKey = `${role}_office_address`;
+          const id = next[idKey];
+          if (id == null) continue;
+          // Don't clobber surveyor-typed values.
+          const nameSet    = next[nameKey]    !== undefined && next[nameKey]    !== null && next[nameKey]    !== '';
+          const addressSet = next[addressKey] !== undefined && next[addressKey] !== null && next[addressKey] !== '';
+          if (nameSet && addressSet) continue;
+          let office = null;
+          for (const ins of insurers) {
+            const list = ins.insurer_offices || ins.offices || [];
+            office = list.find((o) => Number(o.id) === Number(id));
+            if (office) break;
+          }
+          if (!office) continue;
+          if (!nameSet) {
+            next[nameKey] = office.name || '';
+            changed = true;
+          }
+          if (!addressSet) {
+            const parts = [office.address, office.city, office.state, office.pin].filter(Boolean);
+            next[addressKey] = parts.join(', ');
+            changed = true;
+          }
+        }
+
         if (changed) lastSavedRef.current = next;
         return next;
       });
