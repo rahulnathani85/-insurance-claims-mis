@@ -337,14 +337,16 @@ export default function PageLayout({ children }) {
                     <SideIcon letter="DB" bg="#f1f5f9" color="#475569" /><span>Data Backup</span>
                   </Link>
                 </CollapsibleNavSection>
-                <CollapsibleNavSection title="Claims by LOB" sectionKey="claims-by-lob" defaultOpen={false}>
-                  {LOB_LIST.map(lob => (
-                    <Link key={lob} href={`/claims/${encodeURIComponent(lob)}`}
-                      className={`nav-item ${pathname.includes(encodeURIComponent(lob)) ? 'active' : ''}`}>
-                      <LobDot color={LOB_COLORS[lob] || '#64748b'} /><span>{lob}</span>
-                    </Link>
-                  ))}
-                </CollapsibleNavSection>
+                {user?.role === 'Admin' && (
+                  <CollapsibleNavSection title="Claims by LOB" sectionKey="claims-by-lob" defaultOpen={false}>
+                    {LOB_LIST.map(lob => (
+                      <Link key={lob} href={`/claims/${encodeURIComponent(lob)}`}
+                        className={`nav-item ${pathname.includes(encodeURIComponent(lob)) ? 'active' : ''}`}>
+                        <LobDot color={LOB_COLORS[lob] || '#64748b'} /><span>{lob}</span>
+                      </Link>
+                    ))}
+                  </CollapsibleNavSection>
+                )}
               </>
             )}
           </div>

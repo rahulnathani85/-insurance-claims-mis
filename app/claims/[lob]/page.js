@@ -616,6 +616,19 @@ function ClaimsLobContent() {
     transform: 'none', margin: 0,
   } : {};
 
+  // Admin-only route. Staff users see the sidebar entry hidden, but URL
+  // typing / bookmarks must also be blocked.
+  if (user && user.role !== 'Admin') {
+    return (
+      <div className="main-content">
+        <div style={{ textAlign: 'center', padding: 60, color: '#dc2626' }}>
+          <h2>Access Denied</h2>
+          <p>This view is restricted to administrators.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="main-content">
