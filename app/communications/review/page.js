@@ -204,7 +204,7 @@ export default function ReviewQueuePage() {
   );
 }
 
-function ReviewCard({ message: m, busy, onApprove, onReject, onLink, surveyors = [], isHighlighted = false, rowRef = null }) {
+function ReviewCard({ message: m, busy, onApprove, onReject, onLink, userEmail = '', surveyors = [], isHighlighted = false, rowRef = null }) {
   const [expanded, setExpanded] = useState(isHighlighted);
   const ext = m.extraction;
   const cls = m.classification;
@@ -229,7 +229,13 @@ function ReviewCard({ message: m, busy, onApprove, onReject, onLink, surveyors =
     isIntimation ? normaliseLob(extractedLob) : ''
   );
   const [assignedSurveyorId, setAssignedSurveyorId] = useState('');
+  // linkRef = the typed/picked text shown in the input.
+  // linkRefSelected = the claim object the user chose (or whose ref the typed
+  //   text exactly matches in a recent search). Stays null until a known ref
+  //   is selected — that's the gate on the "Tag & file" button so typos never
+  //   reach the API.
   const [linkRef, setLinkRef] = useState('');
+  const [linkRefSelected, setLinkRefSelected] = useState(null);
 
   function approve() {
     const extras = {};
@@ -239,11 +245,13 @@ function ReviewCard({ message: m, busy, onApprove, onReject, onLink, surveyors =
   }
 
   function linkToRef() {
-    if (!linkRef.trim()) {
-      alert('Enter a surveyor reference number first');
+    // Only fires when linkRefSelected is non-null — the picker enforces this
+    // via disabled state, but be defensive.
+    if (!linkRefSelected?.ref_number) {
+      alert('Pick a claim from the dropdown first');
       return;
     }
-    onLink(linkRef.trim());
+    onLink(linkRefSelected.ref_number);
   }
 
   return (
@@ -369,22 +377,30 @@ function ReviewCard({ message: m, busy, onApprove, onReject, onLink, surveyors =
                   Or tag this message to an existing claim by reference #
                 </label>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    placeholder="e.g. 4053/26-27/Marine Cargo"
+                  <ClaimRefPicker
                     value={linkRef}
-                    onChange={(e) => setLinkRef(e.target.value)}
-                    style={{ ...smallInputStyle, flex: 1 }}
+                    company={m.company}
+                    userEmail={userEmail}
+                    disabled={busy}
+                    onChange={(text, picked) => {
+                      setLinkRef(text);
+                      setLinkRefSelected(picked);
+                    }}
                   />
                   <button
                     onClick={(e) => { e.stopPropagation(); linkToRef(); }}
-                    disabled={busy || !linkRef.trim()}
-                    style={btnStyle('secondary', busy || !linkRef.trim())}
+                    disabled={busy || !linkRefSelected}
+                    style={btnStyle('secondary', busy || !linkRefSelected)}
+                    title={linkRefSelected
+                      ? `Tag to ${linkRefSelected.ref_number} — ${linkRefSelected.insured_name || 'no insured'}`
+                      : 'Pick a claim from the dropdown to enable'}
                   >
                     Tag &amp; file
                   </button>
                 </div>
                 <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
-                  Bypasses tag routing — links message + attachments directly to that claim.
+                  Pick from existing claims only — typing freely is allowed but the button stays
+                  disabled until a real ref_number is matched. Bypasses tag routing.
                 </div>
               </div>
             </div>
@@ -440,6 +456,235 @@ function ConfidenceChip({ confidence, threshold }) {
     </span>
   );
 }
+
+// ----------------------------------------------------------------------------
+// ClaimRefPicker — typeahead for the "tag to existing claim" input.
+//
+// Behaviour:
+//   - On focus (and on each keystroke), debounced 250ms fetch from
+//     /api/communications/claim-search?q=<text>&company=<message.company>.
+//   - Shows up to 25 matches in a dropdown below the input. Each row shows
+//     the ref prominently + insured / LOB / status / phase chip.
+//   - Click a row → fills the input with the exact ref_number and tells the
+//     parent which claim was picked (via onChange's second arg).
+//   - Free-typing is allowed but doesn't enable the parent's "Tag & file"
+//     button unless the typed text exactly matches a ref_number in the
+//     latest result set (so a paste of a known ref still works).
+//
+// We pass the userEmail through the x-app-user-email header so the comms
+// requireUser gate accepts the request without a session cookie.
+// ----------------------------------------------------------------------------
+function ClaimRefPicker({ value, onChange, company, userEmail, disabled }) {
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState(-1);
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
+  const debounceRef = useRef(null);
+  const reqIdRef = useRef(0);
+
+  // Debounced fetch. Cancels in-flight requests by ignoring stale responses.
+  const fetchResults = useCallback(async (q) => {
+    if (!userEmail) return;
+    const myReqId = ++reqIdRef.current;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: '25' });
+      if (q) params.set('q', q);
+      if (company) params.set('company', company);
+      const res = await fetch(`/api/communications/claim-search?${params}`, {
+        headers: { 'x-app-user-email': userEmail },
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (myReqId !== reqIdRef.current) return; // stale
+      if (res.ok && Array.isArray(json?.results)) {
+        setResults(json.results);
+      } else {
+        setResults([]);
+      }
+    } catch {
+      if (myReqId === reqIdRef.current) setResults([]);
+    } finally {
+      if (myReqId === reqIdRef.current) setLoading(false);
+    }
+  }, [company, userEmail]);
+
+  function scheduleFetch(q) {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchResults(q), 250);
+  }
+
+  // Re-derive the "match" object whenever value or results change so the
+  // parent stays in sync without us having to call onChange twice on every
+  // keystroke.
+  useEffect(() => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) return;
+    const exact = results.find(
+      (r) => (r.ref_number || '').toLowerCase() === trimmed.toLowerCase()
+    );
+    // Only notify the parent when the match status actually flips. We
+    // compare against a marker we stash on the input element to avoid an
+    // infinite render loop.
+    const prev = inputRef.current?.dataset.matchedId || '';
+    const next = exact ? String(exact.id) : '';
+    if (prev !== next) {
+      if (inputRef.current) inputRef.current.dataset.matchedId = next;
+      onChange(trimmed, exact || null);
+    }
+  }, [value, results, onChange]);
+
+  // Click-outside closes the dropdown.
+  useEffect(() => {
+    function handleClick(e) {
+      if (!wrapRef.current?.contains(e.target)) setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClick);
+      return () => document.removeEventListener('mousedown', handleClick);
+    }
+  }, [open]);
+
+  function handleType(e) {
+    const next = e.target.value;
+    onChange(next, null); // typing always invalidates a previous pick
+    if (inputRef.current) inputRef.current.dataset.matchedId = '';
+    scheduleFetch(next);
+    setOpen(true);
+    setHoverIdx(-1);
+  }
+
+  function handleFocus() {
+    setOpen(true);
+    if (results.length === 0 && !loading) fetchResults((value || '').trim());
+  }
+
+  function pickResult(r) {
+    onChange(r.ref_number, r);
+    if (inputRef.current) inputRef.current.dataset.matchedId = String(r.id);
+    setOpen(false);
+    setHoverIdx(-1);
+  }
+
+  function handleKey(e) {
+    if (!open) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHoverIdx((i) => Math.min(results.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHoverIdx((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Enter' && hoverIdx >= 0 && results[hoverIdx]) {
+      e.preventDefault();
+      pickResult(results[hoverIdx]);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <input
+        ref={inputRef}
+        placeholder="Type ref / claim no / insured name to search…"
+        value={value || ''}
+        onChange={handleType}
+        onFocus={handleFocus}
+        onKeyDown={handleKey}
+        disabled={disabled}
+        autoComplete="off"
+        style={{ ...smallInputStyle, paddingRight: 26 }}
+      />
+      {/* Match indicator — green when input matches a known ref */}
+      <span
+        style={{
+          position: 'absolute', right: 8, top: '50%',
+          transform: 'translateY(-50%)',
+          fontSize: 12, fontWeight: 700, pointerEvents: 'none',
+          color: inputRef.current?.dataset.matchedId ? '#16a34a' : '#cbd5e1',
+        }}
+        title={inputRef.current?.dataset.matchedId ? 'Matched a real claim' : 'No match yet'}
+      >
+        {inputRef.current?.dataset.matchedId ? '✓' : '·'}
+      </span>
+
+      {open && (
+        <div style={dropdownStyle}>
+          {loading && (
+            <div style={dropdownEmptyStyle}>Searching…</div>
+          )}
+          {!loading && results.length === 0 && (
+            <div style={dropdownEmptyStyle}>
+              {value?.trim() ? 'No matches in this company.' : 'Start typing to search…'}
+            </div>
+          )}
+          {!loading && results.map((r, i) => (
+            <div
+              key={r.id}
+              onMouseDown={(e) => { e.preventDefault(); pickResult(r); }}
+              onMouseEnter={() => setHoverIdx(i)}
+              style={{
+                ...dropdownRowStyle,
+                background: i === hoverIdx ? '#eef2ff' : 'transparent',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ fontWeight: 700, color: '#0f172a', fontFamily: 'monospace', fontSize: 12 }}>
+                  {r.ref_number || `#${r.id}`}
+                </span>
+                <PhaseChip phase={r.phase} status={r.status} />
+              </div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {r.insured_name || '— no insured —'}
+                {r.lob ? ` · ${r.lob}` : ''}
+                {r.lob_subcategory ? ` (${r.lob_subcategory})` : ''}
+              </div>
+              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>
+                {r.insurer_name || '—'}
+                {r.policy_number ? ` · Policy ${r.policy_number}` : ''}
+                {r.claim_number ? ` · Claim ${r.claim_number}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PhaseChip({ phase, status }) {
+  // intimation = orange (pre-registration), registered = blue, status closed/withdrawn = grey
+  const text = phase === 'intimation' ? 'intimation' : (status || 'registered');
+  const palette = phase === 'intimation'
+    ? { bg: '#ffedd5', fg: '#9a3412' }
+    : status === 'Closed' || status === 'Withdrawn'
+      ? { bg: '#f1f5f9', fg: '#475569' }
+      : { bg: '#dbeafe', fg: '#1e40af' };
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999,
+      background: palette.bg, color: palette.fg, whiteSpace: 'nowrap',
+    }}>
+      {text}
+    </span>
+  );
+}
+
+const dropdownStyle = {
+  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+  background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6,
+  boxShadow: '0 6px 18px rgba(15, 23, 42, 0.12)',
+  maxHeight: 280, overflowY: 'auto',
+};
+const dropdownRowStyle = {
+  padding: '6px 10px', cursor: 'pointer',
+  borderBottom: '1px solid #f1f5f9',
+};
+const dropdownEmptyStyle = {
+  padding: '10px 12px', fontSize: 12, color: '#94a3b8', textAlign: 'center',
+};
 
 function Banner({ kind, children }) {
   const c = { ok: ['#ecfdf5', '#065f46', '#a7f3d0'], err: ['#fef2f2', '#991b1b', '#fecaca'] }[kind] || ['#fffbeb', '#92400e', '#fde68a'];
